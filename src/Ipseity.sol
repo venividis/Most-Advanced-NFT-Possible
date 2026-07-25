@@ -1,0 +1,782 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {
+    IERC165, IERC721, IERC721Metadata, IERC721Enumerable, IERC721Receiver,
+    IERC2981, IERC4906, IERC4907, IERC5192, IERC6454, IERC7572,
+    IERC721MultiMetadata, IERC7496, IERC6551Registry, IERC173, ISealedKernel, IDataVerifier
+} from "./interfaces/Standards.sol";
+import {Section, TokenView} from "./lib/Types.sol";
+
+interface IRenderer {
+    function facetCount() external view returns (uint256);
+    function facetURI(TokenView calldata v, uint256 index) external view returns (string memory);
+    function collectionURI(address collection, uint256 supply, uint256 ceiling)
+        external view returns (string memory);
+    function traitMetadataURI() external view returns (string memory);
+}
+
+/*═══════════════════════════════════════════════════════════════════════════
+
+   I P S E I T Y                    the property of being oneself
+
+   A four-dimensional solid, and the instrument for turning it, are the
+   same token.
+
+   What a holder sees is a three-dimensional section of a 4-polytope: the
+   solid itself is never on screen, only the 3-space that currently cuts
+   through it. The orientation of that cut — six plane angles, a position
+   along w, which solid, and the colour the interface takes from it — is
+   one 256-bit word in this contract's storage.
+
+   tokenURI() returns the instrument for editing that word. It is a WebGL2
+   engine, a keccak-256, an ABI coder and a wallet client, held in this
+   chain's state as contract bytecode and handed back as a data: URI. It
+   connects a wallet, reads this contract, encodes calldata, and signs
+   transactions — including transactions against this contract, which
+   change the word, which changes what it renders the next time anyone
+   opens it. The instrument can also open itself, inside itself, one
+   section deeper, until the plane runs out of room.
+
+   Nothing is fetched. No IPFS, no gateway, no CDN, no font, no library.
+
+   ── what this token answers to ──────────────────────────────────────
+     ERC-165, ERC-721 (+Metadata, +Enumerable)
+     ERC-2981   royalties
+     ERC-4906   metadata-changed events, fired on every commit, so an
+                indexer that caches tokenURI knows to come back
+     ERC-4907   a user who is not the owner — and who may turn the solid,
+                because an instrument you cannot operate is not lent
+     ERC-5192   the holder may bind the token to themselves, one way,
+                and unbind it again
+     ERC-6454   a straight answer to "can this move", asked before trying
+     ERC-7160   one token, several faces: the living instrument, the still
+                sigil, and a specimen sheet of four sections along w. The
+                4-polytope genuinely has more than one face; the holder
+                pins which one the market sees
+     ERC-7496   the traits, on chain, readable without parsing a data URI
+     ERC-7572   metadata for the collection itself
+     ERC-6551   an account bound to the token, derived by CREATE2
+     ERC-173    who administers the collection, which is how a marketplace
+                decides whether you may edit your own collection page
+
+   And one mechanism that is deliberately not a standards claim: a sealed
+   kernel, in the spirit of ERC-7857 but under its own name, because this
+   contract's entry points are not that specification's and saying
+   otherwise in an immutable contract would be a lie. See the long note in
+   interfaces/Standards.sol.
+
+═══════════════════════════════════════════════════════════════════════════*/
+contract Ipseity is
+    IERC721Metadata, IERC721Enumerable, IERC2981, IERC4906, IERC4907,
+    IERC5192, IERC6454, IERC7572, IERC721MultiMetadata, IERC7496, IERC173, ISealedKernel
+{
+    using Section for uint256;
+
+    /*──────────────────────── identity ────────────────────────*/
+    string public constant name   = "IPSEITY";
+    string public constant symbol = "IPSE";
+
+    uint256 public constant MAX_SUPPLY = 4096;
+
+    /// @dev The instruments that only look are open from birth. The ones
+    ///      that move value are sealed until the holder deliberately opens
+    ///      them — Self, Rotate, Section, Scan, Vault, Nest.
+    uint16 public constant BORN_OPEN = 0x587;
+    uint16 public constant ALL_OPEN  = 0x7FF;
+    uint8  public constant NODE_COUNT = 11;
+
+    /*──────────────────────── ERC-6551 ────────────────────────*/
+    IERC6551Registry public constant REGISTRY =
+        IERC6551Registry(0x000000006551c19487814612e58FE06813775758);
+    address public constant ACCOUNT_IMPL = 0x55266d75D1a14E4572138116aF39863Ed6596E7F;
+    bytes32 public constant ACCOUNT_SALT = bytes32(0);
+
+    /*──────────────────────── state ────────────────────────*/
+    /// @notice The orientation of every token's section. One word, one store.
+    mapping(uint256 => uint256) public sectionOf;
+    mapping(uint256 => bytes32) public seedOf;
+
+    struct Stats {
+        uint32 ops;        // every operation the token has performed
+        uint32 strata;     // commits — each one folds the field a little more
+        uint32 xfers;      // owner-to-owner transfers
+        uint16 open;       // which instruments are unsealed
+        uint64 lastOp;
+        uint64 mintBlock;
+    }
+    mapping(uint256 => Stats) internal _stats;
+
+    struct UserInfo { address user; uint64 expires; }
+    mapping(uint256 => UserInfo) internal _users;
+
+    mapping(uint256 => bool)    internal _locked;    // ERC-5192
+    mapping(uint256 => uint256) internal _pinned;    // ERC-7160, 1-based; 0 = unpinned
+
+    /*──────────────────────── ERC-7857 kernel ────────────────────────*/
+    struct Kernel { bytes32 sealedTo; uint64 version; bool active; }
+    mapping(uint256 => Kernel)    internal _kernel;
+    mapping(uint256 => bytes32[]) internal _dataHashes;
+    mapping(uint256 => mapping(address => bool)) public usageAuthorised;
+    /// @notice Which token a cloned token was drawn from. Zero if it was minted.
+    mapping(uint256 => uint256) public parentOf;
+    IDataVerifier public verifier;
+
+    /*──────────────────────── ERC-721 ────────────────────────*/
+    uint256 public totalSupply;
+    mapping(uint256 => address) internal _ownerOf;
+    mapping(address => uint256) internal _balanceOf;
+    mapping(uint256 => address) public  getApproved;
+    mapping(address => mapping(address => bool)) public isApprovedForAll;
+
+    // enumeration
+    mapping(address => mapping(uint256 => uint256)) internal _ownedTokens;
+    mapping(uint256 => uint256) internal _ownedIndex;
+
+    /*──────────────────────── curation ────────────────────────*/
+    /// @dev `curator` is the ERC-173 owner; owner() is the alias marketplaces
+    ///      actually call. One variable, two names, so they cannot diverge.
+    address public curator;
+    IRenderer public renderer;
+    bool     public rendererSealed;
+    uint256  public price     = 0.01 ether;
+    uint256  public openFee   = 0.002 ether;
+    address  public royaltyReceiver;
+    uint96   public royaltyBps = 500;      // 5%
+
+    /*──────────────────────── events ────────────────────────*/
+    event Committed(uint256 indexed id, uint256 word, uint32 strata);
+    event NodeOpened(uint256 indexed id, uint8 node, uint16 open);
+    event Operated(uint256 indexed id, uint32 ops);
+    event Embodied(uint256 indexed id, address account);
+    event RendererChanged(address renderer);
+    event RendererSealed();
+
+    /*──────────────────────── errors ────────────────────────*/
+    error NotCurator();
+    error NotHolder();
+    error NotOperator();
+    error Nonexistent();
+    error SoldOut();
+    error Underpaid();
+    error BadSection();
+    error BadNode();
+    error AlreadyOpen();
+    error IsLocked();
+    error NotTransferable();
+    error TraitNotSettable();
+    error NoRenderer();
+    error AlreadySealed();
+    error BadIndex();
+    error NoVerifier();
+    error ProofRejected();
+    error KernelInactive();
+    error ZeroAddress();
+    error NotReceiver();
+    error Reentrancy();
+
+    modifier onlyCurator() {
+        if (msg.sender != curator) revert NotCurator();
+        _;
+    }
+
+    /// @dev The holder, or anyone the holder has approved. Not the renter.
+    modifier onlyHolder(uint256 id) {
+        address o = _ownerOf[id];
+        if (o == address(0)) revert Nonexistent();
+        if (msg.sender != o && !isApprovedForAll[o][msg.sender] && getApproved[id] != msg.sender)
+            revert NotHolder();
+        _;
+    }
+
+    /// @dev Whoever is holding the instrument right now: the owner, someone
+    ///      they approved, or the current ERC-4907 user. An instrument that
+    ///      the borrower cannot operate has not really been lent.
+    modifier onlyOperator(uint256 id) {
+        address o = _ownerOf[id];
+        if (o == address(0)) revert Nonexistent();
+        UserInfo memory u = _users[id];
+        bool renter = u.user == msg.sender && u.expires >= block.timestamp;
+        if (msg.sender != o && !isApprovedForAll[o][msg.sender]
+            && getApproved[id] != msg.sender && !renter) revert NotOperator();
+        _;
+    }
+
+    uint256 private _lock = 1;
+    modifier nonReentrant() {
+        if (_lock != 1) revert Reentrancy();
+        _lock = 2;
+        _;
+        _lock = 1;
+    }
+
+    constructor(IRenderer renderer_) {
+        emit OwnershipTransferred(address(0), msg.sender);
+        curator = msg.sender;
+        royaltyReceiver = msg.sender;
+        renderer = renderer_;
+    }
+
+    /*═══════════════════════ issuance ═══════════════════════*/
+
+    function mint() external payable returns (uint256 id) {
+        return _mintTo(msg.sender);
+    }
+
+    function mintTo(address to) external payable returns (uint256 id) {
+        return _mintTo(to);
+    }
+
+    function _mintTo(address to) internal nonReentrant returns (uint256 id) {
+        if (msg.value < price) revert Underpaid();
+        return _issue(to);
+    }
+
+    /// @dev Issuing a token and paying for one are separate acts: a clone is
+    ///      drawn from a token that was already paid for.
+    function _issue(address to) internal returns (uint256 id) {
+        if (to == address(0)) revert ZeroAddress();
+        if (address(renderer) == address(0)) revert NoRenderer();
+        if (totalSupply >= MAX_SUPPLY) revert SoldOut();
+
+        unchecked { id = ++totalSupply; }
+
+        bytes32 seed = keccak256(abi.encodePacked(
+            block.number == 0 ? bytes32(0) : blockhash(block.number - 1),
+            block.prevrandao, block.timestamp, msg.sender, address(this), id
+        ));
+        seedOf[id] = seed;
+
+        // The solid a token is born as, and the orientation it is born in,
+        // come out of the block that carried the call and are not knowable
+        // before it is mined.
+        uint256 word;
+        unchecked {
+            for (uint256 i; i < 6; ++i) {
+                word |= (uint256(uint16(bytes2(seed << (i * 16)))) << (i * 16));
+            }
+            word |= uint256(uint16(bytes2(seed << 96)))       << 96;   // w
+            word |= uint256(uint8(seed[14]) % 8)              << 112;  // solid
+            word |= uint256(uint8(seed[15]))                  << 120;  // hue
+        }
+        sectionOf[id] = word;
+
+        _stats[id] = Stats({
+            ops: 0, strata: 0, xfers: 0, open: BORN_OPEN,
+            lastOp: uint64(block.timestamp), mintBlock: uint64(block.number)
+        });
+
+        _add(to, id);
+        emit Transfer(address(0), to, id);
+        emit Committed(id, word, 0);
+    }
+
+    /*═══════════════ the token acting on itself ═══════════════*/
+
+    /// @notice Write an orientation into the token. Everyone who opens it
+    ///         afterwards arrives at this section first.
+    /// @param  word the packed section — see lib/Types.sol
+    function commit(uint256 id, uint256 word) external onlyOperator(id) {
+        if (!word.valid()) revert BadSection();
+        sectionOf[id] = word;
+        Stats storage s = _stats[id];
+        unchecked { if (s.strata < type(uint32).max) s.strata += 1; }
+        _bump(id, s);
+        emit Committed(id, word, s.strata);
+        emit MetadataUpdate(id);              // ERC-4906: come and read me again
+        emit TraitUpdated(bytes32("solid"), id, bytes32(uint256(word.form())));
+        emit TraitUpdated(bytes32("hue"),   id, bytes32(uint256(word.hue())));
+    }
+
+    /// @notice Open one of the sealed instruments. It stays open for good.
+    function openNode(uint256 id, uint8 node) external payable onlyHolder(id) nonReentrant {
+        if (node >= NODE_COUNT) revert BadNode();
+        if (msg.value < openFee) revert Underpaid();
+        Stats storage s = _stats[id];
+        uint16 bit = uint16(1) << node;
+        if (s.open & bit != 0) revert AlreadyOpen();
+        s.open |= bit;
+        _bump(id, s);
+        emit NodeOpened(id, node, s.open);
+        emit MetadataUpdate(id);
+    }
+
+    /// @notice Bring the token's bound account into being. Anyone may pay
+    ///         for this; the address was already determined at mint.
+    function embody(uint256 id) external returns (address acct) {
+        if (_ownerOf[id] == address(0)) revert Nonexistent();
+        acct = REGISTRY.createAccount(ACCOUNT_IMPL, ACCOUNT_SALT, block.chainid, address(this), id);
+        Stats storage s = _stats[id];
+        _bump(id, s);
+        emit Embodied(id, acct);
+    }
+
+    /// @notice The token stamping its own counter — callable by whoever is
+    ///         operating it, or by the token's own account when it acts.
+    function record(uint256 id) external {
+        address o = _ownerOf[id];
+        if (o == address(0)) revert Nonexistent();
+        if (msg.sender != o && msg.sender != account(id)) revert NotHolder();
+        _bump(id, _stats[id]);
+    }
+
+    function _bump(uint256 id, Stats storage s) internal {
+        unchecked { if (s.ops < type(uint32).max) s.ops += 1; }
+        s.lastOp = uint64(block.timestamp);
+        emit Operated(id, s.ops);
+    }
+
+    function account(uint256 id) public view returns (address) {
+        return REGISTRY.account(ACCOUNT_IMPL, ACCOUNT_SALT, block.chainid, address(this), id);
+    }
+
+    /*═══════════════════════ reading ═══════════════════════*/
+
+    function statsOf(uint256 id)
+        external view returns (uint256 ops, uint256 xfers, uint256 strata, uint256 open)
+    {
+        Stats memory s = _stats[id];
+        return (s.ops, s.xfers, s.strata, s.open);
+    }
+
+    function detailOf(uint256 id)
+        external view returns (uint64 lastOp, uint64 mintBlock, bool isLocked, bool hasKernel)
+    {
+        Stats memory s = _stats[id];
+        return (s.lastOp, s.mintBlock, _locked[id], _kernel[id].active);
+    }
+
+    function viewOf(uint256 id) public view returns (TokenView memory v) {
+        address o = _ownerOf[id];
+        if (o == address(0)) revert Nonexistent();
+        Stats memory s = _stats[id];
+        v = TokenView({
+            id: id, word: sectionOf[id], seed: seedOf[id], owner: o,
+            collection: address(this), boundAccount: account(id),
+            ops: s.ops, strata: s.strata, xfers: s.xfers, open: s.open,
+            mintBlock: s.mintBlock, locked: _locked[id], hasKernel: _kernel[id].active
+        });
+    }
+
+    /*═══════════════════ metadata · ERC-721 / 7160 / 7572 ═══════════════*/
+
+    function tokenURI(uint256 id) public view returns (string memory) {
+        if (address(renderer) == address(0)) revert NoRenderer();
+        uint256 p = _pinned[id];
+        return renderer.facetURI(viewOf(id), p == 0 ? 0 : p - 1);
+    }
+
+    /// @notice ERC-7160. The solid has more than one face; this returns all
+    ///         of them and says which the holder has pinned.
+    function tokenURIs(uint256 id)
+        external view returns (uint256 index, string[] memory uris, bool pinned)
+    {
+        TokenView memory v = viewOf(id);
+        uint256 n = renderer.facetCount();
+        uris = new string[](n);
+        for (uint256 i; i < n; ++i) uris[i] = renderer.facetURI(v, i);
+        uint256 p = _pinned[id];
+        return (p == 0 ? 0 : p - 1, uris, p != 0);
+    }
+
+    /// @notice One face at a time. tokenURIs() has to return every face at
+    ///         once because the standard says so, and face 0 carries the whole
+    ///         document - so anything that wants a single face should ask for
+    ///         it here instead of pulling a hundred kilobytes to read one.
+    function tokenURIAt(uint256 id, uint256 index) external view returns (string memory) {
+        if (index >= renderer.facetCount()) revert BadIndex();
+        return renderer.facetURI(viewOf(id), index);
+    }
+
+    function pinTokenURI(uint256 id, uint256 index) external onlyHolder(id) {
+        if (index >= renderer.facetCount()) revert BadIndex();
+        _pinned[id] = index + 1;
+        emit TokenUriPinned(id, index);
+        emit MetadataUpdate(id);
+    }
+
+    function unpinTokenURI(uint256 id) external onlyHolder(id) {
+        _pinned[id] = 0;
+        emit TokenUriUnpinned(id);
+        emit MetadataUpdate(id);
+    }
+
+    function hasPinnedTokenURI(uint256 id) external view returns (bool) {
+        return _pinned[id] != 0;
+    }
+
+    function contractURI() external view returns (string memory) {
+        return renderer.collectionURI(address(this), totalSupply, MAX_SUPPLY);
+    }
+
+    /*═══════════════════ traits · ERC-7496 ═══════════════════*/
+
+    function getTraitValue(uint256 id, bytes32 key) public view returns (bytes32) {
+        if (_ownerOf[id] == address(0)) revert Nonexistent();
+        uint256 w = sectionOf[id];
+        Stats memory s = _stats[id];
+        if (key == bytes32("solid"))  return bytes32(uint256(w.form()));
+        if (key == bytes32("hue"))    return bytes32(uint256(w.hue()));
+        if (key == bytes32("w"))      return bytes32(uint256(w.offsetW()));
+        if (key == bytes32("ops"))    return bytes32(uint256(s.ops));
+        if (key == bytes32("strata")) return bytes32(uint256(s.strata));
+        if (key == bytes32("xfers"))  return bytes32(uint256(s.xfers));
+        if (key == bytes32("nodes"))  return bytes32(_popcount(s.open));
+        if (key == bytes32("locked")) return bytes32(_locked[id] ? uint256(1) : uint256(0));
+        if (key == bytes32("kernel")) return bytes32(_kernel[id].active ? uint256(1) : uint256(0));
+        if (key == bytes32("section")) return bytes32(w);
+        return bytes32(0);
+    }
+
+    function getTraitValues(uint256 id, bytes32[] calldata keys)
+        external view returns (bytes32[] memory out)
+    {
+        out = new bytes32[](keys.length);
+        for (uint256 i; i < keys.length; ++i) out[i] = getTraitValue(id, keys[i]);
+    }
+
+    function getTraitMetadataURI() external view returns (string memory) {
+        return renderer.traitMetadataURI();
+    }
+
+    /// @notice Only the hue is settable on its own; everything else is a
+    ///         consequence of the section, and the section is committed
+    ///         whole so that it is always internally consistent.
+    function setTrait(uint256 id, bytes32 key, bytes32 value) external onlyOperator(id) {
+        if (key != bytes32("hue")) revert TraitNotSettable();
+        uint256 v = uint256(value);
+        if (v > type(uint8).max) revert BadSection();
+        uint256 w = sectionOf[id];
+        w = (w & ~(uint256(0xff) << 120)) | (v << 120);
+        sectionOf[id] = w;
+        _bump(id, _stats[id]);
+        emit TraitUpdated(key, id, value);
+        emit MetadataUpdate(id);
+    }
+
+    /*═══════════════ lending · ERC-4907 ═══════════════*/
+
+    function setUser(uint256 id, address user, uint64 expires) external onlyHolder(id) {
+        _users[id] = UserInfo(user, expires);
+        emit UpdateUser(id, user, expires);
+    }
+
+    function userOf(uint256 id) public view returns (address) {
+        UserInfo memory u = _users[id];
+        return u.expires >= block.timestamp ? u.user : address(0);
+    }
+
+    function userExpires(uint256 id) external view returns (uint256) {
+        return _users[id].expires;
+    }
+
+    /*═══════════════ binding · ERC-5192 / ERC-6454 ═══════════════*/
+
+    function lock(uint256 id) external onlyHolder(id) {
+        _locked[id] = true;
+        emit Locked(id);
+        emit MetadataUpdate(id);
+    }
+
+    function unlock(uint256 id) external onlyHolder(id) {
+        _locked[id] = false;
+        emit Unlocked(id);
+        emit MetadataUpdate(id);
+    }
+
+    /// @dev ERC-5192 and ERC-6454 are two ways of asking the same question,
+    ///      and a collection that answers them from two places will
+    ///      eventually answer them differently. There is one flag, and
+    ///      isTransferable() below is written in terms of it.
+    function locked(uint256 id) public view returns (bool) {
+        if (_ownerOf[id] == address(0)) revert Nonexistent();
+        return _locked[id];
+    }
+
+    function isTransferable(uint256 id, address from, address to) public view returns (bool) {
+        if (to == address(0)) return false;                 // nothing is burned here
+        if (from == address(0)) return true;                // minting is always allowed
+        if (_ownerOf[id] == address(0)) return false;
+        return !_locked[id];          // the same flag locked() reports
+    }
+
+    /*═══════════════ the sealed kernel ═══════════════
+
+      A token may carry a payload that is not public — held wherever the
+      holder keeps it, identified here only by hash, and sealed to a key
+      only they can use. Handing the token over is therefore not enough:
+      the new holder cannot open what was sealed to the old one. A
+      transfer is only accepted alongside a proof that the same payload
+      was re-sealed to the recipient.
+
+      What counts as a proof is the verifier's business, and the verifier
+      is a separate address for exactly that reason: a TEE attestation and
+      a zero-knowledge proof are both admissible, and neither belongs
+      hard-coded in a token contract.
+
+      This is ERC-7857's good idea under its own name. It is not a
+      conformance claim - see interfaces/Standards.sol for exactly why.
+
+      With no kernel set, a token behaves as an ordinary ERC-721 and none
+      of this applies.                                                    */
+
+    function setVerifier(IDataVerifier v) external onlyCurator {
+        verifier = v;
+        emit VerifierUpdated(address(v));
+    }
+
+    /// @notice Attach or re-seal a kernel. The holder asserts the hashes;
+    ///         it is the transfer that has to be proved, not the sealing.
+    function sealKernel(uint256 id, bytes32[] calldata hashes, bytes32 to_)
+        external onlyHolder(id)
+    {
+        _dataHashes[id] = hashes;
+        Kernel storage k = _kernel[id];
+        k.sealedTo = to_;
+        k.active = hashes.length > 0;
+        unchecked { k.version += 1; }
+        emit Sealed(id, hashes, to_);
+        emit MetadataUpdate(id);
+    }
+
+    /// @notice Moves the token and its kernel together.
+    function transferWithKernel(address to, uint256 id, bytes calldata proof) external {
+        Kernel storage k = _kernel[id];
+        if (!k.active) {
+            // no kernel: an ordinary transfer, and the proof is irrelevant
+            transferFrom(msg.sender, to, id);
+            return;
+        }
+        (bytes32[] memory newHashes, bytes32 to_) = _check(id, proof);
+        _dataHashes[id] = newHashes;
+        k.sealedTo = to_;
+        unchecked { k.version += 1; }
+        transferFrom(msg.sender, to, id);
+        emit Sealed(id, newHashes, to_);
+    }
+
+    /// @notice The token reproducing: a new token carrying the same kernel,
+    ///         re-sealed to the recipient, with its own seed and its own
+    ///         section drawn fresh from this block.
+    function cloneWithKernel(address to, uint256 id, bytes calldata proof)
+        external returns (uint256 child)
+    {
+        if (_ownerOf[id] != msg.sender) revert NotHolder();
+        Kernel storage k = _kernel[id];
+        if (!k.active) revert KernelInactive();
+        (bytes32[] memory newHashes, bytes32 to_) = _check(id, proof);
+
+        child = _issue(to);
+        _dataHashes[child] = newHashes;
+        Kernel storage c = _kernel[child];
+        c.sealedTo = to_;
+        c.active = true;
+        c.version = 1;
+
+        parentOf[child] = id;
+        emit Sealed(child, newHashes, to_);
+        emit Cloned(id, child, to);
+    }
+
+    function _check(uint256 id, bytes calldata proof)
+        internal view returns (bytes32[] memory newHashes, bytes32 to_)
+    {
+        if (address(verifier) == address(0)) revert NoVerifier();
+        bool ok;
+        bytes32[] memory oldHashes;
+        (ok, oldHashes, newHashes, to_) = verifier.verifyTransfer(proof);
+        if (!ok) revert ProofRejected();
+
+        // the proof has to be about *this* token's payload, not some other
+        bytes32[] memory have = _dataHashes[id];
+        if (oldHashes.length != have.length) revert ProofRejected();
+        for (uint256 i; i < have.length; ++i) {
+            if (oldHashes[i] != have[i]) revert ProofRejected();
+        }
+        if (newHashes.length == 0) revert ProofRejected();
+    }
+
+    function authorizeUsage(uint256 id, address user) external onlyHolder(id) {
+        usageAuthorised[id][user] = true;
+        emit UsageAuthorised(id, user);
+    }
+
+    function dataHashesOf(uint256 id) external view returns (bytes32[] memory) {
+        return _dataHashes[id];
+    }
+
+    function sealedTo(uint256 id) external view returns (bytes32) {
+        return _kernel[id].sealedTo;
+    }
+
+    /*═══════════════════════ royalties ═══════════════════════*/
+
+    function royaltyInfo(uint256, uint256 salePrice)
+        external view returns (address, uint256)
+    {
+        return (royaltyReceiver, (salePrice * royaltyBps) / 10_000);
+    }
+
+    /*═══════════════════════ ERC-721 ═══════════════════════*/
+
+    function ownerOf(uint256 id) public view returns (address o) {
+        o = _ownerOf[id];
+        if (o == address(0)) revert Nonexistent();
+    }
+
+    function balanceOf(address a) public view returns (uint256) {
+        if (a == address(0)) revert ZeroAddress();
+        return _balanceOf[a];
+    }
+
+    function tokenByIndex(uint256 i) external view returns (uint256) {
+        if (i >= totalSupply) revert BadIndex();
+        unchecked { return i + 1; }          // ids are 1..totalSupply, in order
+    }
+
+    function tokenOfOwnerByIndex(address o, uint256 i) external view returns (uint256) {
+        if (i >= _balanceOf[o]) revert BadIndex();
+        return _ownedTokens[o][i];
+    }
+
+    function approve(address to, uint256 id) external {
+        address o = ownerOf(id);
+        if (msg.sender != o && !isApprovedForAll[o][msg.sender]) revert NotHolder();
+        getApproved[id] = to;
+        emit Approval(o, to, id);
+    }
+
+    function setApprovalForAll(address op, bool ok) external {
+        isApprovedForAll[msg.sender][op] = ok;
+        emit ApprovalForAll(msg.sender, op, ok);
+    }
+
+    function transferFrom(address from, address to, uint256 id) public {
+        if (from != _ownerOf[id]) revert NotHolder();
+        if (to == address(0)) revert ZeroAddress();
+        if (msg.sender != from && getApproved[id] != msg.sender && !isApprovedForAll[from][msg.sender])
+            revert NotHolder();
+        if (!isTransferable(id, from, to)) revert NotTransferable();
+
+        _remove(from, id);
+        _add(to, id);
+        delete getApproved[id];
+
+        // a lease does not survive the sale of the instrument
+        if (_users[id].user != address(0)) {
+            delete _users[id];
+            emit UpdateUser(id, address(0), 0);
+        }
+
+        Stats storage s = _stats[id];
+        unchecked { if (s.xfers < type(uint32).max) s.xfers += 1; }
+
+        emit Transfer(from, to, id);
+        emit MetadataUpdate(id);
+    }
+
+    function safeTransferFrom(address from, address to, uint256 id) external {
+        safeTransferFrom(from, to, id, "");
+    }
+
+    function safeTransferFrom(address from, address to, uint256 id, bytes memory data) public {
+        transferFrom(from, to, id);
+        if (to.code.length != 0) {
+            if (IERC721Receiver(to).onERC721Received(msg.sender, from, id, data)
+                != IERC721Receiver.onERC721Received.selector) revert NotReceiver();
+        }
+    }
+
+    /*── enumeration bookkeeping ──*/
+    function _add(address to, uint256 id) internal {
+        uint256 n = _balanceOf[to];
+        _ownedTokens[to][n] = id;
+        _ownedIndex[id] = n;
+        unchecked { _balanceOf[to] = n + 1; }
+        _ownerOf[id] = to;
+    }
+
+    function _remove(address from, uint256 id) internal {
+        uint256 n;
+        unchecked { n = _balanceOf[from] - 1; }
+        uint256 i = _ownedIndex[id];
+        if (i != n) {
+            uint256 moved = _ownedTokens[from][n];
+            _ownedTokens[from][i] = moved;
+            _ownedIndex[moved] = i;
+        }
+        delete _ownedTokens[from][n];
+        delete _ownedIndex[id];
+        _balanceOf[from] = n;
+    }
+
+    /*═══════════════════════ curation ═══════════════════════*/
+
+    function setRenderer(IRenderer r) external onlyCurator {
+        if (rendererSealed) revert AlreadySealed();
+        renderer = r;
+        emit RendererChanged(address(r));
+        emit BatchMetadataUpdate(1, totalSupply == 0 ? 1 : totalSupply);
+    }
+
+    /// @notice Irreversible. After this the renderer can never be replaced,
+    ///         and what the collection looks like is settled forever.
+    function sealRenderer() external onlyCurator {
+        rendererSealed = true;
+        emit RendererSealed();
+    }
+
+    function setPricing(uint256 p, uint256 o) external onlyCurator {
+        price = p;
+        openFee = o;
+    }
+
+    function setRoyalty(address to, uint96 bps) external onlyCurator {
+        if (bps > 1000) revert BadIndex();       // 10% ceiling, permanently
+        royaltyReceiver = to;
+        royaltyBps = bps;
+    }
+
+    function setCurator(address who) public onlyCurator {
+        emit OwnershipTransferred(curator, who);
+        curator = who;
+    }
+
+    /*── ERC-173 ──*/
+    function owner() external view returns (address) {
+        return curator;
+    }
+
+    function transferOwnership(address newOwner) external {
+        setCurator(newOwner);
+    }
+
+    function withdraw(address to) external onlyCurator nonReentrant {
+        (bool ok, ) = to.call{value: address(this).balance}("");
+        if (!ok) revert NotReceiver();
+    }
+
+    /*═══════════════════════ ERC-165 ═══════════════════════*/
+
+    function supportsInterface(bytes4 i) external pure returns (bool) {
+        return i == 0x01ffc9a7    // ERC-165
+            || i == 0x80ac58cd    // ERC-721
+            || i == 0x5b5e139f    // ERC-721Metadata
+            || i == 0x780e9d63    // ERC-721Enumerable
+            || i == 0x2a55205a    // ERC-2981
+            || i == 0x49064906    // ERC-4906  (fixed by the EIP; events carry no selector)
+            || i == 0xad092b5c    // ERC-4907
+            || i == 0xb45a3c0e    // ERC-5192
+            || i == 0x91a6262f    // ERC-6454
+            || i == 0xe8a3d485    // ERC-7572  (contractURI())
+            || i == 0x06e1bc5b    // ERC-7160
+            || i == 0xaf332f3e    // ERC-7496
+            || i == 0x7f5828d0;   // ERC-173
+    }
+
+    function _popcount(uint16 x) internal pure returns (uint256 n) {
+        unchecked { while (x != 0) { n += x & 1; x >>= 1; } }
+    }
+
+    receive() external payable {}
+}

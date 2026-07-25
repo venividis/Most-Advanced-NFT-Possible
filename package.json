@@ -1,0 +1,23 @@
+{
+  "name": "ipseity",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "IPSEITY — a fully on-chain ERC-721 whose tokenURI emits its own 4D control surface.",
+  "scripts": {
+    "build": "node tools/build-engine.mjs",
+    "verify": "node tools/verify.mjs",
+    "preview": "node tools/preview.mjs"
+  },
+  "dependencies": {
+    "@ethereumjs/common": "^10.1.2",
+    "@ethereumjs/evm": "^10.1.2",
+    "@ethereumjs/statemanager": "^10.1.2",
+    "@ethereumjs/tx": "^10.1.2",
+    "@ethereumjs/util": "^10.1.2",
+    "@ethereumjs/vm": "^10.1.2",
+    "ethereum-cryptography": "^3.2.0",
+    "solc": "^0.8.36",
+    "terser": "^5.49.0"
+  }
+}
