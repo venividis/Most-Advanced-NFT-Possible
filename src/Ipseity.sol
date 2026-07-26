@@ -146,7 +146,19 @@ contract Ipseity is
     mapping(uint256 => uint256) internal _pinned;    // ERC-7160, 1-based; 0 = unpinned
 
     /*──────────────────────── ERC-7857 kernel ────────────────────────*/
-    struct Kernel { bytes32 sealedTo; uint64 version; bool active; }
+    /// @dev `sealedTo` is the key handle the payload was encrypted to, which
+    ///      is opaque on chain. `sealedOwner` is the address that held the
+    ///      token when that happened, which is not — comparing it with
+    ///      `ownerOf` is what lets `kernelStatus` derive staleness with no
+    ///      hook and no gas. Both fit alongside `version` and the two flags
+    ///      in a single slot, so the derivation costs nothing to store.
+    struct Kernel {
+        bytes32 sealedTo;
+        uint64  version;
+        bool    active;
+        address sealedOwner;
+        bool    proved;
+    }
     mapping(uint256 => Kernel)    internal _kernel;
     mapping(uint256 => bytes32[]) internal _dataHashes;
     mapping(uint256 => mapping(address => bool)) public usageAuthorised;
@@ -209,6 +221,7 @@ contract Ipseity is
     error NoVerifier();
     error ProofRejected();
     error KernelInactive();
+    error VerifierFixed();
     error ZeroAddress();
     error NotReceiver();
     error Reentrancy();
@@ -396,10 +409,13 @@ contract Ipseity is
     }
 
     function detailOf(uint256 id)
-        external view returns (uint64 lastOp, uint64 mintBlock, bool isLocked, bool hasKernel)
+        external view returns (uint64 lastOp, uint64 mintBlock, bool isLocked, uint8 kernel)
     {
         Stats memory s = _stats[id];
-        return (s.lastOp, s.mintBlock, _locked[id], _kernel[id].active);
+        // the status rather than the flag: "there is a kernel" is not the
+        // fact a caller needs, and answering the easier question is how a
+        // stale kernel gets read as a live one
+        return (s.lastOp, s.mintBlock, _locked[id], kernelStatus(id));
     }
 
     function viewOf(uint256 id) public view returns (TokenView memory v) {
@@ -409,8 +425,9 @@ contract Ipseity is
         v = TokenView({
             id: id, word: sectionOf[id], seed: seedOf[id], owner: o,
             collection: address(this), boundAccount: account(id), grip: grip(id), pool: pool,
+            reachImpl: ACCOUNT_IMPL, gripImpl: GRIP_IMPL,
             ops: s.ops, strata: s.strata, xfers: s.xfers, open: s.open,
-            mintBlock: s.mintBlock, locked: _locked[id], hasKernel: _kernel[id].active
+            mintBlock: s.mintBlock, locked: _locked[id], kernel: kernelStatus(id)
         });
     }
 
@@ -479,7 +496,7 @@ contract Ipseity is
         if (key == bytes32("xfers"))  return bytes32(uint256(s.xfers));
         if (key == bytes32("nodes"))  return bytes32(_popcount(s.open));
         if (key == bytes32("locked")) return bytes32(_locked[id] ? uint256(1) : uint256(0));
-        if (key == bytes32("kernel")) return bytes32(_kernel[id].active ? uint256(1) : uint256(0));
+        if (key == bytes32("kernel")) return bytes32(uint256(kernelStatus(id)));
         if (key == bytes32("section")) return bytes32(w);
         return bytes32(0);
     }
@@ -576,7 +593,20 @@ contract Ipseity is
       With no kernel set, a token behaves as an ordinary ERC-721 and none
       of this applies.                                                    */
 
+    /// @notice Chosen once, and never rotated.
+    /// @dev    A rotatable verifier is not a verifier. Whoever can swap it
+    ///         can install one that approves anything, and every kernel in
+    ///         the collection becomes a claim about the curator rather than
+    ///         a claim about a proof — which is the whole thing this is for.
+    ///         So it may be set from zero exactly one time, and after that
+    ///         `setVerifier` is a function that reverts for everybody.
+    ///
+    ///         Left at zero — which is how this collection deploys — no
+    ///         proof can be checked, so `transferWithKernel` and
+    ///         `cloneWithKernel` refuse rather than wave a kernel through.
     function setVerifier(IDataVerifier v) external onlyCurator {
+        if (address(verifier) != address(0)) revert VerifierFixed();
+        if (address(v) == address(0)) revert NoVerifier();
         verifier = v;
         emit VerifierUpdated(address(v));
     }
@@ -590,6 +620,10 @@ contract Ipseity is
         Kernel storage k = _kernel[id];
         k.sealedTo = to_;
         k.active = hashes.length > 0;
+        // the chain's opinion of who this was sealed under, not the caller's
+        k.sealedOwner = _ownerOf[id];
+        // the holder asserted these hashes; nobody proved them
+        k.proved = false;
         unchecked { k.version += 1; }
         emit Sealed(id, hashes, to_);
         emit MetadataUpdate(id);
@@ -606,6 +640,8 @@ contract Ipseity is
         (bytes32[] memory newHashes, bytes32 to_) = _check(id, proof);
         _dataHashes[id] = newHashes;
         k.sealedTo = to_;
+        k.sealedOwner = to;
+        k.proved = true;
         unchecked { k.version += 1; }
         transferFrom(msg.sender, to, id);
         emit Sealed(id, newHashes, to_);
@@ -627,6 +663,8 @@ contract Ipseity is
         Kernel storage c = _kernel[child];
         c.sealedTo = to_;
         c.active = true;
+        c.sealedOwner = to;
+        c.proved = true;
         c.version = 1;
 
         parentOf[child] = id;
@@ -663,6 +701,51 @@ contract Ipseity is
 
     function sealedTo(uint256 id) external view returns (bytes32) {
         return _kernel[id].sealedTo;
+    }
+
+    /*═══════════════ what a buyer reads before they pay ═══════════════
+
+      `transferWithKernel` re-seals and transfers atomically, which is the
+      guarantee ERC-7857 is built around. But `transferFrom` still exists —
+      it has to, or the token stops being an ERC-721 — and an ordinary
+      transfer moves the token while leaving the payload sealed to whoever
+      held it before. Nothing is violated. The buyer simply owns a pointer
+      to a ciphertext they cannot open, and no event says so.
+
+      So it is derived rather than announced. `sealedOwner` is compared
+      against `ownerOf` at read time: no hook, no gas, no transaction, and
+      no cooperation from a seller who would rather it went unmentioned.
+      The only half of that comparison a seller controls is the one that
+      has already moved.
+
+      CURRENT and PROVED are deliberately two questions. The first says the
+      payload was sealed under whoever holds the token now. The second says
+      a verifier checked the re-sealing. With no verifier deployed the
+      second is false everywhere, and a client that merges them is telling
+      a buyer something nobody established.                                */
+
+    uint8 public constant KERNEL_ABSENT  = 0;
+    uint8 public constant KERNEL_CURRENT = 1;
+    uint8 public constant KERNEL_STALE   = 2;
+
+    function kernelStatus(uint256 id) public view returns (uint8) {
+        Kernel storage k = _kernel[id];
+        if (!k.active) return KERNEL_ABSENT;
+        address holder = _ownerOf[id];
+        if (holder == address(0)) return KERNEL_STALE;
+        return holder == k.sealedOwner ? KERNEL_CURRENT : KERNEL_STALE;
+    }
+
+    /// @notice A verifier checked this exact re-sealing, and it still stands.
+    function kernelProved(uint256 id) external view returns (bool) {
+        return _kernel[id].proved && kernelStatus(id) == KERNEL_CURRENT;
+    }
+
+    /// @notice Stated in the ABI as well as the prose, so a marketplace can
+    ///         check rather than assume: with no verifier, no kernel in this
+    ///         collection has ever been proved by anybody.
+    function hasVerifier() external view returns (bool) {
+        return address(verifier) != address(0);
     }
 
     /*═══════════════════════ royalties ═══════════════════════*/

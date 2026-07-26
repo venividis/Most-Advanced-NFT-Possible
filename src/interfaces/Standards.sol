@@ -192,4 +192,21 @@ interface ISealedKernel {
     function authorizeUsage(uint256 tokenId, address user) external;
     function dataHashesOf(uint256 tokenId) external view returns (bytes32[] memory);
     function sealedTo(uint256 tokenId) external view returns (bytes32);
+
+    /// @notice 0 absent · 1 current · 2 stale.
+    /// @dev    Derived by comparing the owner the kernel was sealed under
+    ///         against the current owner, so an ordinary `transferFrom` —
+    ///         which moves the token without re-sealing anything — is
+    ///         visible to a buyer instead of silent.
+    function kernelStatus(uint256 tokenId) external view returns (uint8);
+
+    /// @notice A verifier checked this exact re-sealing, and it still stands.
+    /// @dev    Deliberately separate from `kernelStatus`. "Sealed under the
+    ///         holder" and "proved by somebody" are different claims, and a
+    ///         client that merges them tells a buyer something nobody
+    ///         established.
+    function kernelProved(uint256 tokenId) external view returns (bool);
+
+    /// @notice Whether this collection has a verifier at all.
+    function hasVerifier() external view returns (bool);
 }

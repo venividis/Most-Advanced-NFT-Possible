@@ -249,40 +249,49 @@ reach for.
 
 ---
 
-## The disposition
+## The sealed kernel
 
-The one place ERC-7857 is not a stretch here — see `AGENT.md`.
+The one place ERC-7857 is not a stretch here: a token carries a payload that
+is not public — the disposition an agent runs under — named on chain only by
+hash. See `AGENT.md`. Conformance is deliberately not claimed; see the note in
+`src/interfaces/Standards.sol`.
 
-**46. A kernel is bound to the chain's owner, not to the caller's claim.**
-`publish` reads `ownerOf` from the token contract and seals to that, so the
-binding is the chain's opinion rather than the publisher's.
-→ `tools/verify-disposition.mjs` · *"it is sealed to the holder"*
+**46. A kernel's staleness is derived, never announced.**
+`kernelStatus` compares the owner the kernel was sealed under against
+`ownerOf` at read time. `transferWithKernel` re-seals atomically, but ordinary
+`transferFrom` still exists — it has to, or the token stops being an ERC-721 —
+and it moves the token while leaving the payload encrypted to the seller. That
+shows up as STALE with no hook, no gas and no cooperation from a seller who
+would rather it went unmentioned. The only half of the comparison a seller
+controls is the one that already moved.
+→ `tools/verify-kernel.mjs` · *"the kernel went STALE by itself"*, *"the ERC-7496 trait reports it too"*
 
-**47. A sale invalidates a disposition, with no cooperation from anyone.**
-`status()` is derived by comparing `sealedTo` with `ownerOf` at read time —
-no hook, no gas, no transaction. A seller cannot present a stale kernel as a
-live one, because the only half of the comparison they control has already
-moved.
-→ `tools/verify-disposition.mjs` · *"the kernel went STALE by itself"*
+**47. Sealed, current and proved are three questions, asked separately.**
+`sealKernel` is an assertion by the holder. `kernelStatus` says the payload was
+sealed under whoever holds the token now. `kernelProved` says a verifier
+checked that exact re-sealing. With no verifier deployed the third is false
+everywhere, and no reading of the first two can be mistaken for it.
+→ `tools/verify-kernel.mjs` · *"sealed is not proved"*, *"proved goes with it"*
 
-**48. Current and attested are separate questions, and are asked separately.**
-`isCurrent()` says the ciphertext is addressed to whoever holds the token.
-`isAttested()` says somebody with a proof system checked it. With no verifier
-deployed the second is false for every token, and no reading of the first can
-be mistaken for it.
-→ `tools/verify-disposition.mjs` · *"but current is not attested"*
+**48. A proof is about this token's payload, or it is refused.**
+The old hashes in a proof must equal the hashes on file, so a proof cannot be
+lifted from one token and replayed against another, and a re-seal cannot empty
+a kernel under cover of a transfer.
+→ `tools/verify-kernel.mjs` · *"a proof about a different payload is rejected"*
 
-**49. An attestation cannot outlive the blob it checked.**
-`attest` names the exact commitment and reverts on a mismatch; every
-`publish` clears `attestedBy`. Swapping the ciphertext under a standing
-attestation is the race this closes.
-→ `tools/verify-disposition.mjs` · *"swapping the ciphertext clears the attestation"*
+**49. The verifier is chosen once and never rotated.**
+It may be set from zero exactly one time, never to zero, and after that
+`setVerifier` reverts for everybody including the curator. A rotatable
+verifier is not a verifier: whoever can swap it can install one that approves
+anything, and every kernel becomes a claim about the curator rather than about
+a proof.
+→ `tools/verify-kernel.mjs` · *"it can never be swapped"*
 
-**50. The disposition holds nothing and moves nothing.**
-Three state-changing functions, none payable, none able to name an asset or
-an amount. The verifier attests and cannot publish; the holder publishes and
-cannot attest.
-→ `tools/verify-disposition.mjs` · *"what it cannot do, read off the compiled ABI"*
+**50. With no verifier, the proved paths refuse rather than wave through.**
+`transferWithKernel` and `cloneWithKernel` revert on a live kernel when there
+is no oracle. A token with no kernel still transfers through them, because
+there is nothing to prove.
+→ `tools/verify-kernel.mjs` · *"the atomic path refuses rather than waving through"*
 
 ---
 
@@ -363,23 +372,24 @@ inside those bounds is gone. `spendCap` and `expires` should be numbers you
 would be willing to lose outright, and targets should be granted one at a
 time. The collection makes theft survivable; it does not make it free.
 
-**B3. Re-sealing a disposition does not make the seller forget.**
+**B3. Re-sealing a kernel does not make the seller forget.**
 ERC-7857's re-encryption gives the buyer the secret. Nothing on any chain
-takes it back from whoever held it first, and no oracle changes that. A
-disposition is worth buying when its value is *use going forward*, and worth
-nothing when its value is *exclusivity*. This is a limitation of the standard
-rather than of `Disposition.sol`.
+takes it back from whoever held it first, and no oracle changes that. A kernel
+is worth buying when its value is *use going forward*, and worth nothing when
+its value is *exclusivity*. This is a limitation of the standard rather than
+of this implementation.
 
-**B4. There is no verifier, so every kernel is unattested.**
-`VERIFIER` is zero in this deployment, `hasVerifier()` says so, and
-`isAttested()` is false for every token. A buyer must fetch the ciphertext,
-hash it, compare it against `commitment` and decrypt it themselves before
+**B4. There is no verifier, so no kernel has ever been proved.**
+`verifier` is zero as this collection deploys, `hasVerifier()` says so, and
+`kernelProved()` is false for every token. A buyer must fetch the payload,
+hash it, compare against `dataHashesOf` and decrypt it themselves before
 paying. The contract makes that possible and does not make it unnecessary. A
 stub verifier was not shipped because a green check nobody earned is worse
-than no check at all.
+than no check at all — and because the verifier can only be chosen once, a
+stub would have been permanent.
 
-**B5. A disposition's `uri` can rot.**
-The commitment is permanent; the blob it commits to is not. If the ciphertext
+**B5. A kernel names its payload by hash and does not store it.**
+The hashes are permanent; whatever they hash to is not. If the payload
 disappears, the token still states what it committed to and can no longer
 demonstrate what that was. Pin it.
 

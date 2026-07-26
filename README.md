@@ -57,13 +57,20 @@ as an ERC-7160 face, so a holder can pin it as the token's public face.
 **Gzip, inflated by the browser's own decompressor.** The document is stored as gzip
 bytes and `tokenURI()` emits a short loader that hands them to
 `DecompressionStream("gzip")` — part of the web platform since 2023, so nothing is
-fetched. This is not a micro-optimisation: it is the difference between **7.2M and
-20.1M gas** to put the document on chain, and between a 61 KB and a 163 KB
+fetched. This is not a micro-optimisation: it is the difference between **8.4M and
+23.6M gas** to put the document on chain, and between a 70 KB and a 193 KB
 `tokenURI` response.
 
 **It opens itself, inside itself.** The Nest instrument calls `tokenURI()` on chain,
 decodes the base64, raises a depth counter, and mounts the result in a frame
 positioned in the same 3-space as the solid. The instance inside can do it again.
+
+**It checks the contract rather than believing it.** Both of a token's ERC-6551
+addresses are re-derived inside the frame — registry, implementation, chain, contract,
+token id, through the page's own keccak and CREATE2 — and then compared against what
+the contract reported. They have never disagreed. The point of asking is that a viewer
+which only renders what it is handed cannot tell a correct answer from a convenient
+one.
 
 ---
 
@@ -301,7 +308,7 @@ answers to each.
 | ERC-7496 | `0xaf332f3e` | traits readable without parsing a 60 KB data URI |
 | ERC-7572 | `0xe8a3d485` | collection metadata, also fully on chain |
 | ERC-173 | `0x7f5828d0` | how a marketplace decides who may edit the collection page |
-| ERC-6551 | consumed, not implemented | the bound account, derived by CREATE2 |
+| ERC-6551 | consumed, not implemented | two bound accounts per token, at two salts, derived by CREATE2 |
 
 **ERC-4906's identifier is a magic number.** Its interface is events only, so
 `type(IERC4906).interfaceId` is `0x00000000`; the EIP fixes it by fiat at
@@ -314,7 +321,7 @@ it; it is not a spec-stated value and this document does not claim otherwise.
 
 ### Deliberately not claimed
 
-**ERC-7857 (iNFT).** The *mechanism* is built — `src/Disposition.sol` — and the
+**ERC-7857 (iNFT).** The *mechanism* is built, in the token itself, and the
 *conformance claim* is deliberately withheld. Both halves of that are on purpose.
 
 Built, because once the collection grew session keys it grew a secret worth
@@ -322,12 +329,20 @@ protecting. Not what an agent may do — that is on chain, bounded and public, a
 to be, or nobody can price the token — but **how it decides**: the prompt, the
 thresholds, the strategy. That is valuable, worthless once public, genuinely part of
 what the token is, and useless to a buyer unless it is re-sealed to them. Which is
-precisely and only what ERC-7857 is for. So a token may carry a ciphertext committed
-to on chain by hash, bound to the owner the chain reports, and a sale invalidates it
-automatically: `status()` compares `sealedTo` against `ownerOf` at read time, so a
-transfer goes `STALE` with no hook, no gas and no cooperation from the seller. A
-seller cannot present a stale kernel as a live one, because the only half of the
-comparison they control has already moved.
+precisely and only what ERC-7857 is for. So a token may carry a payload named on
+chain only by hash and sealed to a key its holder controls, and `transferWithKernel`
+moves the token and the re-sealing together, gated on a proof checked against *this*
+token's hashes.
+
+The part worth building is the seam. `transferFrom` still exists — remove it and the
+token stops being an ERC-721 — and an ordinary transfer moves the token while leaving
+the payload encrypted to the seller. Nothing is violated; the buyer simply owns a
+pointer to a ciphertext they cannot open, and no event says so. So `kernelStatus()`
+compares the owner the kernel was sealed under against `ownerOf` at read time: an
+ordinary transfer reads **STALE**, with no hook, no gas, and no cooperation from a
+seller who would rather it went unmentioned. It surfaces in the ERC-7496 trait too.
+`kernelStatus` and `kernelProved` are separate questions so a client cannot merge
+"there is a kernel" with "somebody checked it".
 
 Not claimed, for four reasons. The specification's normative entry points are
 `iTransfer` and `iClone(…, TransferValidityProof[])`, and these are not those
@@ -338,10 +353,12 @@ does not define. Its premise — that the valuable metadata is encrypted and liv
 chain — is the exact inverse of a work whose whole claim is that nothing is fetched,
 so it is applied to the agent's disposition and never to the artwork. And the
 re-seal proof requires a TEE attestation or a ZK circuit that this collection does
-not ship: `VERIFIER` is immutable and zero, `hasVerifier()` says so, and
-`isAttested()` is false for every token. A stub verifier would let a marketplace
-draw a green check next to a claim nobody checked, which is worse than no check.
-`isCurrent()` and `isAttested()` are two functions so that a UI cannot merge them.
+not ship: `verifier` is zero, `hasVerifier()` says so, `kernelProved()` is false for
+every token, and `transferWithKernel` on a live kernel **reverts** rather than
+waving it through. A stub would let a marketplace draw a green check nobody checked
+— and it would be permanent, because `setVerifier` may be called once, from zero,
+and never again. A rotatable verifier is not a verifier: whoever can swap it can
+install one that approves anything.
 
 The full design, and the answer to what an agent can and cannot be given here, is in
 [AGENT.md](AGENT.md).
@@ -363,34 +380,43 @@ Measured, not estimated — every figure below comes from `node tools/verify.mjs
 which deploys the whole collection into an EVM at Cancun and reads it back.
 
 ```
-document, as written                137,500 bytes
-after minifying                      90,520 bytes    65.8%
-stored on chain (gzip)               32,439 bytes    23.6%      3 shards
+document, as written                161,705 bytes
+after minifying                     106,144 bytes    65.6%
+stored on chain (gzip)               37,203 bytes    23.0%      3 shards
 
-deployment (4 contracts)              12.16M gas
-loading the document                   7.32M gas
+deployment (6 contracts)              12.80M gas
+loading the document                   8.36M gas
                                      ─────────
-total to launch                       19.49M gas
+total to launch                       21.15M gas
 
 mint                                   0.19M gas
 commit a new orientation               0.05M gas
-tokenURI() read                       20.68M gas    (geth caps eth_call at 50M)
-tokenURI() response                      61 KB
+tokenURI() read                       23.99M gas    (geth caps eth_call at 50M)
+tokenURI() response                     ~70 KB
 ```
 
-Storing the document as plain text instead costs **20.09M gas** to load and makes the
-`tokenURI` read **30.7M**. Both modes are implemented and both are verified; packed
+Storing the document as plain text instead costs **23.58M gas** to load and makes the
+`tokenURI` read **36.31M**. Both modes are implemented and both are verified; packed
 is the default because it is what makes the document deployable without fighting the
-per-transaction gas cap.
+per-transaction gas cap — and because a 36M read is past what several public nodes
+will serve.
 
 Deployed bytecode, against the 24,576-byte EIP-170 ceiling:
 
 ```
-Renderer   20,026 B   81%
-Ipseity    15,974 B   65%
-Sigil      14,129 B   57%
-Engine      2,724 B   11%
+Renderer         20,731 B   84%
+Ipseity          18,203 B   74%
+Sigil            14,129 B   57%
+Pool              8,465 B   34%
+IpseityAccount    7,302 B   30%    the Reach
+Engine            2,724 B   11%
+GripVault         1,933 B    8%    the Grip
 ```
+
+`GripVault` is the smallest contract in the collection and carries the strongest
+promise in it. That is not a coincidence — it is the whole argument. Its guarantee
+costs 1,933 bytes because the guarantee is a function that was never written, where
+the Reach spends 7,302 policing a capability it has.
 
 ---
 
@@ -458,7 +484,6 @@ src/
   Pool.sol              every token as its own exchange
   IpseityAccount.sol    the Reach — the ERC-6551 vault, sealable and measured
   GripVault.sol         the Grip — the second account, which cannot spend
-  Disposition.sol       the private kernel, in the shape ERC-7857 gives it
   lib/                  SSTORE2, Base64, Trig, Curve, Timelock, the section word
   interfaces/           every standard, with the reasoning
 tools/
@@ -468,7 +493,7 @@ tools/
   verify.mjs            deploy on a real EVM, read it all back
   verify-pool.mjs       try to break the market on a real EVM
   verify-vault.mjs      try to drain a sealed vault, and to widen a session key
-  verify-disposition.mjs  try to lie to a buyer about a private kernel
+  verify-kernel.mjs     try to lie to a buyer about a sealed kernel
   verify-timelock.mjs   try to escape the delay
   preview.mjs           dist/preview.html
   evm.mjs, compile.mjs  the harness
@@ -483,11 +508,11 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 
 ## What was and was not run here
 
-`glsl-check.mjs`, `selftest.mjs` (52 assertions), `build-engine.mjs`, `verify.mjs` in
-both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62),
-`verify-vault.mjs` (69), `verify-disposition.mjs` (35) and `verify-timelock.mjs`
-(24) were executed in this environment — 364 assertions in total — and every number
-in this document comes from those runs.
+`glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `verify.mjs` in
+both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62), `verify-vault.mjs` (69),
+`verify-kernel.mjs` (36) and `verify-timelock.mjs` (24) were executed in this
+environment — 368 assertions in total — and every number in this document comes from
+those runs.
 
 `forge test` was **not** executed: Foundry's installer host is blocked by this
 session's network egress policy. The Foundry suite and the deploy script were
@@ -507,7 +532,7 @@ specifies the MCP surface a model would drive the session key through, and that
 service holds a private key and talks to a live RPC — so nothing about it can be
 exercised by the harness here. Shipping untested key-handling code alongside tested
 contracts would misrepresent which parts have been checked. The on-chain side —
-the four bounds, the three structural refusals, the disposition — is built and
+the four bounds, the three structural refusals, the kernel — is built and
 tested; the signer is specified and not written.
 
 ---

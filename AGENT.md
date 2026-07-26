@@ -4,7 +4,7 @@ Three things were asked, and they have three different answers:
 
 | | |
 |---|---|
-| **What is the best way to use ERC-7857 here?** | For the agent's private strategy — not for the artwork. Built: `src/Disposition.sol`. |
+| **What is the best way to use ERC-7857 here?** | For the agent's private strategy — never for the artwork. It lives in the token itself, `src/Ipseity.sol`. |
 | **Can Claude control some of our executions?** | Yes, and it already can: `grantSession` on the Reach. Bounded four ways, revocable in one transaction. |
 | **Can Claude render a live GUI for it?** | Not literally, and the reason is a feature. What it can do is write the state the GUI already draws. |
 
@@ -60,56 +60,65 @@ built.
 
 ---
 
-## 2 · What was built: `src/Disposition.sol`
+## 2 · What is built: the kernel, in the token
 
-A sidecar keyed by token id. Per token it holds a `commitment`
-(`keccak256` of the ciphertext), a `uri`, the owner it was `sealedTo`, and
-an `attestedBy` that is usually zero.
-
-```
-publish(id, commitment, uri)      holder only; binds to ownerOf(id), not to msg.sender
-attest(id, commitment)            verifier only; must name the exact blob on file
-clear(id)                         holder only
-status(id) → ABSENT|CURRENT|STALE derived, never stored
-```
-
-**The staleness derivation is the interesting part.** There is no transfer
-hook and none is needed:
+Not a sidecar. The mechanism lives in `Ipseity.sol` alongside everything else
+the token is, because a disposition that could be detached from the token is
+not part of what the token is.
 
 ```
-sealedTo == ownerOf(id)  →  CURRENT
-sealedTo != ownerOf(id)  →  STALE
+sealKernel(id, hashes, sealedTo)          holder asserts what the payload hashes to
+transferWithKernel(to, id, proof)         move and re-seal atomically, or refuse
+cloneWithKernel(to, id, proof)            the token reproducing, kernel and all
+authorizeUsage(id, user)                  lend the use without lending the secret
+setVerifier(v)                            once, from zero, never again
+kernelStatus(id) → ABSENT|CURRENT|STALE   derived, never stored
+kernelProved(id)                          did an oracle check this exact re-sealing
 ```
 
-A sale invalidates the disposition **with no gas, no hook, no transaction,
-and no cooperation from the seller**. The buyer reads `status()` before
-they pay and is told, by arithmetic, that what they are buying is a
-pointer that must be re-sealed. A seller cannot dress a stale kernel up as
-a live one, because the only thing they control is the half of the
-comparison that already moved.
+`transferWithKernel` is the shape ERC-7857 is built around: transfer and
+re-encryption in one transaction, gated on a proof the token checks against
+*its own* hashes, so a proof cannot be lifted from another token.
 
-ERC-7857 makes re-encryption atomic with transfer, verified by an oracle.
-Without an oracle you cannot verify that atomically. But you can always
-**refuse to pretend it happened**, and that is strictly better than a
-contract that emits a `Transferred` event over an unverified re-seal.
+### The seam, which is the part worth building
+
+`transferFrom` still exists. It has to — remove it and the token stops being an
+ERC-721, and every marketplace stops working. But an ordinary transfer moves
+the token and leaves the payload encrypted to whoever held it before. Nothing
+is violated. The buyer simply owns a pointer to a ciphertext they cannot open,
+and no event says so.
+
+That is the gap, and it is closed by derivation rather than by an event:
+
+```
+sealedOwner == ownerOf(id)  →  CURRENT
+sealedOwner != ownerOf(id)  →  STALE
+```
+
+No hook, no gas, no transaction, and no cooperation from a seller who would
+rather it went unmentioned — the only half of that comparison a seller
+controls is the one that already moved. It surfaces in the ERC-7496 trait too,
+so a marketplace reading traits is told rather than left to guess.
+
+**Three questions, kept apart.** `sealKernel` is the holder *asserting*
+hashes. `kernelStatus` says the payload was sealed under whoever holds the
+token now. `kernelProved` says a verifier checked that exact re-sealing. A
+client that merges any two of them tells a buyer something nobody established.
 
 ### What was deliberately not built: the verifier
 
-`VERIFIER` is immutable and, in this deployment, **zero**.
-`hasVerifier()` returns false. `isAttested()` returns false for every
-token. `attest()` reverts for everyone including the zero address.
+`verifier` is zero as this collection deploys. `hasVerifier()` says so.
+`kernelProved()` is false for every token, and `transferWithKernel` on a live
+kernel **reverts** rather than waving it through.
 
 A TEE attestation verifier or a ZK circuit is the trust anchor of the whole
-7857 design, and shipping a stub would be worse than shipping nothing —
-it would let a marketplace render a green check next to a claim nobody
-checked. The contract is wired for one (`oracled` in the test suite proves
-the path works end to end) and honest that it does not have one.
+7857 design, and a stub would let a marketplace draw a green check nobody
+earned. It would also be *permanent*: `setVerifier` may be called once, from
+zero, and never again. A rotatable verifier is not a verifier — whoever can
+swap it can install one that approves anything, and every kernel in the
+collection becomes a claim about the curator instead of a claim about a proof.
 
-`isCurrent()` and `isAttested()` are two functions on purpose. *Addressed
-to you* and *checked by somebody* are different questions, and the UI must
-never merge them.
-
-35 assertions: `node tools/verify-disposition.mjs`.
+36 assertions: `node tools/verify-kernel.mjs`.
 
 ---
 
@@ -167,7 +176,7 @@ The interesting property is not that the agent is restricted. It is that
 makes the second one safe.**
 
 A buyer cannot read the agent's prompt — that is the point of the
-disposition. But they can read `sessionOf(key)`, `sessionTarget`,
+kernel. But they can read `sessionOf(key)`, `sessionTarget`,
 `sessionSelector`, `sealedUntil`, `manifest()`, and the Grip's
 `holdings()`. So they can compute the worst case over *every possible
 prompt*: the agent's authority is a fixed, enumerable set of doors, and no
@@ -188,10 +197,10 @@ The MCP server would expose roughly four tools:
 
 | tool | does |
 |---|---|
-| `ipseity_read` | `status(id)`, `market(id)`, `holdings()`, `sessionAllows(...)` — all `eth_call`, no key touched |
+| `ipseity_read` | `kernelStatus(id)`, `market(id)`, `holdings()`, `sessionAllows(...)` — all `eth_call`, no key touched |
 | `ipseity_propose` | build calldata + simulate it, return the decoded effect. **Never sends.** |
 | `ipseity_act` | send a previously-proposed call through `executeAsSession` |
-| `ipseity_kernel` | fetch the ciphertext at `uri`, check it against `commitment`, decrypt, return the strategy as context |
+| `ipseity_kernel` | fetch the payload, check it against `dataHashesOf(id)`, decrypt, return the strategy as context — and refuse outright if `kernelStatus` is not CURRENT |
 
 Two properties matter more than the tool list. **`propose` and `act` are
 separate**, so the model's reasoning happens over a simulated result rather
@@ -225,7 +234,7 @@ So Claude does not render the GUI. What it does instead:
 
 The engine reads its entire world from `window.IPSE`, injected at render
 time from chain state. So when an agent commits a section word, syncs a
-curve, publishes a disposition or grants a key, the artwork shows it on the
+curve, re-seals a kernel or grants a key, the artwork shows it on the
 next render — the rotation changes, the concentration of the pricing curve
 visibly tightens, the vault panel updates. Nothing was streamed. The
 picture changed because the chain changed.
@@ -251,22 +260,23 @@ Written here rather than left for someone to find.
 **The seller does not forget.** Re-sealing gives the buyer the secret.
 Nothing on any chain takes it back from whoever held it first. This is a
 limitation of ERC-7857 itself, not of this implementation, and no oracle
-fixes it. A disposition is worth buying when its value is *use going
-forward*, and worth nothing when its value is *exclusivity*.
+fixes it. A kernel is worth buying when its value is *use going forward*, and worth
+nothing when its value is *exclusivity*.
 
-**An unattested kernel is an unverified kernel.** With `VERIFIER == 0`, a
-buyer must fetch the ciphertext, hash it, compare against `commitment`, and
-decrypt it themselves before paying. The contract makes that possible and
-does not make it unnecessary.
+**An unproved kernel is an unverified kernel.** With no verifier, a buyer
+must fetch the payload, hash it, compare against `dataHashesOf`, and decrypt
+it themselves before paying. The contract makes that possible and does not
+make it unnecessary.
 
 **A session key is a hot key.** Its bounds hold if it is stolen — that is
 the design — but everything inside those bounds is gone. Set `spendCap`
 and `expires` to numbers you would be willing to lose outright, and grant
 targets one at a time.
 
-**The disposition's `uri` can rot.** The commitment is permanent; the blob
-is not. If the ciphertext disappears, the token still says what it
-committed to and can no longer prove what that was. Pin it.
+**A kernel names its payload and does not store it.** The hashes are
+permanent; whatever they hash to is not. If the payload disappears, the
+token still states what it committed to and can no longer demonstrate what
+that was. Pin it.
 
 **Nothing here has been audited**, and `forge test` has never run in this
 environment — see the end of `INVARIANTS.md`.

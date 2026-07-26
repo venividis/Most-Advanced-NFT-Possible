@@ -9,7 +9,6 @@ import {Renderer} from "../src/Renderer.sol";
 import {Ipseity, IRenderer} from "../src/Ipseity.sol";
 import {IpseityAccount} from "../src/IpseityAccount.sol";
 import {GripVault} from "../src/GripVault.sol";
-import {Disposition, IERC721Min} from "../src/Disposition.sol";
 
 /*───────────────────────────────────────────────────────────────────────────
   Deploying IPSEITY
@@ -61,13 +60,6 @@ contract Deploy is Script {
             IRenderer(address(renderer)), address(reachImpl), address(gripImpl)
         );
 
-        // the private half. VERIFIER is zero deliberately: this deployment
-        // ships no TEE attestation and no ZK circuit, so isAttested() is
-        // false for every token and says so rather than implying otherwise.
-        // See AGENT.md.
-        Disposition disposition =
-            new Disposition(IERC721Min(address(token)), address(0));
-
         for (uint256 i; i < headCount; ++i) {
             engine.loadHead(plan.readBytes(string.concat(".head[", vm.toString(i), "].data")));
         }
@@ -86,7 +78,6 @@ contract Deploy is Script {
         console.log("Ipseity       ", address(token));
         console.log("Reach impl    ", address(reachImpl));
         console.log("Grip impl     ", address(gripImpl));
-        console.log("Disposition   ", address(disposition));
         console.log("");
         console.log("head bytes    ", h);
         console.log("body bytes    ", b);

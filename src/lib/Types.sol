@@ -67,6 +67,12 @@ struct TokenView {
     address collection;
     address boundAccount;   // the Reach — the hand that acts
     address grip;           // the Grip — the hand that only closes
+    /// @dev The two implementations, so the instrument can re-derive both
+    ///      addresses by CREATE2 rather than take this contract's word for
+    ///      them. A viewer that only reads what it is handed cannot tell a
+    ///      correct answer from a convenient one.
+    address reachImpl;
+    address gripImpl;
     address pool;
     uint32  ops;
     uint32  strata;
@@ -74,5 +80,8 @@ struct TokenView {
     uint16  open;
     uint64  mintBlock;
     bool    locked;
-    bool    hasKernel;
+    /// @dev 0 absent · 1 current · 2 stale. Not a bool, because "there is a
+    ///      kernel" and "it is sealed to whoever holds this token" are
+    ///      different facts and a buyer needs the second one.
+    uint8   kernel;
 }

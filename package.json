@@ -10,11 +10,11 @@
     "build": "node tools/build-engine.mjs",
     "verify": "node tools/verify.mjs",
     "preview": "node tools/preview.mjs",
-    "check": "node tools/glsl-check.mjs && node tools/selftest.mjs && node tools/build-engine.mjs && node tools/verify.mjs && node tools/verify-pool.mjs && node tools/verify-vault.mjs && node tools/verify-disposition.mjs && node tools/verify-timelock.mjs",
+    "check": "node tools/glsl-check.mjs && node tools/selftest.mjs && node tools/build-engine.mjs && node tools/verify.mjs && node tools/verify-pool.mjs && node tools/verify-vault.mjs && node tools/verify-kernel.mjs && node tools/verify-timelock.mjs",
     "verify:pool": "node tools/verify-pool.mjs",
     "verify:timelock": "node tools/verify-timelock.mjs",
     "verify:vault": "node tools/verify-vault.mjs",
-    "verify:disposition": "node tools/verify-disposition.mjs"
+    "verify:kernel": "node tools/verify-kernel.mjs"
   },
   "dependencies": {
     "@ethereumjs/common": "^10.1.2",

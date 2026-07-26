@@ -429,7 +429,7 @@ const MODULES = [
   { id:"SCAN",   name:"Scan",    ring:1, key:"8",
     blurb:"Interrogate the chain. Block, fees, balances, deployed bytecode, arbitrary storage slots at any address." },
   { id:"VAULT",  name:"Vault",   ring:1, key:"9",
-    blurb:"The ERC-6551 account bound to this token — derived here by CREATE2 from the registry, not asked for. Anything this address holds is held by the token itself, and travels with it." },
+    blurb:"Two ERC-6551 accounts, at two salts, both derived here by CREATE2 rather than asked for. The Reach acts and can be emptied by its holder. The Grip receives and has no function that spends — what it holds, it holds forever. Both travel with the token." },
   { id:"MINT",   name:"Issue",   ring:1, key:"0",
     blurb:"The token issues its siblings. Minting from inside one token draws the next from the same contract, seeded by the block that carried the call." },
   { id:"MARKET", name:"Market",  ring:1, key:"m",
@@ -1171,7 +1171,7 @@ function updateCam(dt){
   basis = { eye, fwd, right, up: V.cross(right, fwd) };
 }
 
-/* the eleven instruments, hung on two counter-tilted shells */
+/* the twelve instruments, hung on two counter-tilted shells */
 const nodes = MODULES.map((m, i) => ({ ...m, i, pos: [0, 0, 0], st: 0 }));
 function placeNodes(time){
   const shell = (list, rad, tilt, spin, phase) => list.forEach((n, k) => {
@@ -1923,7 +1923,13 @@ async function requireChain(){
   showing what it is asking for is not an instrument, it is a trap.
 ───────────────────────────────────────────────────────────────────────────*/
 const REG_6551  = "0x000000006551c19487814612e58FE06813775758";
-const IMPL_6551 = "0x55266d75D1a14E4572138116aF39863Ed6596E7F";
+/* Two implementations, two salts, two accounts per token. Handed over in
+   IPSE rather than hardcoded, because this collection ships its own —
+   pinning the reference implementation here would derive an address the
+   token does not use. The GRIP salt is keccak("IPSEITY.GRIP.v1"), computed
+   below by this page's own keccak rather than pasted in. */
+const REACH_IMPL = String(S.reachImpl || "0x0000000000000000000000000000000000000000");
+const GRIP_IMPL  = String(S.gripImpl  || "0x0000000000000000000000000000000000000000");
 
 function splitWords(data){
   const h = String(data).replace(/^0x/, "");
@@ -2075,20 +2081,37 @@ function domainSeparator(domain){
 const digest712 = (domain, primary, message, types) =>
   kbytes("0x1901" + pad(domainSeparator(domain)) + pad(hashStruct(primary, message, types)));
 
-/*── ERC-6551: the token's own account, derived rather than requested ──*/
-function account6551(){
+/*── ERC-6551: the token's two accounts, derived rather than requested ──*/
+const REACH_SALT = pad("0");
+const GRIP_SALT  = khex("IPSEITY.GRIP.v1").slice(2);
+
+function derive6551(impl, salt){
   /* ERC-1167 minimal proxy with the 6551 footer, hashed per the registry's
      CREATE2 derivation: salt · chainId · tokenContract · tokenId          */
-  const impl = IMPL_6551.slice(2).toLowerCase();
-  const code = "0x3d60ad80600a3d3981f3363d3d373d3d3d363d73" + impl +
+  const code = "0x3d60ad80600a3d3981f3363d3d373d3d3d363d73" + impl.slice(2).toLowerCase() +
                "5af43d82803e903d91602b57fd5bf3" +
-               pad("0") +                                    // salt
+               salt +
                pad(BigInt(S.chainId).toString(16)) +
                pad(String(S.collection).slice(2).toLowerCase()) +
                pad(BigInt(S.id).toString(16));
   const h = kbytes(code);
-  const create2 = "0xff" + REG_6551.slice(2).toLowerCase() + pad("0") + h.slice(2);
+  const create2 = "0xff" + REG_6551.slice(2).toLowerCase() + salt + h.slice(2);
   return checksum("0x" + kbytes(create2).slice(-40));
+}
+
+/* The Reach — the hand that acts. */
+function account6551(){ return derive6551(REACH_IMPL, REACH_SALT); }
+
+/* The Grip — the hand that only closes. */
+function grip6551(){ return derive6551(GRIP_IMPL, GRIP_SALT); }
+
+/* Whether the address derived in this frame is the address the contract
+   reports. It should never disagree; the point of asking is that a viewer
+   which only reads what it is handed cannot tell a correct answer from a
+   convenient one. */
+function agrees(derived, reported){
+  return /^0x[0-9a-fA-F]{40}$/.test(String(reported || "")) &&
+         String(derived).toLowerCase() === String(reported).toLowerCase();
 }
 
 /*───────────────────────────────────────────────────────────────────────────
@@ -2216,7 +2239,7 @@ const txOpen = guard(async i => {
 });
 
 /*───────────────────────────────────────────────────────────────────────────
- 11 · THE ELEVEN
+ 11 · THE TWELVE
 ───────────────────────────────────────────────────────────────────────────*/
 const BUILD = {};
 
@@ -2227,7 +2250,9 @@ BUILD.SELF = m => {
     kv("Contract", '<a href="' + (chainOf(S.chainId).ex || "#") + "/address/" + S.collection +
        '" target="_blank" rel="noreferrer" style="color:var(--a)">' + short(S.collection) + "</a>") +
     kv("Held by", short(S.owner), "u-owner") +
-    kv("Bound account", short(account6551()), "u-acct") +
+    kv("Reach", short(account6551()), "u-acct") +
+    kv("Grip", short(grip6551()), "u-grip") +
+    kv("Kernel", "—", "u-kernel") +
     kv("Solid", FORMS[C.form].n + " · " + FORMS[C.form].g) +
     kv("Section w", fmt(u16ToW(S.w))) +
     kv("Operations", S.ops, "u-ops") +
@@ -2239,7 +2264,23 @@ BUILD.SELF = m => {
     '<div class="k">This solid</div><p class="s" style="margin:6px 0 0;color:var(--mid)">' +
       esc(FORMS[C.form].d) + '</p>' +
     '<button class="b g" id="u-read">Read the contract again</button>', m.i,
-    () => { $("#u-read").onclick = () => refresh(true); refresh(true); });
+    () => {
+      $("#u-read").onclick = () => refresh(true);
+      /* Three words rather than a tick, because "there is a kernel", "it is
+         sealed to whoever holds this token", and "somebody checked it" are
+         three different facts and only the last one is a promise. */
+      guard(async () => {
+        const [st, pr] = await Promise.all([
+          readSig(S.collection, "kernelStatus(uint256)", [S.id]).then(h => Number(decUint(h))).catch(() => 0),
+          readSig(S.collection, "kernelProved(uint256)", [S.id]).then(h => decUint(h) !== 0n).catch(() => false)
+        ]);
+        $("#u-kernel").textContent =
+          st === 0 ? "none" :
+          st === 1 ? (pr ? "current · proved" : "current · unproved") :
+                     "STALE — sealed to a previous holder";
+      })();
+      refresh(true);
+    });
 };
 
 BUILD.ROTATE = m => {
@@ -2539,49 +2580,166 @@ BUILD.SCAN = m => {
 };
 
 BUILD.VAULT = m => {
-  const acct = account6551();
+  const reach = account6551(), grip = grip6551();
+  const okReach = agrees(reach, S.account), okGrip = agrees(grip, S.grip);
+  const link = (a) => '<a href="' + (chainOf(S.chainId).ex || "#") + "/address/" + a +
+    '" target="_blank" rel="noreferrer" style="color:var(--a)">' + esc(a) + "</a>";
+
   panel(m.name,
     '<div class="blurb">' + esc(m.blurb) + '</div>' +
-    kv("Address", '<a href="' + (chainOf(S.chainId).ex || "#") + "/address/" + acct +
-       '" target="_blank" rel="noreferrer" style="color:var(--a)">' + esc(acct) + "</a>") +
-    kv("Registry", short(REG_6551)) +
+
+    '<div class="k">The Reach — the hand that acts</div>' +
+    kv("Address", link(reach)) +
     kv("Deployed", "—", "v-code") +
     kv("Balance", "—", "v-bal") +
-    '<p class="s" style="margin:12px 0;color:var(--mid)">This address was not looked up. It was ' +
-    'derived here from the registry, the implementation, this chain, this contract and this token id, ' +
-    'by the same CREATE2 the registry itself uses. It is the token’s address whether or not anything ' +
-    'has ever been deployed to it.</p>' +
-    '<button class="b" id="v-make">Bring the account into being</button>' +
+    kv("Sealed until", "—", "v-seal") +
+    '<p class="s" style="margin:10px 0;color:var(--mid)">Trades, claims, signs. Its holder ' +
+    'can empty it whenever it is not sealed — and while it is, every call is measured: nothing ' +
+    'on its manifest may be smaller after a call than before it, whatever the call was.</p>' +
+    '<button class="b" id="v-make">Bring the Reach into being</button>' +
+
+    '<hr><div class="k">The Grip — the hand that only closes</div>' +
+    kv("Address", link(grip)) +
+    kv("Deployed", "—", "g-code") +
+    kv("Balance", "—", "g-bal") +
+    '<p class="s" style="margin:10px 0;color:var(--mid)">Receives and never spends. There is no ' +
+    '<em>execute</em>, no withdraw, no sweep, no rescue, no admin — not for you, not for anyone, ' +
+    'ever. What it holds is a floor a buyer can price, because no one has a function with which ' +
+    'to move it. <b style="color:var(--w)">Anything sent here is here permanently.</b></p>' +
+    '<button class="b" id="g-make">Bring the Grip into being</button>' +
+
+    '<hr><div class="k">Derived here, not asked for</div>' +
+    '<p class="s" style="margin:8px 0;color:var(--mid)">Both addresses were computed in this ' +
+    'frame by the same CREATE2 the registry itself uses — registry, implementation, chain, ' +
+    'contract, token id — and then checked against what the contract reports. They are the ' +
+    'token’s addresses whether or not anything has ever been deployed to them.</p>' +
+    kv("Registry", short(REG_6551)) +
+    kv("Reach agrees", okReach ? "yes" : (S.account ? "NO" : "not reported")) +
+    kv("Grip agrees",  okGrip  ? "yes" : (S.grip    ? "NO" : "not reported")) +
+
     '<hr><div class="k">Act as the token</div>' +
+    '<p class="s" style="margin:8px 0;color:var(--mid)">Through the Reach. The Grip has no ' +
+    'such function to call.</p>' +
     fld("Target", "v-to", "0x…") + fld("Value", "v-val", "0") +
     fld("Calldata", "v-data", "0x") +
-    '<button class="b" id="v-exec">Execute from the token</button>', m.i, () => {
+    '<button class="b" id="v-exec">Execute from the Reach</button>' +
+
+    '<hr><div class="k">Send into the Grip</div>' +
+    fld("Amount", "g-val", "0") +
+    '<button class="b" id="g-send">Send — permanently</button>' +
+
+    '<hr><div class="k">Hand a bounded key to something that is not you</div>' +
+    '<p class="s" style="margin:8px 0;color:var(--mid)">A bot, a keeper, a model. It acts ' +
+    'through the Reach without holding the token, inside four bounds it cannot widen — and it ' +
+    'cannot call the Reach itself, cannot approve a spender you did not name, and has no way ' +
+    'to the Grip, because the Grip has no function that spends. You revoke in one transaction, ' +
+    'with no notice.</p>' +
+    fld("Key", "s-key", "0x…") +
+    fld("Expires in (days)", "s-days", "7") +
+    fld("Spend cap", "s-cap", "0") +
+    fld("Target it may call", "s-tgt", "0x…") +
+    fld("Signature it may call", "s-sel", "transfer(address,uint256)") +
+    kv("Selector", "—", "s-selhex") +
+    '<button class="b" id="s-grant">Grant the key</button>' +
+    '<button class="b g" id="s-revoke">Revoke it</button>', m.i, () => {
+
       const look = guard(async () => {
-        const [c, b] = await Promise.all([
-          rpc("eth_getCode", [acct, "latest"]).catch(() => "0x"),
-          rpc("eth_getBalance", [acct, "latest"]).catch(() => "0x0")
+        const [c1, b1, c2, b2] = await Promise.all([
+          rpc("eth_getCode",    [reach, "latest"]).catch(() => "0x"),
+          rpc("eth_getBalance", [reach, "latest"]).catch(() => "0x0"),
+          rpc("eth_getCode",    [grip,  "latest"]).catch(() => "0x"),
+          rpc("eth_getBalance", [grip,  "latest"]).catch(() => "0x0")
         ]);
-        const live = String(c).length > 2;
-        $("#v-code").textContent = live ? "yes · " + ((String(c).length - 2) / 2) + " bytes" : "not yet";
-        $("#v-bal").textContent = fmtUnits(BigInt(b)) + " " + chainOf(S.chainId).s;
-        $("#v-make").disabled = live;
-        if(live) $("#v-make").textContent = "The account exists";
+        const live1 = String(c1).length > 2, live2 = String(c2).length > 2;
+        $("#v-code").textContent = live1 ? "yes · " + ((String(c1).length - 2) / 2) + " bytes" : "not yet";
+        $("#g-code").textContent = live2 ? "yes · " + ((String(c2).length - 2) / 2) + " bytes" : "not yet";
+        $("#v-bal").textContent = fmtUnits(BigInt(b1)) + " " + chainOf(S.chainId).s;
+        $("#g-bal").textContent = fmtUnits(BigInt(b2)) + " " + chainOf(S.chainId).s;
+        $("#v-make").disabled = live1; if(live1) $("#v-make").textContent = "The Reach exists";
+        $("#g-make").disabled = live2; if(live2) $("#g-make").textContent = "The Grip exists";
+
+        if(live1){
+          try {
+            const u = Number(decUint(await readSig(reach, "sealedUntil()")));
+            const now = Math.floor(Date.now() / 1000);
+            $("#v-seal").textContent = u === 0 ? "not sealed"
+              : (u > now ? new Date(u * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC"
+                         : "expired");
+          } catch { $("#v-seal").textContent = "—"; }
+        }
       });
-      $("#v-make").onclick = guard(async () => {
+
+      const embody = (sig, plain) => guard(async () => {
         await needWallet();
-        const { data, sig, types } = encodeCall("embody(uint256)", [S.id]);
-        propose({ to: S.collection, data, sig, types, value: 0n,
-          plain: "Deploy the account bound to this token. Afterwards the token can hold assets and sign for itself.",
-          then: look });
+        const { data, sig: s, types } = encodeCall(sig, [S.id]);
+        propose({ to: S.collection, data, sig: s, types, value: 0n, plain, then: look });
       });
+      $("#v-make").onclick = embody("embody(uint256)",
+        "Deploy the Reach — the account this token acts through.");
+      $("#g-make").onclick = embody("embodyGrip(uint256)",
+        "Deploy the Grip — the account this token can receive into and never spend from.");
+
       $("#v-exec").onclick = guard(async () => {
         await needWallet(); needOwner();
         const to = val("v-to"); if(!isAddr(to)) throw new Error("That is not an address.");
         const { data, sig, types } = encodeCall("execute(address,uint256,bytes,uint8)",
           [checksum(to), toUnits(val("v-val") || "0").toString(), val("v-data") || "0x", 0]);
-        propose({ to: acct, data, sig, types, value: 0n,
-          plain: "The token calls " + short(to) + " itself. The sender on chain will be the token's account, not you." });
+        propose({ to: reach, data, sig, types, value: 0n,
+          plain: "The token calls " + short(to) + " itself. The sender on chain will be the token's Reach, not you." });
       });
+
+      $("#g-send").onclick = guard(async () => {
+        await needWallet();
+        const v = toUnits(val("g-val") || "0");
+        if(v <= 0n) throw new Error("Nothing to send.");
+        /* said before the calldata is built rather than after, because the
+           thing being warned about cannot be undone afterwards */
+        if(!confirm("Send " + fmtUnits(v) + " " + chainOf(S.chainId).s + " into the Grip?\n\n" +
+                    "There is no function on that contract that can move it out again — not for " +
+                    "you, not for a future owner, not for the collection. This is permanent."))
+          return;
+        propose({ to: grip, data: "0x", sig: "(plain transfer)", types: [], value: v,
+          plain: "Send " + fmtUnits(v) + " " + chainOf(S.chainId).s + " into the token's Grip. It can never leave.",
+          then: look });
+      });
+
+      /* the selector is hashed here, in front of you, before anything is
+         signed — the same keccak the contract will run */
+      const showSel = () => {
+        const s = val("s-sel").trim();
+        try { $("#s-selhex").textContent = s ? selector(s) : "—"; }
+        catch { $("#s-selhex").textContent = "—"; }
+      };
+      $("#s-sel").addEventListener("input", showSel); showSel();
+
+      $("#s-grant").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const key = val("s-key"), tgt = val("s-tgt");
+        if(!isAddr(key)) throw new Error("That key is not an address.");
+        if(!isAddr(tgt)) throw new Error("That target is not an address.");
+        if(checksum(tgt).toLowerCase() === reach.toLowerCase())
+          throw new Error("The Reach cannot be its own session's target — the contract refuses " +
+                          "this too, because a key allowed to call the account can grant itself more.");
+        const days = Math.max(0, Math.floor(Number(val("s-days") || "0")));
+        const expires = (Math.floor(Date.now() / 1000) + days * 86400).toString();
+        const { data, sig, types } = encodeCall(
+          "grantSession(address,uint64,uint128,address[],bytes4[])",
+          [checksum(key), expires, toUnits(val("s-cap") || "0").toString(),
+           [checksum(tgt)], [selector(val("s-sel").trim())]]);
+        propose({ to: reach, data, sig, types, value: 0n,
+          plain: short(key) + " may call " + short(tgt) + " — that one function, nothing else — " +
+                 "for " + days + " days, spending at most " + (val("s-cap") || "0") + " " +
+                 chainOf(S.chainId).s + " in total. It cannot widen any of those." });
+      });
+
+      $("#s-revoke").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const key = val("s-key"); if(!isAddr(key)) throw new Error("That key is not an address.");
+        const { data, sig, types } = encodeCall("revokeSession(address)", [checksum(key)]);
+        propose({ to: reach, data, sig, types, value: 0n,
+          plain: short(key) + " stops being able to act as this token, the moment this lands." });
+      });
+
       look();
     });
 };

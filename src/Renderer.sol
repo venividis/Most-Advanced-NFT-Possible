@@ -96,6 +96,8 @@ contract Renderer {
             ',owner:"', LibNum.hexAddr(v.owner),
             '",account:"', LibNum.hexAddr(v.boundAccount),
             '",grip:"', LibNum.hexAddr(v.grip),
+            '",reachImpl:"', LibNum.hexAddr(v.reachImpl),
+            '",gripImpl:"', LibNum.hexAddr(v.gripImpl),
             '",pool:"', LibNum.hexAddr(v.pool),
             '",seed:"', LibNum.hex32(v.seed), '"'
         );
@@ -211,11 +213,22 @@ contract Renderer {
               ',', _num("Operations", uint256(v.ops)),
               ',', _num("Transfers", uint256(v.xfers)),
               ',', _numMax("Nodes open", _popcount(v.open), 12),
-              ',', _trait("Bound account", LibNum.hexAddr(v.boundAccount)),
+              ',', _trait("Reach", LibNum.hexAddr(v.boundAccount)),
+              ',', _trait("Grip", LibNum.hexAddr(v.grip)),
               ',', _trait("Bound", v.locked ? "yes" : "no"),
-              ',', _trait("Kernel", v.hasKernel ? "sealed" : "none"),
+              // "sealed" would have been a lie on a kernel the token has
+              // already outrun: a plain transfer leaves the payload
+              // encrypted to whoever held it before, and a buyer reading a
+              // marketplace trait is exactly who needs told
+              ',', _trait("Kernel", _kernelWord(v.kernel)),
             ']'
         );
+    }
+
+    function _kernelWord(uint8 k) private pure returns (string memory) {
+        if (k == 0) return "none";
+        if (k == 1) return "current";
+        return "stale";
     }
 
     /// @dev How far the solid has been turned out of the holder's own

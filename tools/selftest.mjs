@@ -130,6 +130,25 @@ eq("uint256[] array",
    "0000000000000000000000000000000000000000000000000000000000000002" +
    "0000000000000000000000000000000000000000000000000000000000000001" +
    "0000000000000000000000000000000000000000000000000000000000000002");
+/* the session grant is the one call the instrument builds with two arrays
+   and a left-aligned bytes4 in it, so it is checked against a hand-written
+   expectation rather than trusted to the encoder that produced it */
+eq("address[] and bytes4[] together, as grantSession needs them",
+   X.encodeParams(["address[]", "bytes4[]"],
+     [["0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"], ["0xa9059cbb"]]),
+   "0000000000000000000000000000000000000000000000000000000000000040" +
+   "0000000000000000000000000000000000000000000000000000000000000080" +
+   "0000000000000000000000000000000000000000000000000000000000000001" +
+   "0000000000000000000000005aaeb6053f3e94c9b9a09f33669435e7ef1beaed" +
+   "0000000000000000000000000000000000000000000000000000000000000001" +
+   "a9059cbb".padEnd(64, "0"));
+eq("a fixed-size bytesN is left-aligned, unlike everything else",
+   X.encodeParams(["bytes4"], ["0xa9059cbb"]), "a9059cbb".padEnd(64, "0"));
+eq("grantSession's selector",
+   X.encodeCall("grantSession(address,uint64,uint128,address[],bytes4[])",
+     ["0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", 0, 0, [], []]).data.slice(0, 10),
+   X.selector("grantSession(address,uint64,uint128,address[],bytes4[])"));
+
 eq("signature is canonicalised before hashing",
    X.encodeCall("transfer( address , uint256 )", ["0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", 1]).data.slice(0, 10),
    "0xa9059cbb");
