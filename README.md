@@ -133,7 +133,7 @@ no flash loans.
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists fifty-four such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists fifty-six such
 statements and names the test for each, plus twelve known limitations that are
 documented rather than defended.
 
@@ -322,15 +322,18 @@ watch.
 
 ### What was deliberately not taken from it
 
-**The Premises architecture** — ERC-5219, ERC-4804/6860, ERC-5018, ERC-7087,
-SHA-256 chunk integrity, three-transport loading. All of it is a good answer to
-a problem this collection does not have. A contract that answers HTTP is a
-better origin server than a hostname in bytecode, but it is still a worse
-answer than *no server*, and the artwork here is already a self-contained
-`data:` URI. Adding it would introduce a network dependency to remove a network
-dependency. The chunk-integrity design is elegant precisely because bytes
-arrive over a wire; nothing here arrives over a wire, so there is nothing to
+**Serving the artwork over a wire** — the chunked file store, the SHA-256
+integrity manifest, the multi-transport loader, the compression codec. All of
+that solves shipping a large application over a network and proving it arrived
+intact. The artwork here does not travel over a network: it is a self-contained
+`data:` URI out of contract code. Adding an origin server to remove a hostname
+is a step backwards, and the chunk-integrity design is elegant precisely
+*because* bytes arrive over a wire. Nothing here does, so there is nothing to
 verify.
+
+**ERC-5018 and ERC-7087** — a filesystem interface and MIME negotiation for a
+contract that serves three routes and one content type each. Standards earn
+their bytes by being consumed.
 
 **ERC-7066 lienholder locks.** ERC-5192 is already here and `locked()` is the
 part marketplaces read. ERC-7066 adds a third-party locker for lending against
@@ -353,6 +356,41 @@ would remove a real function to make a point that does not apply.
 
 **ERC-2309, ERC-721A, the royalty splitter doctrine.** No batch mint, a
 different base, and no 69/31 split to obey.
+
+## The front door
+
+Every token is already a website — `tokenURI` hands back a WebGL2 engine, a
+keccak, an ABI coder and a wallet client, out of contract code, fetching
+nothing. What was missing was somewhere to send a person who does not own one
+yet.
+
+`src/Premises.sol` is an **ERC-5219** contract: `request(resource, params)`
+returns a status code, a body and headers. An **ERC-4804 / ERC-6860** client
+reaches it with no DNS and no server —
+
+```
+web3://<premises>/               the index
+web3://<premises>/token/42       one token
+web3://<premises>/token/42/raw   that token's tokenURI, plain
+```
+
+— and an ENS `contenthash` makes that a name. An HTTP gateway is a convenience
+for everyone else, and a convenience is exactly what it should be.
+
+**The constraint is the design.** Premises never serves the artwork. It serves
+a document that *names* it, emitting the token's own `data:` URI read from the
+hub at request time. The suite asserts that byte for byte: what the page hands
+a viewer equals `tokenURI(id)` exactly, and the contract's deployed code
+contains none of the document. So an attacker who owned this contract would own
+a page that links to the artwork and could not alter one byte of it — and if it
+is never deployed, or deployed and abandoned, every token renders identically.
+
+That is the difference between a front door and infrastructure, and it is why
+this one is safe to have where a hostname in immutable bytecode is not. It has
+no state-changing function at all, and a request for nonsense is a 404 rather
+than a revert.
+
+---
 
 ### What was deliberately not taken from the Dave Held core
 
@@ -608,6 +646,7 @@ src/
   Renderer.sol          tokenURI, the three faces, the JSON
   Sigil.sol             the 4D projector, in Solidity
   Pool.sol              every token as its own exchange
+  Premises.sol          the front door: ERC-5219, holds none of the artwork
   IpseityAccount.sol    the Reach — the ERC-6551 vault, sealable and measured
   GripVault.sol         the Grip — the second account, which cannot spend
   lib/                  SSTORE2, Base64, Trig, Curve, Timelock, the section word
@@ -620,6 +659,7 @@ tools/
   verify-pool.mjs       try to break the market on a real EVM
   verify-vault.mjs      try to drain a sealed vault, and to widen a session key
   verify-kernel.mjs     try to lie to a buyer about a sealed kernel
+  verify-premises.mjs   prove the index cannot touch the artwork
   verify-timelock.mjs   try to escape the delay
   fuzz.mjs              the stated properties, under seeded random attack
   preview.mjs           dist/preview.html
@@ -637,8 +677,9 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 
 `glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `verify.mjs` in
 both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62), `verify-vault.mjs`
-(86), `verify-kernel.mjs` (36), `verify-timelock.mjs` (24) and `fuzz.mjs` (14
-properties) were executed in this environment — 385 assertions plus the property run —
+(86), `verify-kernel.mjs` (36), `verify-premises.mjs` (25), `verify-timelock.mjs` (24)
+and `fuzz.mjs` (14
+properties) were executed in this environment — 410 assertions plus the property run —
 and every number in this document comes from those runs.
 
 `forge test` was **not** executed: Foundry's installer is unreachable from this

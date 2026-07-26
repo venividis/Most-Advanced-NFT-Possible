@@ -9,6 +9,7 @@ import {Renderer} from "../src/Renderer.sol";
 import {Ipseity, IRenderer} from "../src/Ipseity.sol";
 import {IpseityAccount} from "../src/IpseityAccount.sol";
 import {GripVault} from "../src/GripVault.sol";
+import {Premises, IIpseityIndex} from "../src/Premises.sol";
 
 /*───────────────────────────────────────────────────────────────────────────
   Deploying IPSEITY
@@ -60,6 +61,11 @@ contract Deploy is Script {
             IRenderer(address(renderer)), address(reachImpl), address(gripImpl)
         );
 
+        // the front door. Deliberately last and deliberately optional: it
+        // holds none of the artwork, so the collection is complete without
+        // it and every token renders identically if it is never deployed.
+        Premises premises = new Premises(IIpseityIndex(address(token)));
+
         for (uint256 i; i < headCount; ++i) {
             engine.loadHead(plan.readBytes(string.concat(".head[", vm.toString(i), "].data")));
         }
@@ -78,6 +84,7 @@ contract Deploy is Script {
         console.log("Ipseity       ", address(token));
         console.log("Reach impl    ", address(reachImpl));
         console.log("Grip impl     ", address(gripImpl));
+        console.log("Premises      ", address(premises));
         console.log("");
         console.log("head bytes    ", h);
         console.log("body bytes    ", b);

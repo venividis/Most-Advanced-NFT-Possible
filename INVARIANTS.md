@@ -55,6 +55,25 @@ derivation carried inside the engine match published vectors.
 
 ---
 
+## The front door
+
+**9b. The index cannot touch the artwork.**
+`Premises.request` emits the token's own `data:` URI, read from the hub at
+request time, and what the page hands a viewer equals `tokenURI(id)` byte for
+byte. The contract's deployed code contains none of the document, and it has no
+state-changing function at all. So an attacker holding this contract holds a
+page that links to the artwork and cannot alter one byte of it, and every token
+renders identically whether it exists, is abandoned, or is replaced.
+→ `tools/verify-premises.mjs` · *"what the page hands you is the token's own bytes"*, *"it holds none of the artwork's bytes"*
+
+**9c. A request for nonsense is answered, not reverted.**
+A missing token, a non-numeric path segment, an undefined route and an empty
+segment all return 404 with a document. A client asking for something that does
+not exist deserves an answer rather than a failed `eth_call`.
+→ `tools/verify-premises.mjs` · *"a request for nonsense is a 404, never a revert"*
+
+---
+
 ## Custody
 
 **10. `locked()` and `isTransferable()` never disagree.**
