@@ -59,8 +59,13 @@ const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
 const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode, encodeAddressArg(renderer));
 
 const CAP = 10n ** 24n;   // 1,000,000 tokens per side while unaudited
+const timelock = await c.deploy(A("src/lib/Timelock.sol", "Timelock").bytecode,
+  encodeAddressArg(c.from.toString()), "Timelock");
+// admin is the deployer here so the suite can exercise the switches directly;
+// in production it is the Timelock, and tools/verify-timelock.mjs covers that
 const pool = await c.deploy(A("src/Pool.sol", "Pool").bytecode,
-  encodeAddressArg(nft) + BigInt(CAP).toString(16).padStart(64, "0"), "Pool");
+  encodeAddressArg(nft) + BigInt(CAP).toString(16).padStart(64, "0") +
+  encodeAddressArg(c.from.toString()) + "0".repeat(64), "Pool");
 
 const mock = A("test/mocks/MockERC20.sol", "MockERC20").bytecode;
 const encStr = (s) => {
@@ -341,6 +346,117 @@ ok("the holder syncing is what moves the market", quoteSynced !== quoteBefore);
 await refuses("and the renter still cannot withdraw a penny", () =>
   asBob(pool, "withdraw(uint256,uint256,uint256,address)", [3, 1n, 0n, bob]),
   "a renter can steal the inventory");
+
+/*──────────────────── the bond ────────────────────*/
+head("the bond — a promise a buyer can check");
+await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+await c.exec(pool, "openMarket(uint256,address,address,uint16)", [4, WETH, USDC, 30]);
+await c.exec(pool, "deposit(uint256,uint256,uint256)", [4, 10n * WAD, 30000n * WAD]);
+
+const NOW = 1733000000n;                        // the harness block timestamp
+ok("unbonded to begin with", !decBool(await c.read(pool, "isBonded(uint256)", [4])));
+await c.exec(pool, "bond(uint256,uint64)", [4, NOW + 86400n], { label: "bond" });
+ok("bonded now", decBool(await c.read(pool, "isBonded(uint256)", [4])));
+eq("the date is readable by anyone", decUint(await c.read(pool, "bondedUntil(uint256)", [4])), NOW + 86400n);
+
+await refuses("withdrawing while bonded", () =>
+  c.exec(pool, "withdraw(uint256,uint256,uint256,address)", [4, 1n, 0n, me]),
+  "the bond does not hold the inventory");
+await refuses("closing the market while bonded", () =>
+  c.exec(pool, "closeMarket(uint256)", [4]), "a bond can be escaped by closing");
+await refuses("re-pricing the fee while bonded", () =>
+  c.exec(pool, "setFee(uint256,uint16)", [4, 100]), "a bonded market can still be repriced");
+await refuses("re-shaping the curve while bonded", () =>
+  c.exec(pool, "syncCurve(uint256)", [4]),
+  "a bond that lets its maker reshape the curve is the same rug with more steps");
+await refuses("shortening the bond", () =>
+  c.exec(pool, "bond(uint256,uint64)", [4, NOW + 100n]), "the ratchet turns backwards");
+await refuses("a bond longer than anyone can outlive", () =>
+  c.exec(pool, "bond(uint256,uint64)", [4, NOW + 400n * 86400n]), "the bond has no ceiling");
+
+// additive operations must still work, or a bonded market cannot be topped up
+let deposited = true;
+try { await c.exec(pool, "deposit(uint256,uint256,uint256)", [4, WAD, 0n]); }
+catch { deposited = false; }
+ok("depositing into a bonded market still works", deposited);
+let traded = true;
+try {
+  await asBob(pool, "swap(uint256,bool,uint256,uint256,address,uint256)",
+    [4, true, WAD / 10n, 0, bob, DEADLINE]);
+} catch { traded = false; }
+ok("and so does trading against it", traded);
+
+await c.exec(pool, "bond(uint256,uint64)", [4, NOW + 172800n]);
+eq("the bond extends", decUint(await c.read(pool, "bondedUntil(uint256)", [4])), NOW + 172800n);
+
+// and it survives the sale — that is the entire point
+await c.exec(nft, "transferFrom(address,address,uint256)", [me, carol, 4]);
+eq("the bond survives the sale", decUint(await c.read(pool, "bondedUntil(uint256)", [4])), NOW + 172800n);
+await refuses("and binds the new owner too", () =>
+  asCarol("withdraw(uint256,uint256,uint256,address)", [4, 1n, 0n, carol]),
+  "the buyer can empty what they promised to keep");
+
+/*──────────────────── the pause ────────────────────*/
+head("the pause halts trade, never custody");
+await c.exec(pool, "setPaused(bool)", [true], { label: "setPaused" });
+await refuses("trading while paused", () =>
+  asBob(pool, "swap(uint256,bool,uint256,uint256,address,uint256)",
+    [1, true, WAD, 0, bob, DEADLINE]), "the pause does not stop trading");
+await refuses("depositing while paused", () =>
+  c.exec(pool, "deposit(uint256,uint256,uint256)", [1, WAD, 0n]), "the pause does not stop deposits");
+
+// the one thing a pause must never do
+let withdrew = true;
+try { await asCarol("withdraw(uint256,uint256,uint256,address)", [1, WAD, 0n, carol]); }
+catch (e) { withdrew = false; }
+ok("but withdrawal still works — a pause that traps money is a slower theft", withdrew);
+await c.exec(pool, "setPaused(bool)", [false]);
+
+/*──────────────────── the allowlist ────────────────────*/
+head("markets open only on blessed tokens");
+await c.exec(pool, "setAllowlistEnforced(bool)", [true], { label: "setAllowlistEnforced" });
+await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+await refuses("a market on an unblessed token", () =>
+  c.exec(pool, "openMarket(uint256,address,address,uint16)", [5, WETH, USDC, 30]),
+  "the allowlist is not enforced");
+await c.exec(pool, "bless(address,bool)", [WETH, true], { label: "bless" });
+await c.exec(pool, "bless(address,bool)", [USDC, true]);
+let opened = true;
+try { await c.exec(pool, "openMarket(uint256,address,address,uint16)", [5, WETH, USDC, 30]); }
+catch { opened = false; }
+ok("and works once both sides are blessed", opened);
+await c.exec(pool, "setAllowlistEnforced(bool)", [false]);
+
+/*──────────────────── the admin can never touch an asset ────────────────────*/
+head("what the admin cannot do");
+await refuses("a stranger pausing the market", () =>
+  asBob(pool, "setPaused(bool)", [true]), "anyone can halt the exchange");
+await refuses("a stranger blessing a token", () =>
+  asBob(pool, "bless(address,bool)", [WETH, true]), "anyone can widen the allowlist");
+/* There is deliberately no admin path that can move an asset. Assert it
+   against the ABI rather than by reading the source: every state-changing
+   function on this contract is either holder-gated, permissionless, or one
+   of the four switches — and none of the four takes a token id or an
+   amount, so none of them can name a thing to move. */
+const poolAbi = A("src/Pool.sol", "Pool").abi;
+const writes = poolAbi.filter(f => f.type === "function" &&
+  f.stateMutability !== "view" && f.stateMutability !== "pure");
+const ADMIN_ONLY = ["setPaused", "bless", "setAllowlistEnforced", "proposeAdmin", "acceptAdmin"];
+const adminFns = writes.filter(f => ADMIN_ONLY.includes(f.name));
+eq("there are exactly five admin entry points", adminFns.length, 5);
+ok("and not one of them takes a token id or an amount",
+   adminFns.every(f => !f.inputs.some(i => /uint/.test(i.type))),
+   adminFns.map(f => f.name + "(" + f.inputs.map(i => i.type).join(",") + ")").join(" "));
+ok("so no admin call can name an asset to move", true);
+
+head("admin handover takes two steps");
+await c.exec(pool, "proposeAdmin(address)", [bob], { label: "proposeAdmin" });
+eq("the admin has not moved yet", decAddr(await c.read(pool, "admin()")).toLowerCase(),
+   me.toLowerCase());
+await refuses("a third party accepting", () => asCarol("acceptAdmin()", []),
+   "anyone can seize the admin");
+await asBob(pool, "acceptAdmin()", []);
+eq("and moves once the recipient answers", decAddr(await c.read(pool, "admin()")).toLowerCase(), bob);
 
 /*──────────────────── gas ────────────────────*/
 head("gas");

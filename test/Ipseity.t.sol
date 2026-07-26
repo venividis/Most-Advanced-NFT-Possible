@@ -336,11 +336,29 @@ contract IpseityTest is Test {
 
     /*═════════════════ ERC-173 ═════════════════*/
 
-    function test_ownerIsTheCurator() public {
+    /// @dev One-step handover is how collections lose their admin forever:
+    ///      a mistyped address is accepted, emitted and irreversible.
+    function test_ownershipTakesTwoSteps() public {
         assertEq(token.owner(), curator);
+
         token.transferOwnership(alice);
+        assertEq(token.owner(), curator, "the handover took effect on one call");
+
+        vm.prank(bob);
+        vm.expectRevert(Ipseity.NotCurator.selector);
+        token.acceptOwnership();
+
+        vm.prank(alice);
+        token.acceptOwnership();
         assertEq(token.owner(), alice);
         assertEq(token.curator(), alice);
+    }
+
+    function test_ownershipCanBeAbandonedDeliberately() public {
+        token.renounceOwnership();
+        assertEq(token.owner(), address(0));
+        vm.expectRevert(Ipseity.NotCurator.selector);
+        token.setPricing(0, 0);
     }
 
     /*═════════════════ ERC-6551 ═════════════════*/

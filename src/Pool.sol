@@ -73,6 +73,37 @@ interface IERC20 {
   trader sets, checked after the fact. A trader who sets it is unharmed. A
   trader who passes zero has chosen to be.
 
+  ── THE BOND ──
+
+  "Selling the token sells the market" is mechanically true the moment
+  ownerOf changes. It is not, on its own, a promise anyone can rely on: a
+  buyer agrees a price for a token holding inventory, and between the
+  handshake and the settlement the seller withdraws every asset. The buyer
+  gets an empty exchange. Nothing in the accounting is violated.
+
+  So a holder may BOND a market: a timestamp before which no inventory
+  leaves and no term is changed. Taken from the Dave Held core, where a
+  stall bonds to the covenant's seal and "bondUntil never decreases, and
+  no exit path exists while it holds".
+
+  It ratchets. A bond can be extended and never shortened, by anyone,
+  including the holder, including through a transfer. That single property
+  is what makes it worth anything: a buyer reads bondUntil, sees a date,
+  and knows the floor under it cannot move before then — because the only
+  operation the contract offers is one that pushes it further away.
+
+  While bonded, only additive operations are allowed. Deposit, yes. Trade,
+  yes. Withdraw, close, reprice the fee, re-shape the curve: no. A bond
+  that let its maker re-price would promise inventory and deliver a curve
+  that hands it away, which is the same rug with extra steps.
+
+  ── the pause ──
+
+  The admin may halt trading and deposits. It may NEVER halt withdrawal,
+  and there is no path by which it can move or seize an asset. A pause
+  that traps money is not a safety measure, it is a slower theft. The most
+  a compromised admin can do here is stop the market working.
+
   ── this has not been audited ──
 
   It holds other people's money and it has never been reviewed by anyone.
@@ -94,6 +125,8 @@ contract Pool {
     ///      more than this share of the real outgoing reserve.
     uint256 public constant MAX_OUT_BPS = 5_000;      // half the reserve
     uint256 public constant MAX_FEE_BPS = 500;        // 5%
+    /// @dev A bond longer than this is a promise nobody can outlive.
+    uint64  public constant MAX_BOND = 365 days;
     uint256 public constant BPS = 10_000;
 
     struct Market {
@@ -103,6 +136,8 @@ contract Pool {
         uint112 rQuote;
         uint16  feeBps;
         bool    open;
+        /// @dev Ratchet-only. Before this, nothing leaves and no term moves.
+        uint64  bondUntil;
         /// @dev A *copy* of the section word, not a live read of it. See
         ///      syncCurve: the artwork drives the curve, but only when the
         ///      holder says so.
@@ -121,6 +156,11 @@ contract Pool {
     event Withdrawn(uint256 indexed id, uint256 amountBase, uint256 amountQuote);
     event FeeSet(uint256 indexed id, uint16 feeBps);
     event CurveSynced(uint256 indexed id, uint256 word, uint256 concentrationBps);
+    event BondSet(uint256 indexed id, uint64 bondUntil);
+    event PausedSet(bool paused);
+    event Blessed(address indexed token, bool ok);
+    event AllowlistEnforced(bool enforced);
+    event AdminHandover(address indexed from, address indexed to);
     event Swapped(
         uint256 indexed id, address indexed trader, bool baseIn,
         uint256 amountIn, uint256 amountOut, uint112 rBase, uint112 rQuote
@@ -142,6 +182,26 @@ contract Pool {
     error Expired();
     error TransferFailed();
     error Reentrancy();
+    error Bonded(uint64 until);
+    error RatchetOnly();
+    error BondTooLong();
+    error Paused();
+    error NotAdmin();
+    error NotBlessed(address token);
+
+    /// @notice Intended to be a Timelock. Can halt trading and bless tokens;
+    ///         can never touch an asset.
+    address public admin;
+    address public pendingAdmin;
+
+    /// @notice Trading and deposits only. Withdrawal is never pausable.
+    bool public paused;
+
+    /// @notice Markets may only be opened on blessed tokens while enforced.
+    ///         A market is a promise to strangers, and a token contract that
+    ///         lies about its own balances breaks every guarantee below it.
+    bool public allowlistEnforced;
+    mapping(address => bool) public blessed;
 
     uint256 private _lock = 1;
     modifier nonReentrant() {
@@ -163,9 +223,59 @@ contract Pool {
         _;
     }
 
-    constructor(IIpseity collection_, uint256 maxDeposit_) {
+    modifier onlyAdmin() {
+        if (msg.sender != admin) revert NotAdmin();
+        _;
+    }
+
+    /// @dev Deliberately absent from withdraw().
+    modifier notPaused() {
+        if (paused) revert Paused();
+        _;
+    }
+
+    constructor(IIpseity collection_, uint256 maxDeposit_, address admin_, bool enforce) {
+        if (admin_ == address(0)) revert ZeroAddress();
         collection = collection_;
         maxDeposit = maxDeposit_;
+        admin = admin_;
+        allowlistEnforced = enforce;
+        emit AdminHandover(address(0), admin_);
+        emit AllowlistEnforced(enforce);
+    }
+
+    /*═══════════════════ administration ═══════════════════
+
+      Everything here is meant to sit behind a Timelock. None of it can
+      move an asset; the worst a stolen admin key achieves is a market
+      that will not trade.                                            */
+
+    function setPaused(bool p) external onlyAdmin {
+        paused = p;
+        emit PausedSet(p);
+    }
+
+    function bless(address token, bool ok) external onlyAdmin {
+        blessed[token] = ok;
+        emit Blessed(token, ok);
+    }
+
+    function setAllowlistEnforced(bool enforce) external onlyAdmin {
+        allowlistEnforced = enforce;
+        emit AllowlistEnforced(enforce);
+    }
+
+    /// @notice Two steps, because a one-step handover to a mistyped address
+    ///         is a permanent loss of every switch above.
+    function proposeAdmin(address next) external onlyAdmin {
+        pendingAdmin = next;
+    }
+
+    function acceptAdmin() external {
+        if (msg.sender != pendingAdmin) revert NotAdmin();
+        emit AdminHandover(admin, pendingAdmin);
+        admin = pendingAdmin;
+        pendingAdmin = address(0);
     }
 
     /*═══════════════════ the market ═══════════════════*/
@@ -178,6 +288,10 @@ contract Pool {
         if (base == address(0) || quote == address(0)) revert ZeroAddress();
         if (base == quote) revert SameToken();
         if (feeBps > MAX_FEE_BPS) revert FeeTooHigh();
+        if (allowlistEnforced) {
+            if (!blessed[base]) revert NotBlessed(base);
+            if (!blessed[quote]) revert NotBlessed(quote);
+        }
 
         m.base = base;
         m.quote = quote;
@@ -195,6 +309,7 @@ contract Pool {
     function closeMarket(uint256 id) external onlyHolder(id) {
         Market storage m = marketOf[id];
         if (!m.open) revert MarketNotOpen();
+        _unbonded(m);
         if (m.rBase != 0 || m.rQuote != 0) revert MarketNotEmpty();
         delete marketOf[id];
         emit MarketClosed(id);
@@ -204,14 +319,42 @@ contract Pool {
         if (feeBps > MAX_FEE_BPS) revert FeeTooHigh();
         Market storage m = marketOf[id];
         if (!m.open) revert MarketNotOpen();
+        _unbonded(m);
         m.feeBps = feeBps;
         emit FeeSet(id, feeBps);
+    }
+
+    /// @notice Promise that nothing leaves this market before `until`.
+    /// @dev    Ratchet-only and permanent in the direction it moves. It
+    ///         survives transfer, because it is a promise to whoever reads
+    ///         it and not to whoever made it.
+    function bond(uint256 id, uint64 until) external onlyHolder(id) {
+        Market storage m = marketOf[id];
+        if (!m.open) revert MarketNotOpen();
+        if (until <= block.timestamp) revert RatchetOnly();
+        if (until <= m.bondUntil) revert RatchetOnly();
+        // an unbounded bond is indistinguishable from burning the inventory
+        if (until > block.timestamp + MAX_BOND) revert BondTooLong();
+        m.bondUntil = until;
+        emit BondSet(id, until);
+    }
+
+    function bondedUntil(uint256 id) external view returns (uint64) {
+        return marketOf[id].bondUntil;
+    }
+
+    function isBonded(uint256 id) public view returns (bool) {
+        return marketOf[id].bondUntil > block.timestamp;
+    }
+
+    function _unbonded(Market storage m) internal view {
+        if (m.bondUntil > block.timestamp) revert Bonded(m.bondUntil);
     }
 
     /*═══════════════════ liquidity ═══════════════════*/
 
     function deposit(uint256 id, uint256 amountBase, uint256 amountQuote)
-        external onlyHolder(id) nonReentrant
+        external onlyHolder(id) nonReentrant notPaused
     {
         Market storage m = marketOf[id];
         if (!m.open) revert MarketNotOpen();
@@ -237,6 +380,7 @@ contract Pool {
     {
         Market storage m = marketOf[id];
         if (!m.open) revert MarketNotOpen();
+        _unbonded(m);
         if (to == address(0)) revert ZeroAddress();
         if (amountBase > m.rBase || amountQuote > m.rQuote) revert MoreThanHeld();
 
@@ -275,7 +419,7 @@ contract Pool {
         uint256 minOut,
         address to,
         uint256 deadline
-    ) external before(deadline) nonReentrant returns (uint256 out) {
+    ) external before(deadline) nonReentrant notPaused returns (uint256 out) {
         Market storage m = marketOf[id];
         if (!m.open) revert MarketNotOpen();
         if (to == address(0)) revert ZeroAddress();
@@ -326,6 +470,9 @@ contract Pool {
     function syncCurve(uint256 id) external onlyHolder(id) {
         Market storage m = marketOf[id];
         if (!m.open) revert MarketNotOpen();
+        // a bond that let its maker re-price would promise the inventory and
+        // then hand it away through the curve: the same rug, more steps
+        _unbonded(m);
         uint256 word = collection.sectionOf(id);
         m.curveWord = word;
         emit CurveSynced(id, word, Curve.concentration(word));
@@ -353,7 +500,7 @@ contract Pool {
             uint256 concentrationBps,
             uint256 spotBaseInQuote,
             uint256 maxBaseIn, uint256 maxQuoteIn,
-            uint256 trades
+            uint256 trades, uint64 bondUntil
         )
     {
         Market memory m = marketOf[id];
@@ -364,7 +511,7 @@ contract Pool {
             Curve.spot(m.rBase, m.rQuote, word),
             (uint256(m.rBase) * MAX_OUT_BPS) / BPS,
             (uint256(m.rQuote) * MAX_OUT_BPS) / BPS,
-            tradeCount[id]
+            tradeCount[id], m.bondUntil
         );
     }
 

@@ -16,11 +16,11 @@ export const common = new Common({ chain: Mainnet, hardfork: Hardfork.Cancun });
 
 /* A plausible mainnet block, so block.number, timestamp and prevrandao are
    the sort of values the contracts will actually see. */
-export const BLOCK = createBlock(
+const mkBlock = (number, timestamp) => createBlock(
   {
     header: {
-      number: 21_000_000n,
-      timestamp: 1_733_000_000n,
+      number,
+      timestamp,
       gasLimit: 400_000_000n,
       baseFeePerGas: 7n,
       difficulty: 0n,
@@ -29,6 +29,21 @@ export const BLOCK = createBlock(
   },
   { common, skipConsensusFormatValidation: true }
 );
+
+export const GENESIS_TIME = 1_733_000_000n;
+
+/* A block header is frozen once built, so moving time means building a new
+   one. `export let` is a live binding, so importers that reach through the
+   module namespace see the change without re-importing. */
+export let BLOCK = mkBlock(21_000_000n, GENESIS_TIME);
+
+/// @notice Move the chain clock to an absolute timestamp.
+export function warp(timestamp) {
+  const t = BigInt(timestamp);
+  const advanced = t > GENESIS_TIME ? (t - GENESIS_TIME) / 12n : 0n;
+  BLOCK = mkBlock(21_000_000n + advanced, t);
+  return BLOCK;
+}
 
 /*──────────────── tiny ABI coder (enough for the harness) ────────────────*/
 const pad = (h) => h.replace(/^0x/, "").padStart(64, "0");

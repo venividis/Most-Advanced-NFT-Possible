@@ -137,6 +137,7 @@ contract Ipseity is
     /// @dev `curator` is the ERC-173 owner; owner() is the alias marketplaces
     ///      actually call. One variable, two names, so they cannot diverge.
     address public curator;
+    address public pendingCurator;
     /// @notice The market contract for this collection, if one exists. The
     ///         instrument reads it out of the state block rather than being
     ///         told; sealing the renderer fixes it for good.
@@ -155,6 +156,7 @@ contract Ipseity is
     event Embodied(uint256 indexed id, address account);
     event RendererChanged(address renderer);
     event RendererSealed();
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
 
     /*──────────────────────── errors ────────────────────────*/
     error NotCurator();
@@ -747,18 +749,42 @@ contract Ipseity is
         royaltyBps = bps;
     }
 
-    function setCurator(address who) public onlyCurator {
-        emit OwnershipTransferred(curator, who);
-        curator = who;
-    }
+    /*── ERC-173, in two steps ──
 
-    /*── ERC-173 ──*/
+      The standard reads as one call, and one call is how collections lose
+      their admin forever: a mistyped address is accepted, emitted, and
+      irreversible. So transferOwnership proposes and the recipient has to
+      answer. An address that cannot call acceptOwnership was never going
+      to be able to administer the collection anyway.
+
+      The deviation is deliberate and worth stating plainly: a caller that
+      assumes transferOwnership takes effect immediately will read owner()
+      unchanged until the handover is accepted.                          */
+
     function owner() external view returns (address) {
         return curator;
     }
 
-    function transferOwnership(address newOwner) external {
-        setCurator(newOwner);
+    function transferOwnership(address newOwner) external onlyCurator {
+        pendingCurator = newOwner;
+        emit OwnershipTransferStarted(curator, newOwner);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingCurator) revert NotCurator();
+        emit OwnershipTransferred(curator, pendingCurator);
+        curator = pendingCurator;
+        pendingCurator = address(0);
+    }
+
+    /// @notice Abandon the collection's admin permanently. After this no
+    ///         price, royalty, renderer or market pointer can ever change
+    ///         again — which for a sealed collection is the end state, not
+    ///         a failure mode.
+    function renounceOwnership() external onlyCurator {
+        emit OwnershipTransferred(curator, address(0));
+        curator = address(0);
+        pendingCurator = address(0);
     }
 
     function withdraw(address to) external onlyCurator nonReentrant {

@@ -10,8 +10,9 @@
     "build": "node tools/build-engine.mjs",
     "verify": "node tools/verify.mjs",
     "preview": "node tools/preview.mjs",
-    "check": "node tools/glsl-check.mjs && node tools/selftest.mjs && node tools/build-engine.mjs && node tools/verify.mjs && node tools/verify-pool.mjs",
-    "verify:pool": "node tools/verify-pool.mjs"
+    "check": "node tools/glsl-check.mjs && node tools/selftest.mjs && node tools/build-engine.mjs && node tools/verify.mjs && node tools/verify-pool.mjs && node tools/verify-timelock.mjs",
+    "verify:pool": "node tools/verify-pool.mjs",
+    "verify:timelock": "node tools/verify-timelock.mjs"
   },
   "dependencies": {
     "@ethereumjs/common": "^10.1.2",

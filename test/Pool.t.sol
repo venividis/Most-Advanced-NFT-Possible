@@ -44,7 +44,8 @@ contract PoolTest is Test {
         engine.freeze();
 
         token = new Ipseity(IRenderer(address(renderer)));
-        pool = new Pool(IIpseity(address(token)), CAP);
+        // admin is the test contract; in production it is the Timelock
+        pool = new Pool(IIpseity(address(token)), CAP, address(this), false);
         token.setPool(address(pool));
 
         weth = new MockERC20("Wrapped Ether", "WETH", 18, 0, false);
@@ -76,7 +77,7 @@ contract PoolTest is Test {
     }
 
     function _k() internal view returns (uint256) {
-        (, , uint112 rb, uint112 rq, , , uint256 c, , , , ) = pool.market(1);
+        (, , uint112 rb, uint112 rq, , , uint256 c, , , , , ) = pool.market(1);
         uint256 vb = (uint256(rb) * c) / 10_000;
         uint256 vq = (uint256(rq) * c) / 10_000;
         return (uint256(rb) + vb) * (uint256(rq) + vq);
@@ -94,7 +95,7 @@ contract PoolTest is Test {
         vm.prank(holder);
         pool.syncCurve(1);
 
-        (, , uint112 rb, uint112 rq, , , , , , , ) = pool.market(1);
+        (, , uint112 rb, uint112 rq, , , , , , , , ) = pool.market(1);
         amount = bound(amount, 1, baseIn ? uint256(rb) / 3 : uint256(rq) / 3);
 
         uint256 before_ = _k();
@@ -116,7 +117,7 @@ contract PoolTest is Test {
         vm.prank(holder);
         pool.syncCurve(1);
 
-        (, , uint112 rb, , , , , , , , ) = pool.market(1);
+        (, , uint112 rb, , , , , , , , , ) = pool.market(1);
         amount = bound(amount, 1e12, uint256(rb) / 4);
 
         uint256 start = weth.balanceOf(trader);
@@ -135,7 +136,7 @@ contract PoolTest is Test {
     ///      quote more than the pool holds. The guard is the only thing
     ///      standing between that and an insolvent market.
     function testFuzz_neverPaysMoreThanItHolds(uint256 amount, bool baseIn) public {
-        (, , uint112 rb, uint112 rq, , , , , , , ) = pool.market(1);
+        (, , uint112 rb, uint112 rq, , , , , , , , ) = pool.market(1);
         amount = bound(amount, 1, 1e26);
         uint256 held = baseIn ? uint256(rq) : uint256(rb);
 
@@ -192,7 +193,7 @@ contract PoolTest is Test {
         vm.prank(holder);
         token.transferFrom(holder, buyer, 1);
 
-        (, , uint112 rb, uint112 rq, , , , , , , ) = pool.market(1);
+        (, , uint112 rb, uint112 rq, , , , , , , , ) = pool.market(1);
         assertGt(rb, 0);
         assertGt(rq, 0);
 
@@ -260,7 +261,7 @@ contract PoolTest is Test {
         pool.deposit(2, 1000 * WAD, 0);
         vm.stopPrank();
 
-        (, , uint112 rb, , , , , , , , ) = pool.market(2);
+        (, , uint112 rb, , , , , , , , , ) = pool.market(2);
         assertEq(uint256(rb), 990 * WAD, "credited more than arrived");
     }
 
@@ -275,8 +276,147 @@ contract PoolTest is Test {
         pool.deposit(2, 1e9, 0);
         vm.stopPrank();
 
-        (, , uint112 rb, , , , , , , , ) = pool.market(2);
+        (, , uint112 rb, , , , , , , , , ) = pool.market(2);
         assertEq(uint256(rb), 1e9, "a token that returns nothing was rejected");
+    }
+
+    /*═════════ the bond ═════════*/
+
+    /// @dev "Selling the token sells the market" is mechanically true the
+    ///      moment ownerOf changes, and worth nothing to a buyer on its own:
+    ///      the seller can empty it between the handshake and the settlement.
+    ///      The bond is what turns it into a promise, and the only property
+    ///      that makes a promise worth reading is that it cannot be walked
+    ///      back.
+    function testFuzz_bondOnlyRatchets(uint64 a, uint64 b) public {
+        a = uint64(bound(a, block.timestamp + 1, block.timestamp + 300 days));
+        b = uint64(bound(b, block.timestamp + 1, block.timestamp + 300 days));
+
+        vm.prank(holder);
+        pool.bond(1, a);
+        assertEq(pool.bondedUntil(1), a);
+
+        vm.prank(holder);
+        if (b > a) {
+            pool.bond(1, b);
+            assertEq(pool.bondedUntil(1), b);
+        } else {
+            vm.expectRevert(Pool.RatchetOnly.selector);
+            pool.bond(1, b);
+            assertEq(pool.bondedUntil(1), a, "the ratchet turned backwards");
+        }
+    }
+
+    function test_bondFreezesEveryExitAndEveryTerm() public {
+        uint64 until = uint64(block.timestamp + 30 days);
+        vm.startPrank(holder);
+        pool.bond(1, until);
+
+        vm.expectRevert(abi.encodeWithSelector(Pool.Bonded.selector, until));
+        pool.withdraw(1, 1, 0, holder);
+        vm.expectRevert(abi.encodeWithSelector(Pool.Bonded.selector, until));
+        pool.closeMarket(1);
+        vm.expectRevert(abi.encodeWithSelector(Pool.Bonded.selector, until));
+        pool.setFee(1, 100);
+        vm.expectRevert(abi.encodeWithSelector(Pool.Bonded.selector, until));
+        pool.syncCurve(1);
+
+        // additive operations must survive, or a bonded market cannot be fed
+        pool.deposit(1, WAD, 0);
+        vm.stopPrank();
+
+        vm.prank(trader);
+        pool.swap(1, true, WAD / 100, 0, trader, FOREVER);
+    }
+
+    function test_bondSurvivesTheSaleAndBindsTheBuyer() public {
+        address buyer = address(0xB0197A);
+        uint64 until = uint64(block.timestamp + 30 days);
+
+        vm.startPrank(holder);
+        pool.bond(1, until);
+        token.transferFrom(holder, buyer, 1);
+        vm.stopPrank();
+
+        assertEq(pool.bondedUntil(1), until, "the bond did not survive the sale");
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(Pool.Bonded.selector, until));
+        pool.withdraw(1, 1, 0, buyer);
+    }
+
+    function test_bondExpiresAndReleases() public {
+        uint64 until = uint64(block.timestamp + 30 days);
+        vm.prank(holder);
+        pool.bond(1, until);
+
+        vm.warp(until + 1);
+        assertFalse(pool.isBonded(1));
+        vm.prank(holder);
+        pool.withdraw(1, WAD, 0, holder);
+    }
+
+    function test_bondHasACeiling() public {
+        vm.prank(holder);
+        vm.expectRevert(Pool.BondTooLong.selector);
+        pool.bond(1, uint64(block.timestamp + 400 days));
+    }
+
+    /*═════════ privilege ═════════*/
+
+    /// @dev A pause that traps money is a slower theft. Withdrawal carries
+    ///      no pause modifier and must be reachable in every state.
+    function test_pauseHaltsTradeButNeverCustody() public {
+        pool.setPaused(true);
+
+        vm.prank(trader);
+        vm.expectRevert(Pool.Paused.selector);
+        pool.swap(1, true, WAD, 0, trader, FOREVER);
+
+        vm.startPrank(holder);
+        vm.expectRevert(Pool.Paused.selector);
+        pool.deposit(1, WAD, 0);
+
+        uint256 before_ = weth.balanceOf(holder);
+        pool.withdraw(1, WAD, 0, holder);
+        assertEq(weth.balanceOf(holder) - before_, WAD, "the pause trapped the inventory");
+        vm.stopPrank();
+    }
+
+    function test_allowlistGatesNewMarkets() public {
+        pool.setAllowlistEnforced(true);
+        vm.startPrank(holder);
+        token.mint{value: 0.01 ether}();
+        vm.expectRevert(abi.encodeWithSelector(Pool.NotBlessed.selector, address(weth)));
+        pool.openMarket(2, address(weth), address(usdc), 30);
+        vm.stopPrank();
+
+        pool.bless(address(weth), true);
+        pool.bless(address(usdc), true);
+        vm.prank(holder);
+        pool.openMarket(2, address(weth), address(usdc), 30);
+    }
+
+    function test_onlyAdminMayFlipTheSwitches() public {
+        vm.startPrank(trader);
+        vm.expectRevert(Pool.NotAdmin.selector); pool.setPaused(true);
+        vm.expectRevert(Pool.NotAdmin.selector); pool.bless(address(weth), true);
+        vm.expectRevert(Pool.NotAdmin.selector); pool.setAllowlistEnforced(true);
+        vm.expectRevert(Pool.NotAdmin.selector); pool.proposeAdmin(trader);
+        vm.expectRevert(Pool.NotAdmin.selector); pool.acceptAdmin();
+        vm.stopPrank();
+    }
+
+    function test_adminHandoverTakesTwoSteps() public {
+        pool.proposeAdmin(trader);
+        assertEq(pool.admin(), address(this), "the admin moved on one call");
+
+        vm.prank(renter);
+        vm.expectRevert(Pool.NotAdmin.selector);
+        pool.acceptAdmin();
+
+        vm.prank(trader);
+        pool.acceptAdmin();
+        assertEq(pool.admin(), trader);
     }
 
     /*═════════ the maths on its own ═════════*/

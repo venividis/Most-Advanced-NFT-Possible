@@ -2631,7 +2631,7 @@ const POOL = String(S.pool || "0x0000000000000000000000000000000000000000");
 const hasPool = /^0x[0-9a-fA-F]{40}$/.test(POOL) && !/^0x0{40}$/.test(POOL);
 
 const MKT = { base:null, quote:null, rb:0n, rq:0n, fee:0, open:false,
-              conc:0n, spot:0n, maxIn:[0n,0n], trades:0n,
+              conc:0n, spot:0n, maxIn:[0n,0n], trades:0n, bond:0n,
               bd:18, qd:18, bs:"?", qs:"?", drift:false, liveConc:0n };
 
 async function readMarket(){
@@ -2643,6 +2643,7 @@ async function readMarket(){
   MKT.conc = decUint(raw, 6); MKT.spot = decUint(raw, 7);
   MKT.maxIn = [decUint(raw, 8), decUint(raw, 9)];
   MKT.trades = decUint(raw, 10);
+  MKT.bond = decUint(raw, 11);
   if(MKT.open){
     const [bd, qd, bs, qs] = await Promise.all([
       readSig(MKT.base, "decimals()").then(h => Number(decUint(h))).catch(() => 18),
@@ -2726,6 +2727,13 @@ BUILD.MARKET = m => {
       kv("Trades", MKT.trades.toString()) +
       kv("Concentration", MKT.conc.toString() + " bps" +
          (MKT.conc === 0n ? " · plain constant product" : "")) +
+      kv("Bond", MKT.bond === 0n
+          ? '<span style="color:var(--dim)">none - the holder may withdraw at any moment</span>'
+          : (MKT.bond > BigInt(Math.floor(Date.now() / 1000))
+              ? '<span style="color:var(--ok)">nothing leaves before ' +
+                new Date(Number(MKT.bond) * 1000).toISOString().replace("T", " ").slice(0, 16) +
+                " UTC</span>"
+              : '<span style="color:var(--dim)">expired</span>')) +
       (MKT.drift
         ? '<div class="s" style="color:var(--warn);margin:8px 0">The solid has been turned since ' +
           'the market last took a copy of it. Syncing would move the concentration to <b>' +
@@ -2742,7 +2750,14 @@ BUILD.MARKET = m => {
       '<input type="range" id="mk-slip" min="1" max="500" step="1" value="100">' +
       '<button class="b" id="mk-swap">Review the trade</button>' +
       (mine
-        ? '<hr><div class="k">Inventory</div>' +
+        ? '<hr><div class="k">The bond</div>' +
+          '<p class="s" style="color:var(--mid);margin-bottom:8px">A promise that nothing ' +
+          'leaves this market before a date. It only ever moves further out, it survives the ' +
+          'sale of the token, and while it holds you cannot withdraw, close, re-price the fee ' +
+          'or re-shape the curve. That is what makes it worth anything to a buyer.</p>' +
+          fld("Days from now", "mk-bond", "30") +
+          '<button class="b g" id="mk-bondgo">Bond the inventory</button>' +
+          '<hr><div class="k">Inventory</div>' +
           '<div class="row">' + fld("Add " + esc(B), "mk-db", "0.0") + fld("Add " + esc(Q), "mk-dq", "0.0") + "</div>" +
           '<button class="b g" id="mk-dep">Deposit</button>' +
           '<div class="row">' + fld("Take " + esc(B), "mk-wb", "0.0") + fld("Take " + esc(Q), "mk-wq", "0.0") + "</div>" +
@@ -2817,7 +2832,16 @@ BUILD.MARKET = m => {
         then: paintMarket });
     });
 
-    if(MKT.drift && mine && $("#mk-sync")){
+    const bonded = MKT.bond > BigInt(Math.floor(Date.now() / 1000));
+    if(bonded){
+      ["mk-wd", "mk-sync"].forEach(id => {
+        const e = $("#" + id);
+        if(e){ e.setAttribute("disabled", "disabled"); e.classList.add("shut");
+               e.title = "Frozen while the bond holds."; }
+      });
+    }
+
+    if(MKT.drift && mine && $("#mk-sync") && !bonded){
       $("#mk-sync").onclick = guard(async () => {
         await needWallet(); needOwner();
         const { data, sig, types } = encodeCall("syncCurve(uint256)", [S.id]);
@@ -2829,6 +2853,22 @@ BUILD.MARKET = m => {
     }
 
     if(mine){
+      $("#mk-bondgo").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const days = parseFloat(val("mk-bond"));
+        if(!(days > 0)) throw new Error("How many days?");
+        if(days > 365) throw new Error("A bond cannot run past a year.");
+        const until = Math.floor(Date.now() / 1000) + Math.round(days * 86400);
+        const { data, sig, types } = encodeCall("bond(uint256,uint64)", [S.id, until]);
+        propose({ to: POOL, data, sig, types, value: 0n,
+          note: "This cannot be undone or shortened. Until it expires you cannot take the " +
+                "inventory back out, and neither can anyone you sell the token to.",
+          plain: "Promise that nothing leaves this market until " +
+                 new Date(until * 1000).toISOString().replace("T", " ").slice(0, 16) + " UTC. " +
+                 "Anyone considering buying this token can read that promise on chain.",
+          then: paintMarket });
+      });
+
       $("#mk-dep").onclick = guard(async () => {
         await needWallet(); needOwner();
         const b = val("mk-db") ? toUnits(val("mk-db"), MKT.bd) : 0n;

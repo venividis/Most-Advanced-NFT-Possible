@@ -107,6 +107,77 @@ the first-depositor attack, at the honest cost of not aggregating deep liquidity
 oracle or TWAP (a curve its owner can move has no business being read as a price feed),
 no flash loans.
 
+## Security
+
+Approached the way the Dave Held core approaches it: write down what must be
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists thirty-one such
+statements and names the test for each, plus four known limitations that are
+documented rather than defended.
+
+**A seven-day timelock.** `src/lib/Timelock.sol` is meant to own every
+privileged path. Not because a delay makes a bad change good, but because it
+makes one *visible* before it lands. The threat model is a stolen key, not a
+dishonest curator: without a delay a compromise is an instant loss discovered
+afterwards, and with one it is a queued transaction sitting in public for a week
+with its full calldata in an event. Adapted with three changes — the admin can
+rotate but only through its own queue, queued operations expire after a
+fortnight so a forgotten proposal is not a live weapon, and an eta cannot be
+re-queued out from under a watcher.
+
+**Privilege never moves in one step.** Both the collection's curator and the
+market's admin hand over by propose-and-accept. A one-step transfer to a
+mistyped address is how a collection loses its admin permanently; this deviates
+from a literal reading of ERC-173 and says so.
+
+**The bond.** "Selling the token sells the market" is mechanically true the
+moment `ownerOf` changes and worth nothing to a buyer on its own — the seller
+can empty it between the handshake and the settlement. So a holder may bond a
+market: a date before which nothing leaves and no term changes. It ratchets, it
+survives the sale, and while it holds there is no withdrawal, no closure, no fee
+change and no curve re-shape. Deposits and trades still work, because those are
+additive. Taken from the Dave Held stall bond, whose invariant reads
+*"bondUntil never decreases, and no exit path exists while it holds"*.
+
+**No admin path can move an asset.** The market's five admin entry points are
+`setPaused`, `bless`, `setAllowlistEnforced`, `proposeAdmin` and `acceptAdmin`.
+Not one takes a token id or an amount, so not one can name a thing to move —
+asserted against the compiled ABI rather than by reading the source. The worst a
+stolen admin key achieves is a market that will not trade.
+
+**The pause never traps money.** It halts trading and deposits. `withdraw` has
+no pause modifier and is reachable in every state, because a pause that traps
+money is a slower theft.
+
+**Markets open only on blessed tokens**, while enforcement is on. A market is a
+promise to strangers, and a token contract that lies about its own balances
+breaks every guarantee above it. This is the Dave Held Granary pattern — *"silos
+are timelock-blessed only"* — and it is a real centralisation trade-off, stated
+rather than hidden.
+
+### What was deliberately not taken
+
+The Dave Held core is twenty-one DeFi desks. Porting them into an artwork would
+be reckless, so the teardown asked of each mechanism: *what guarantee does this
+serve, and does anything here make that promise?*
+
+**The selector firewall** — the sharpest thing in that codebase, refusing
+transfer-family selectors by shape while a vault is sealed — is **not** ported.
+It exists because a Dave vault makes a sealed promise about assets it holds and
+lets docked modules call out with its arm. IPSEITY has no module system and its
+vault makes no such promise, so the firewall would guard nothing. Copying it
+would be cargo-culting a defence with no attack behind it.
+
+**The covenant seal, ragequit tax, tranches, rank engraving, Harberger keeper
+seats, perps, RWA lots, options, bonds, strips, restaking, basket funds** —
+skipped. Each is a product, not a safety property, and none of them is this one.
+
+**The stall curve library** (FLAT / LINEAR / EXPO) is skipped for a specific
+reason rather than a general one: this collection's curve comes from the
+artwork, and a second, unrelated family of curves would either contradict that
+or sit unused.
+
+---
+
 ## The instrument
 
 Twelve nodes on two counter-tilted shells. Six are open at mint — the ones that only
@@ -125,7 +196,7 @@ look. The six that move value stay sealed until a holder deliberately opens them
 | **Call** | any signature, any contract, encoded in the frame | sealed |
 | **Sign** | `personal_sign` and EIP-712, with the digest computed locally | sealed |
 | **Issue** | the token mints its siblings | sealed |
-| **Market** | this token's own exchange: quote, trade, add or take inventory | sealed |
+| **Market** | this token's own exchange: quote, trade, bond, add or take inventory | sealed |
 
 Drag to orbit. The slider under the field moves your 3-space along `w`. The six chips
 are dials — drag one to turn in that plane, click to set it spinning, double-click to
@@ -298,7 +369,7 @@ src/
   Renderer.sol          tokenURI, the three faces, the JSON
   Sigil.sol             the 4D projector, in Solidity
   Pool.sol              every token as its own exchange
-  lib/                  SSTORE2, Base64, Trig, Curve, LibNum, the section word
+  lib/                  SSTORE2, Base64, Trig, Curve, Timelock, the section word
   interfaces/           every standard, with the reasoning
 tools/
   glsl-check.mjs        every shader parses and type-checks
@@ -306,6 +377,7 @@ tools/
   build-engine.mjs      minify → gzip → shards
   verify.mjs            deploy on a real EVM, read it all back
   verify-pool.mjs       try to break the market on a real EVM
+  verify-timelock.mjs   try to escape the delay
   preview.mjs           dist/preview.html
   evm.mjs, compile.mjs  the harness
 test/                   Foundry unit, property and fuzz tests
@@ -317,8 +389,9 @@ script/Deploy.s.sol     deploy, load, seal
 ## What was and was not run here
 
 `glsl-check.mjs`, `selftest.mjs` (52 assertions), `build-engine.mjs`, `verify.mjs` in
-both storage modes (122 packed / 121 raw) and `verify-pool.mjs` (35 assertions) were
-executed in this environment, and every number in this document comes from those runs.
+both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62 assertions) and
+`verify-timelock.mjs` (24 assertions) were executed in this environment — 260 in
+total — and every number in this document comes from those runs.
 
 `forge test` was **not** executed: Foundry's installer host is blocked by this
 session's network egress policy. The Foundry suite and the deploy script were
