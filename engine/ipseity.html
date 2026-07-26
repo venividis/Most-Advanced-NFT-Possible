@@ -2497,7 +2497,19 @@ BUILD.SIGN = m => {
     '<textarea id="g-712" spellcheck="false" style="min-height:120px"></textarea>' +
     '<div id="g-hash"></div>' +
     '<button class="b" id="g-typed">Sign typed data</button>' +
-    '<div id="g-out"></div>', m.i, () => {
+    '<div id="g-out"></div>' +
+
+    '<hr><div class="k">Speak as the token</div>' +
+    '<p class="s" style="margin:8px 0;color:var(--mid)">A signature the token\u2019s vault will ' +
+    'answer for under ERC-1271 \u2014 so a counterparty asks the <em>Reach</em> whether this is ' +
+    'genuine, not you. It keeps working while the vault is sealed, because the digest is built ' +
+    'under the vault\u2019s own domain and every venue hashes its orders under its own. A sealed ' +
+    'vault can say who it is and cannot sign away what it holds.</p>' +
+    fld("Purpose", "g-purp", "signing in to my own premises") +
+    fld("Payload (bytes32)", "g-pay", "0x…") +
+    '<div id="g-adig"></div>' +
+    '<button class="b" id="g-attest">Sign as the vault</button>' +
+    '<div id="g-aout"></div>', m.i, () => {
       $("#g-712").value = JSON.stringify({
         domain: { name: "IPSEITY", version: "1", chainId: Number(S.chainId), verifyingContract: S.collection },
         primaryType: "Section",
@@ -2536,6 +2548,72 @@ BUILD.SIGN = m => {
         say("Signed the typed data.", "ok");
       });
       $("#g-712").dispatchEvent(new Event("input"));
+
+      /*── the vault's own voice ──────────────────────────────────────────
+        The domain is the vault's, not the collection's, and the digest is
+        computed here so it can be checked against what the contract says
+        before anything is signed. Same habit as deriving the addresses: a
+        page that only shows what it is handed cannot tell a correct answer
+        from a convenient one.                                            */
+      const reach = account6551();
+      const aDomain = () => ({
+        name: "IPSEITY_ATTESTATION", version: "1",
+        chainId: Number(S.chainId), verifyingContract: reach
+      });
+      const aTypes = { Attestation: [ { name: "purpose", type: "string" },
+                                      { name: "payload", type: "bytes32" } ] };
+      const aMsg = () => ({
+        purpose: val("g-purp") || "",
+        payload: /^0x[0-9a-fA-F]{64}$/.test(val("g-pay")) ? val("g-pay") : "0x" + "0".repeat(64)
+      });
+
+      const showAttest = guard(async () => {
+        const el = $("#g-adig"); if(!el) return;
+        const here = digest712(aDomain(), "Attestation", aMsg(), aTypes);
+        let there = "—", agrees = null;
+        try {
+          there = await readSig(reach, "attestationDigest(string,bytes32)",
+                                [aMsg().purpose, aMsg().payload]);
+          agrees = String(there).toLowerCase() === String(here).toLowerCase();
+        } catch {}
+        el.innerHTML = '<pre class="code">computed here  ' + here +
+          "\nthe vault says  " + there +
+          (agrees === null ? "" : "\n" + (agrees ? "they agree" : "THEY DISAGREE")) + "</pre>";
+      });
+      $("#g-purp").addEventListener("input", showAttest);
+      $("#g-pay").addEventListener("input", showAttest);
+
+      $("#g-attest").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const m2 = aMsg();
+        const payload = { domain: aDomain(), primaryType: "Attestation",
+          types: Object.assign({ EIP712Domain: [
+            { name:"name", type:"string" }, { name:"version", type:"string" },
+            { name:"chainId", type:"uint256" }, { name:"verifyingContract", type:"address" } ]
+          }, aTypes), message: m2 };
+        const sig = await NET.provider.request({
+          method: "eth_signTypedData_v4", params: [NET.account, JSON.stringify(payload)] });
+
+        /* the vault is handed the preimage, not the hash, so it rebuilds the
+           digest itself rather than taking one on trust */
+        const envelope = encodeParams(["string", "bytes32", "bytes"],
+                                      [m2.purpose, m2.payload, sig]);
+        const dig = digest712(aDomain(), "Attestation", m2, aTypes);
+        let answer = "not deployed yet";
+        try {
+          const r = await readSig(reach, "isValidSignature(bytes32,bytes)", [dig, "0x" + envelope]);
+          answer = String(r).slice(0, 10) === "0x1626ba7e"
+            ? "the vault answers for it" : "the vault does not answer for it";
+        } catch {}
+        $("#g-aout").innerHTML =
+          '<pre class="code">digest    ' + dig + "\nenvelope  0x" + envelope +
+          "\n\n" + esc(answer) + "</pre>" +
+          '<p class="s" style="color:var(--mid)">Hand a verifier the digest and the envelope. ' +
+          'They call <code>isValidSignature</code> on ' + short(reach) + ' and get the answer ' +
+          'from the chain rather than from you.</p>';
+        say("Signed as the vault.", "ok");
+      });
+      showAttest();
     });
 };
 
@@ -2617,12 +2695,33 @@ BUILD.VAULT = m => {
     kv("Reach agrees", okReach ? "yes" : (S.account ? "NO" : "not reported")) +
     kv("Grip agrees",  okGrip  ? "yes" : (S.grip    ? "NO" : "not reported")) +
 
+    '<hr><div class="k">What the seal is promising</div>' +
+    '<p class="s" style="margin:8px 0;color:var(--mid)">The manifest is the list of assets the ' +
+    'Reach measures either side of every call while sealed. It is <b>not</b> everything the ' +
+    'account holds &mdash; an asset nobody listed can leave freely, which is why this is public ' +
+    'and a buyer should read it rather than assume.</p>' +
+    '<div id="v-man">reading…</div>' +
+    fld("Asset", "v-asset", "0x…") +
+    '<button class="b" id="v-guard">Put it under the seal</button>' +
+    '<button class="b g" id="v-unguard">Take it off</button>' +
+
     '<hr><div class="k">Act as the token</div>' +
     '<p class="s" style="margin:8px 0;color:var(--mid)">Through the Reach. The Grip has no ' +
     'such function to call.</p>' +
     fld("Target", "v-to", "0x…") + fld("Value", "v-val", "0") +
     fld("Calldata", "v-data", "0x") +
     '<button class="b" id="v-exec">Execute from the Reach</button>' +
+
+    '<hr><div class="k">Several acts, or none</div>' +
+    '<p class="s" style="margin:8px 0;color:var(--mid)">One line per call: ' +
+    '<code>target | value | calldata</code>. They land in one transaction or not at all, and ' +
+    'while the vault is sealed the measurement wraps the <em>whole</em> batch &mdash; so a ' +
+    'sequence that is poorer in the middle and whole at the end goes through, which single ' +
+    'calls could never do.</p>' +
+    '<textarea id="v-batch" spellcheck="false" style="min-height:84px" ' +
+    'placeholder="0xabc… | 0 | 0xa9059cbb…"></textarea>' +
+    '<div id="v-bplan"></div>' +
+    '<button class="b" id="v-bgo">Execute them as one act</button>' +
 
     '<hr><div class="k">Send into the Grip</div>' +
     fld("Amount", "g-val", "0") +
@@ -2678,6 +2777,111 @@ BUILD.VAULT = m => {
         "Deploy the Reach — the account this token acts through.");
       $("#g-make").onclick = embody("embodyGrip(uint256)",
         "Deploy the Grip — the account this token can receive into and never spend from.");
+
+      /* address[] comes back as offset · length · words */
+      const addrs = (hex) => {
+        const h = String(hex).replace(/^0x/, "");
+        const base = Number(BigInt("0x" + h.substr(0, 64))) * 2;
+        const n = Number(BigInt("0x" + h.substr(base, 64)));
+        const out = [];
+        for (let i = 0; i < n; i++) out.push(checksum("0x" + h.substr(base + 64 + i * 64, 64).slice(24)));
+        return out;
+      };
+
+      const readManifest = guard(async () => {
+        const el = $("#v-man"); if(!el) return;
+        let list = [], blind = [];
+        try {
+          list  = addrs(await readSig(reach, "manifest()"));
+          blind = addrs(await readSig(reach, "unmeasurable()"));
+        } catch { el.innerHTML = '<p class="s" style="color:var(--mid)">The Reach is not deployed yet.</p>'; return; }
+        if(!list.length){ el.innerHTML = '<p class="s" style="color:var(--mid)">Nothing is under the seal.</p>'; return; }
+
+        const bl = blind.map(x => x.toLowerCase());
+        const rows = await Promise.all(list.map(async a2 => {
+          let sym = "?", bal = "—";
+          try { sym = decStringLoose(await readSig(a2, "symbol()")); } catch {}
+          try {
+            const d = Number(decUint(await readSig(a2, "decimals()")));
+            bal = fmtUnits(decUint(await readSig(a2, "balanceOf(address)", [reach])), d);
+          } catch {}
+          const gone = bl.includes(a2.toLowerCase());
+          return '<div class="kv"><span class="k">' + esc(sym) + " " + short(a2) +
+            '</span><span class="vv">' +
+            (gone ? '<b style="color:var(--bad)">not answering</b>' : esc(bal)) + "</span></div>";
+        }));
+        el.innerHTML = rows.join("") + (blind.length
+          ? '<p class="s" style="margin:8px 0;color:var(--bad)">' + blind.length + ' of these ' +
+            'stopped answering <code>balanceOf</code>. The seal cannot promise about an asset it ' +
+            'cannot read, and says so here rather than passing quietly.</p>'
+          : "");
+      });
+
+      $("#v-guard").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const a2 = val("v-asset"); if(!isAddr(a2)) throw new Error("That is not an address.");
+        const { data, sig, types } = encodeCall("guard(address)", [checksum(a2)]);
+        propose({ to: reach, data, sig, types, value: 0n,
+          plain: "Put " + short(a2) + " under the seal. From now on the Reach measures it either " +
+                 "side of every sealed call, and it cannot be taken off while a seal holds.",
+          then: readManifest });
+      });
+
+      $("#v-unguard").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const a2 = val("v-asset"); if(!isAddr(a2)) throw new Error("That is not an address.");
+        const { data, sig, types } = encodeCall("unguard(address)", [checksum(a2)]);
+        propose({ to: reach, data, sig, types, value: 0n,
+          plain: "Take " + short(a2) + " off the manifest. Only possible while the vault is " +
+                 "unsealed — a sealed vault refuses this for everyone, including you.",
+          then: readManifest });
+      });
+
+      /* target | value | calldata, one call per line */
+      const parseBatch = () => {
+        const lines = val("v-batch").split("\n").map(s => s.trim()).filter(Boolean);
+        if(!lines.length) throw new Error("Nothing to do.");
+        if(lines.length > 16) throw new Error("Sixteen calls at most.");
+        return lines.map((ln, i) => {
+          const parts = ln.split("|").map(s => s.trim());
+          if(parts.length < 3) throw new Error("Line " + (i + 1) + ": target | value | calldata");
+          if(!isAddr(parts[0])) throw new Error("Line " + (i + 1) + ": that is not an address.");
+          return { to: checksum(parts[0]), value: toUnits(parts[1] || "0"), data: parts[2] || "0x" };
+        });
+      };
+
+      const showPlan = () => {
+        const el = $("#v-bplan"); if(!el) return;
+        try {
+          const calls = parseBatch();
+          el.innerHTML = '<pre class="code">' + calls.map((k, i) =>
+            (i + 1) + "  " + short(k.to) + "  " + fmtUnits(k.value) + "  " +
+            String(k.data).slice(0, 10) + "…").join("\n") + "</pre>";
+        } catch(e) { el.innerHTML = '<p class="s" style="color:var(--mid)">' + esc(e.message) + "</p>"; }
+      };
+      $("#v-batch").addEventListener("input", showPlan);
+
+      $("#v-bgo").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const calls = parseBatch();
+        /* executeBatch((address,uint256,bytes)[]) — a dynamic array of a
+           struct with a dynamic member, encoded here in the frame */
+        const pad64 = (h) => String(h).replace(/^0x/, "").padStart(64, "0");
+        const bodies = calls.map(k => {
+          const d = String(k.data).replace(/^0x/, "");
+          return pad64(k.to.slice(2).toLowerCase()) + pad64(k.value.toString(16)) +
+                 pad64((96).toString(16)) + pad64((d.length / 2).toString(16)) +
+                 d.padEnd(Math.ceil(d.length / 64) * 64, "0");
+        });
+        let off = calls.length * 32;
+        const heads = bodies.map(b => { const h = pad64(off.toString(16)); off += b.length / 2; return h; });
+        const data = selector("executeBatch((address,uint256,bytes)[])") +
+          pad64((32).toString(16)) + pad64(calls.length.toString(16)) + heads.join("") + bodies.join("");
+        propose({ to: reach, data, sig: "executeBatch((address,uint256,bytes)[])",
+          types: ["(address,uint256,bytes)[]"], value: 0n,
+          plain: calls.length + " calls, in one transaction. If any of them reverts, none of " +
+                 "them happened. While the vault is sealed the whole batch is measured together." });
+      });
 
       $("#v-exec").onclick = guard(async () => {
         await needWallet(); needOwner();
@@ -2740,6 +2944,8 @@ BUILD.VAULT = m => {
           plain: short(key) + " stops being able to act as this token, the moment this lands." });
       });
 
+      showPlan();
+      readManifest();
       look();
     });
 };

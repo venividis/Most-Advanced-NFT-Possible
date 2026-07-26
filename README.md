@@ -558,19 +558,19 @@ Measured, not estimated — every figure below comes from `node tools/verify.mjs
 which deploys the whole collection into an EVM at Cancun and reads it back.
 
 ```
-document, as written                161,705 bytes
-after minifying                     106,144 bytes    65.6%
-stored on chain (gzip)               37,203 bytes    23.0%      3 shards
+document, as written                173,261 bytes
+after minifying                     113,379 bytes    65.4%
+stored on chain (gzip)               39,501 bytes    22.8%      3 shards
 
 deployment (6 contracts)              12.80M gas
-loading the document                   8.36M gas
+loading the document                   8.86M gas
                                      ─────────
-total to launch                       21.15M gas
+total to launch                       21.65M gas
 
 mint                                   0.19M gas
 commit a new orientation               0.05M gas
-tokenURI() read                       23.99M gas    (geth caps eth_call at 50M)
-tokenURI() response                     ~70 KB
+tokenURI() read                       25.14M gas    ← 4.86M under the ceiling
+tokenURI() response                     ~74 KB
 ```
 
 Storing the document as plain text instead costs **23.58M gas** to load and makes the
@@ -578,6 +578,12 @@ Storing the document as plain text instead costs **23.58M gas** to load and make
 is the default because it is what makes the document deployable without fighting the
 per-transaction gas cap — and because a 36M read is past what several public nodes
 will serve.
+
+**The `tokenURI` read is the budget that binds.** It is asserted under 30M on every
+run, because that is where several public nodes cap `eth_call`. It has gone
+23.99M → 25.14M this cycle as the instrument grew. Roughly 4.8M of headroom is
+left, and every feature added to `engine/ipseity.html` spends some of it. When it
+runs out the answer is not a bigger cap, it is a smaller document.
 
 Deployed bytecode, against the 24,576-byte EIP-170 ceiling:
 
