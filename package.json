@@ -5,9 +5,12 @@
   "type": "module",
   "description": "IPSEITY — a fully on-chain ERC-721 whose tokenURI emits its own 4D control surface.",
   "scripts": {
+    "shaders": "node tools/glsl-check.mjs",
+    "selftest": "node tools/selftest.mjs",
     "build": "node tools/build-engine.mjs",
     "verify": "node tools/verify.mjs",
-    "preview": "node tools/preview.mjs"
+    "preview": "node tools/preview.mjs",
+    "check": "node tools/glsl-check.mjs && node tools/selftest.mjs && node tools/build-engine.mjs && node tools/verify.mjs"
   },
   "dependencies": {
     "@ethereumjs/common": "^10.1.2",
@@ -16,6 +19,7 @@
     "@ethereumjs/tx": "^10.1.2",
     "@ethereumjs/util": "^10.1.2",
     "@ethereumjs/vm": "^10.1.2",
+    "@shaderfrog/glsl-parser": "^7.0.1",
     "ethereum-cryptography": "^3.2.0",
     "solc": "^0.8.36",
     "terser": "^5.49.0"

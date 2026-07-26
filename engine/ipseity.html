@@ -681,9 +681,12 @@ vec2 map(vec3 p){
   return res;
 }
 
-/* 3-space gradient, tetrahedral — four taps, not six */
-vec3 grad3(vec3 p){
-  const vec2 e = vec2(1.0, -1.0) * 0.0013;
+/* 3-space gradient, tetrahedral — four taps, not six.
+   The offset has to grow with distance. A fixed epsilon rounds off detail
+   up close, and far away it falls under the relative precision of a float,
+   where the normal degenerates into noise. */
+vec3 grad3(vec3 p, float t){
+  vec2 e = vec2(1.0, -1.0) * max(t * 0.0011, 8e-5);
   return normalize(
     e.xyy * map(p + e.xyy).x + e.yyx * map(p + e.yyx).x +
     e.yxy * map(p + e.yxy).x + e.xxx * map(p + e.xxx).x);
@@ -703,7 +706,9 @@ float shadow(vec3 ro, vec3 rd, float k){
     float h = map(ro + rd * t).x;
     if(h < 0.0006) return 0.0;
     res = min(res, k * h / t);
-    t  += clamp(h, 0.012, 0.22);
+    /* no lower clamp: flooring the step in a shadow march walks the ray
+       straight through thin geometry and drops the shadow entirely */
+    t  += min(max(h, 1e-4), 0.22);
     if(t > 5.0) break;
   }
   return clamp(res, 0.0, 1.0);

@@ -27,6 +27,7 @@ import zlib from "node:zlib";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { minify } from "terser";
+import { shaders, check } from "./glsl-check.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ARGV = process.argv.slice(2);
@@ -117,6 +118,25 @@ if (/window\.IPSE\s*=/.test(source.slice(0, source.indexOf("</head>"))))
   throw new Error("state must be injected by the contract, not baked into the head");
 if (!/window\.IPSE/.test(source))
   throw new Error("the engine never reads window.IPSE");
+
+/* A shader is a string until a GPU touches it, so nothing else in this
+   pipeline can tell a working one from a broken one. Check before building:
+   there is no point shipping a document that renders a black screen. */
+{
+  const S = shaders(srcPath);
+  const broken = [];
+  for (const [name, glsl] of Object.entries(S)) {
+    if (typeof glsl !== "string") continue;
+    const problems = check(name, glsl);
+    if (problems.length) broken.push(`${name}: ${problems[0]}`);
+  }
+  if (broken.length) {
+    console.error("\n  the shaders would not compile:\n");
+    for (const b of broken) console.error("    " + b);
+    console.error("\n  run node tools/glsl-check.mjs for the full report\n");
+    process.exit(1);
+  }
+}
 
 const doc = MINIFY ? await shrink(source) : source;
 
