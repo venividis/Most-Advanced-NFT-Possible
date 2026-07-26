@@ -463,5 +463,169 @@ ok("the Grip is not on any allowlist it could be given",
      [agent, g3, SEL_TRANSFER])));
 console.log("      and even allowlisted it would find no function that spends");
 
+
+/*════════════ WHAT THE DAVE V2 AUDIT SENT US LOOKING FOR ════════════
+
+  Of its vault findings, three did not apply here and one applied inverted.
+  The inverted one is the interesting one and it is tested first: Dave's
+  ragequit BRICKS when a listed token misbehaves, and this account instead
+  went quietly BLIND. Opposite failure, same root cause — a measurement that
+  does not distinguish "answered zero" from "did not answer".              */
+
+const { secp256k1 } = await import("ethereum-cryptography/secp256k1.js");
+const signHash = (h) => {
+  const sig = secp256k1.sign(hexToBytes(h), c.key);
+  return "0x" + sig.toCompactHex() + (27 + sig.recovery).toString(16).padStart(2, "0");
+};
+/* abi.encode(string, bytes32, bytes) — the preimage a sealed account needs
+   so it can rebuild the digest instead of taking a hash on trust */
+const encodeAttestation = (purpose, payload, sig) => {
+  const pb = Buffer.from(purpose, "utf8");
+  const sb = sig.replace(/^0x/, "");
+  const head = (96).toString(16).padStart(64, "0") +
+               payload.replace(/^0x/, "") +
+               (96 + 32 + Math.ceil(pb.length / 32) * 32).toString(16).padStart(64, "0");
+  return "0x" + head +
+    pb.length.toString(16).padStart(64, "0") +
+    pb.toString("hex").padEnd(Math.ceil(pb.length / 32) * 64, "0") +
+    (sb.length / 2).toString(16).padStart(64, "0") +
+    sb.padEnd(Math.ceil(sb.length / 2 / 32) * 64, "0");
+};
+
+head("an asset that stops answering — the hole, not the brick");
+await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+const bId = decUint(await c.read(nft, "totalSupply()"));
+const bVault = decAddr(await c.read(nft, "account(uint256)", [bId]));
+await c.exec(nft, "embody(uint256)", [bId]);
+
+const BRK = await c.deploy(A("test/mocks/Breakable.sol", "Breakable").bytecode);
+await c.exec(BRK, "mint(address,uint256)", [bVault, 500n * WAD]);
+await c.exec(GOLD, "mint(address,uint256)", [bVault, 500n * WAD]);
+await c.exec(bVault, "guard(address)", [BRK]);
+await c.exec(bVault, "guard(address)", [GOLD]);
+eq("nothing is unmeasurable to begin with",
+   decUint(await c.read(bVault, "unmeasurable()"), 1), 0);
+
+await c.exec(BRK, "setBreakBalance(bool)", [true]);
+const un = await c.read(bVault, "unmeasurable()");
+eq("a token that stops answering is named", decUint(un, 1), 1);
+eq("and it is the right one", decAddr(un, 2).toLowerCase(), BRK.toLowerCase());
+console.log("      a buyer reads unmeasurable() beside holdings(), so the gap");
+console.log("      in the promise is stated rather than silently taken");
+
+await c.exec(bVault, "seal(uint64)", [evm.GENESIS_TIME + 10n * 86400n]);
+let stillWorks = false;
+try {
+  await c.exec(bVault, "execute(address,uint256,bytes,uint8)",
+    [GOLD, 0, enc("balanceOf(address)", [bVault]), 0]);
+  stillWorks = true;
+} catch (e) { console.log("      " + String(e.message).slice(0, 100)); }
+ok("the sealed account still acts with a blind asset on the manifest", stillWorks,
+   "one broken token bricked the whole account — this is Dave's C1 failure");
+
+await refuses("and the assets it can still see are still held", () =>
+  c.exec(bVault, "execute(address,uint256,bytes,uint8)",
+    [GOLD, 0, enc("transfer(address,uint256)", [me, WAD]), 0]),
+  "the seal stopped holding the measurable assets too");
+
+head("going blind during a call is refused, not shrugged at");
+await c.exec(BRK, "setBreakBalance(bool)", [false]);
+await refuses("a call that ends with an asset unreadable", () =>
+  c.exec(bVault, "execute(address,uint256,bytes,uint8)",
+    [BRK, 0, enc("setBreakBalance(bool)", [true]), 0]),
+  "an account could be walked into blindness inside a sealed call");
+
+head("the manifest is no longer append-only forever");
+await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+const uId = decUint(await c.read(nft, "totalSupply()"));
+const uVault = decAddr(await c.read(nft, "account(uint256)", [uId]));
+await c.exec(nft, "embody(uint256)", [uId]);
+await c.exec(uVault, "guard(address)", [GOLD]);
+await c.exec(uVault, "unguard(address)", [GOLD], { label: "unguard" });
+eq("it can be taken off while unsealed", decUint(await c.read(uVault, "manifest()"), 1), 0);
+ok("the flag went with it", !decBool(await c.read(uVault, "onManifest(address)", [GOLD])));
+await c.exec(uVault, "guard(address)", [GOLD]);
+await c.exec(uVault, "seal(uint64)", [evm.GENESIS_TIME + 10n * 86400n]);
+await refuses("while sealed, nobody may take one off", () =>
+  c.exec(uVault, "unguard(address)", [GOLD]),
+  "the manifest could be emptied instead of the vault — the whole promise");
+
+head("a batch is one act or none");
+await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+const bt = decUint(await c.read(nft, "totalSupply()"));
+const btV = decAddr(await c.read(nft, "account(uint256)", [bt]));
+await c.exec(nft, "embody(uint256)", [bt]);
+await c.exec(GOLD, "mint(address,uint256)", [btV, 100n * WAD]);
+await c.exec(SILVER, "mint(address,uint256)", [btV, 100n * WAD]);
+
+const batch = (calls) => {
+  const heads = [], bodies = [];
+  let off = calls.length * 32;
+  for (const k of calls) {
+    heads.push(off.toString(16).padStart(64, "0"));
+    const d = k.data.replace(/^0x/, "");
+    const body = k.to.slice(2).toLowerCase().padStart(64, "0") +
+      BigInt(k.value || 0).toString(16).padStart(64, "0") +
+      (96).toString(16).padStart(64, "0") +
+      (d.length / 2).toString(16).padStart(64, "0") +
+      d.padEnd(Math.ceil(d.length / 64) * 64, "0");
+    bodies.push(body); off += body.length / 2;
+  }
+  return "0x" + evm.sel("executeBatch((address,uint256,bytes)[])").slice(2) +
+    (32).toString(16).padStart(64, "0") + calls.length.toString(16).padStart(64, "0") +
+    heads.join("") + bodies.join("");
+};
+
+await c.send({ to: btV, data: batch([
+  { to: GOLD, data: enc("transfer(address,uint256)", [me, WAD]) },
+  { to: SILVER, data: enc("transfer(address,uint256)", [me, WAD]) }
+]), label: "executeBatch" });
+eq("two calls landed in one act",
+   decUint(await c.read(GOLD, "balanceOf(address)", [btV])), 99n * WAD);
+
+await c.exec(btV, "guard(address)", [GOLD]);
+await c.exec(btV, "seal(uint64)", [evm.GENESIS_TIME + 10n * 86400n]);
+
+await refuses("a sealed batch that ends poorer", () =>
+  c.send({ to: btV, data: batch([
+    { to: GOLD, data: enc("transfer(address,uint256)", [me, WAD]) },
+    { to: SILVER, data: enc("transfer(address,uint256)", [me, WAD]) }]) }),
+  "the measurement does not wrap the batch");
+
+await refuses("and an approval anywhere inside it", () =>
+  c.send({ to: btV, data: batch([
+    { to: SILVER, data: enc("transfer(address,uint256)", [me, WAD]) },
+    { to: GOLD, data: enc("approve(address,uint256)", [me, MAX]) }]) }),
+  "an approval slipped through a batch, and it lands in a later block");
+
+let dipped = false;
+try {
+  await c.send({ to: btV, data: batch([
+    { to: GOLD, data: enc("transfer(address,uint256)", [drainer, WAD]) },
+    { to: drainer, data: enc("give(address,address,uint256)", [GOLD, btV, WAD]) }]) });
+  dipped = true;
+} catch (e) { console.log("      " + String(e.message).slice(0, 110)); }
+ok("but a batch that dips and comes back whole goes through", dipped,
+   "per-call measurement would refuse the ordinary shape of real work");
+
+head("a sealed vault can say who it is, and cannot promise what it holds");
+const rawHash = "0x" + "11".repeat(32);
+eq("a raw hash gets nothing while sealed",
+   decUint(await c.read(btV, "isValidSignature(bytes32,bytes)", [rawHash, "0x" + "22".repeat(65)])), 0);
+console.log("      an order hash from any venue is built under that venue's own");
+console.log("      domain, so it can never be the output of attestationDigest");
+
+const PURPOSE = "i am the token that holds this";
+const PAYLOAD = "0x" + "ab".repeat(32);
+const digest = await c.read(btV, "attestationDigest(string,bytes32)", [PURPOSE, PAYLOAD]);
+const envelope = encodeAttestation(PURPOSE, PAYLOAD, signHash(digest));
+eq("but it validates the one digest it can rebuild",
+   (await c.read(btV, "isValidSignature(bytes32,bytes)", [digest, envelope])).slice(0, 10),
+   "0x1626ba7e");
+eq("a well-formed envelope over a different hash is refused",
+   decUint(await c.read(btV, "isValidSignature(bytes32,bytes)", [rawHash, envelope])), 0);
+eq("garbage is a plain no rather than a revert",
+   decUint(await c.read(btV, "isValidSignature(bytes32,bytes)", [rawHash, "0xdeadbeef"])), 0);
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

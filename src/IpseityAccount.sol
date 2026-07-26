@@ -90,11 +90,17 @@ contract IpseityAccount {
     ///      that eventually makes the account unusable.
     uint256 public constant MAX_MANIFEST = 16;
 
+    /// @dev High bit of a snapshot word: set when the balance beside it
+    ///      was actually read rather than assumed. Balances cannot reach
+    ///      2^255, so the bit is free.
+    uint256 private constant MEASURED = 1 << 255;
+
     address[] internal _manifest;
     mapping(address => bool) public onManifest;
 
     event Sealed(uint64 until);
     event ManifestAdded(address indexed asset);
+    event ManifestRemoved(address indexed asset);
     event Executed(address indexed to, uint256 value, bytes4 selector, bool sealedNow);
 
     error NotSigner();
@@ -107,6 +113,10 @@ contract IpseityAccount {
     error Shrank(address asset, uint256 before_, uint256 after_);
     error ManifestFull();
     error AlreadyListed();
+    error NotListed();
+    /// @dev An asset that could be read before a call and not after it.
+    error WentBlind(address asset);
+    error Reentered();
     error OwnershipCycle();
     error NoSession();
     error SessionExpired();
@@ -116,6 +126,29 @@ contract IpseityAccount {
     error SpenderNotAllowed(address spender);
     error NoPrivilegeEscalation();
     error ListTooLong();
+
+    /// @dev A lock, on a contract that can never be redeployed.
+    ///
+    ///      The ownership check already stops the obvious re-entry: a token
+    ///      called from inside `_act` that calls back into `execute` arrives
+    ///      as itself, not as the holder, and is refused. So this is not
+    ///      closing a known hole.
+    ///
+    ///      It is here because the thing being protected is a *snapshot taken
+    ///      around an external call*, and nested snapshots interleave in ways
+    ///      that are hard to reason about and impossible to patch afterwards
+    ///      — the implementation address is an input to every vault's
+    ///      address, so this code is the code forever. On a contract with no
+    ///      upgrade path, cheap insurance against a class of bug is worth
+    ///      more than the gas it costs.
+    uint256 private _entered;
+
+    modifier nonReentrant() {
+        if (_entered == 1) revert Reentered();
+        _entered = 1;
+        _;
+        _entered = 0;
+    }
 
     receive() external payable {}
 
@@ -177,6 +210,37 @@ contract IpseityAccount {
         onManifest[asset] = true;
         _manifest.push(asset);
         emit ManifestAdded(asset);
+    }
+
+    /// @notice Take an asset off the manifest. Only while unsealed.
+    /// @dev    `guard` used to be additive forever, on the reasoning that an
+    ///         asset which could be un-promised makes the manifest emptiable
+    ///         instead of the vault. That reasoning is right *while the seal
+    ///         holds* and wrong outside it: an unsealed account promises
+    ///         nothing, so removing an entry takes nothing away from anybody.
+    ///
+    ///         Append-only forever had a cost nobody was paying for. Sixteen
+    ///         slots, no removal, and the manifest travels with the token —
+    ///         so a holder who fills it leaves every future owner with a list
+    ///         they cannot re-point, and the account permanently unable to
+    ///         guard the asset that actually matters to them.
+    ///
+    ///         The seal is what makes the promise, and the seal is untouched:
+    ///         while `isSealed()`, this reverts for everyone.
+    function unguard(address asset) external onlySigner {
+        if (isSealed()) revert IsSealed();
+        if (!onManifest[asset]) revert NotListed();
+
+        uint256 n = _manifest.length;
+        for (uint256 i; i < n; ++i) {
+            if (_manifest[i] == asset) {
+                _manifest[i] = _manifest[n - 1];
+                _manifest.pop();
+                break;
+            }
+        }
+        onManifest[asset] = false;
+        emit ManifestRemoved(asset);
     }
 
     function manifest() external view returns (address[] memory) {
@@ -291,7 +355,7 @@ contract IpseityAccount {
 
     /// @notice Act under a session key rather than as the holder.
     function executeAsSession(address to, uint256 value, bytes calldata data)
-        external returns (bytes memory result)
+        external nonReentrant returns (bytes memory result)
     {
         Session storage s = sessionOf[msg.sender];
         if (!s.active) revert NoSession();
@@ -327,9 +391,67 @@ contract IpseityAccount {
 
     /*──────────────────── acting ────────────────────*/
 
+    /*═══════════════════ BATCHING ═══════════════════
+
+      One approval and one action are one act, or neither happened. Without
+      this a holder who wants to approve a venue and then use it has to send
+      two transactions and live in the gap between them — and under a seal
+      the gap is worse than untidy, because the first half can be front-run
+      by anything that watches the mempool.
+
+      The measurement wraps the WHOLE batch rather than each call, and that
+      is deliberate. Per-call measurement would refuse the ordinary shape of
+      real work — withdraw from one venue, deposit into another — because the
+      account is genuinely poorer between the two. The seal's promise has
+      always been about the state a transaction leaves behind, not about every
+      instant inside it. Nothing can observe the middle of a batch except code
+      the batch itself called, and that code cannot re-enter (see
+      `nonReentrant`) or move an asset the ends do not account for.
+
+      Approvals are still refused call by call, because an approval's damage
+      lands in a later block where no end-of-batch measurement can reach it. */
+
+    struct Call { address to; uint256 value; bytes data; }
+
+    uint256 public constant MAX_BATCH = 16;
+
+    function executeBatch(Call[] calldata calls)
+        external payable onlySigner nonReentrant returns (bytes[] memory results)
+    {
+        uint256 n = calls.length;
+        if (n == 0 || n > MAX_BATCH) revert ListTooLong();
+
+        bool locked = isSealed();
+        uint256[] memory pre;
+        uint256 preEth;
+        if (locked) {
+            if (msg.value != 0) revert ValueWhileSealed();
+            (pre, preEth) = _snapshot();
+        }
+
+        results = new bytes[](n);
+        for (uint256 i; i < n; ++i) {
+            if (locked) {
+                if (calls[i].value != 0) revert ValueWhileSealed();
+                _refuseApprovals(calls[i].data);
+            }
+            unchecked { state++; }
+
+            (bool ok, bytes memory result) = calls[i].to.call{value: calls[i].value}(calls[i].data);
+            if (!ok) {
+                assembly { revert(add(result, 0x20), mload(result)) }
+            }
+            results[i] = result;
+            emit Executed(calls[i].to, calls[i].value,
+                          calls[i].data.length >= 4 ? bytes4(calls[i].data[0:4]) : bytes4(0), locked);
+        }
+
+        if (locked) _verify(pre, preEth);
+    }
+
     /// @notice ERC-6551 execute. Only CALL; only the holder.
     function execute(address to, uint256 value, bytes calldata data, uint8 operation)
-        external payable onlySigner returns (bytes memory result)
+        external payable onlySigner nonReentrant returns (bytes memory result)
     {
         if (operation != 0) revert OnlyCall();
 
@@ -391,30 +513,89 @@ contract IpseityAccount {
 
     function _snapshot() internal view returns (uint256[] memory pre, uint256 preEth) {
         uint256 n = _manifest.length;
+        // one slot per asset: the balance, and whether it was really read.
+        // packed into the high bit so the pair travels as one word
         pre = new uint256[](n);
-        for (uint256 i; i < n; ++i) pre[i] = _balance(_manifest[i]);
+        for (uint256 i; i < n; ++i) {
+            (uint256 v, bool ok) = _measure(_manifest[i]);
+            pre[i] = ok ? (v | MEASURED) : 0;
+        }
         preEth = address(this).balance;
     }
 
     /// @dev The whole point: what the call *did* does not matter, only what
     ///      is left. A selector nobody has heard of is caught here.
+    ///
+    ///      An asset that could not be read before the call is not checked
+    ///      after it — there is no number to compare against, and inventing
+    ///      one would either brick the account or fake a promise. It is named
+    ///      by `unmeasurable()` instead.
+    ///
+    ///      An asset that COULD be read before and cannot be read after is a
+    ///      different matter, and it reverts: a call that ends with the
+    ///      account unable to see an asset it could see a moment ago has
+    ///      moved the account outside what the seal can attest to, and the
+    ///      seal refuses rather than shrug.
     function _verify(uint256[] memory pre, uint256 preEth) internal view {
         uint256 n = _manifest.length;
         for (uint256 i; i < n; ++i) {
-            uint256 now_ = _balance(_manifest[i]);
-            if (now_ < pre[i]) revert Shrank(_manifest[i], pre[i], now_);
+            if (pre[i] & MEASURED == 0) continue;          // was already blind here
+            (uint256 now_, bool ok) = _measure(_manifest[i]);
+            if (!ok) revert WentBlind(_manifest[i]);
+            if (now_ < (pre[i] & ~MEASURED)) revert Shrank(_manifest[i], pre[i] & ~MEASURED, now_);
         }
         if (address(this).balance < preEth) revert Shrank(address(0), preEth, address(this).balance);
     }
 
     /// @dev balanceOf(address) is the same word for ERC-20 and ERC-721, so
-    ///      one manifest covers both. A contract that does not answer it
-    ///      reads as zero, which can only ever tighten the check.
-    function _balance(address asset) internal view returns (uint256) {
-        (bool ok, bytes memory out) =
+    ///      one manifest covers both.
+    ///
+    ///      `ok` is returned separately, and the distinction is load-bearing.
+    ///      An asset that ANSWERS zero and an asset that DOES NOT ANSWER are
+    ///      not the same fact, and collapsing them was a silent hole: a token
+    ///      whose proxy breaks, whose implementation is gone, or which
+    ///      reverts for this address reads as zero both before and after a
+    ///      call, so `now_ < pre` is false and the seal quietly stops
+    ///      promising anything about it — with no revert and no event.
+    ///
+    ///      Refusing every sealed call instead would be worse. It is the
+    ///      shape of the bug that bricks Dave's ragequit: a third party who
+    ///      gets one asset onto the list can freeze the whole account for the
+    ///      length of the seal. (Only the holder can `guard` here, so nobody
+    ///      else can aim it — but a token can break on its own, and a promise
+    ///      that depends on every listed token staying healthy for a year is
+    ///      not a promise.)
+    ///
+    ///      So the account measures what it can, does not pretend about what
+    ///      it cannot, and says which is which. See `unmeasurable`.
+    function _measure(address asset) internal view returns (uint256 value, bool ok) {
+        bytes memory out;
+        (ok, out) =
             asset.staticcall(abi.encodeWithSelector(IERC20Bal.balanceOf.selector, address(this)));
-        if (!ok || out.length < 32) return 0;
-        return abi.decode(out, (uint256));
+        if (!ok || out.length < 32) return (0, false);
+        return (abi.decode(out, (uint256)), true);
+    }
+
+    function _balance(address asset) internal view returns (uint256 value) {
+        (value, ) = _measure(asset);
+    }
+
+    /// @notice Which manifest assets this account cannot currently measure —
+    ///         and therefore cannot currently promise about.
+    /// @dev    A buyer reads this next to `holdings()`. An empty list is the
+    ///         seal at full strength; a non-empty one names exactly what has
+    ///         fallen out of it, which is the difference between a limitation
+    ///         and a lie.
+    function unmeasurable() external view returns (address[] memory assets) {
+        uint256 n = _manifest.length;
+        address[] memory buf = new address[](n);
+        uint256 k;
+        for (uint256 i; i < n; ++i) {
+            (, bool ok) = _measure(_manifest[i]);
+            if (!ok) buf[k++] = _manifest[i];
+        }
+        assets = new address[](k);
+        for (uint256 i; i < k; ++i) assets[i] = buf[i];
     }
 
     /*──────────────────── receiving ────────────────────*/
@@ -435,30 +616,118 @@ contract IpseityAccount {
 
     /*──────────────────── ERC-1271 ────────────────────*/
 
-    /// @notice A signature is valid if the token's holder signed it.
-    /// @dev    Refused entirely while sealed: a signature is an off-chain
-    ///         authority whose effect lands wherever and whenever the
-    ///         counterparty chooses, which is exactly the shape of thing
-    ///         measurement cannot see.
+    /*═══════════════════ ERC-1271 — the voice, and its wall ═══════════════
+
+      A sealed account used to return zero to every signature, which is the
+      safe answer and the wrong one. A signature is how an account says
+      something, and an account that cannot say anything for a year is not
+      sealed, it is gagged. It cannot prove to a counterparty that it is the
+      thing holding what it holds. For a token whose whole argument is that
+      it acts, that is half the argument missing.
+
+      But the reason for the gag was real: an unrestricted `isValidSignature`
+      on a sealed account is a hole straight through the seal. Sign a market
+      order, hand the assets over, and no measurement ever runs — because no
+      call was ever made to this contract to measure around. Refusing every
+      signature closed that hole by removing the capability, at the cost of
+      the capability.
+
+      The resolution is domain separation, and it is arithmetic rather than a
+      list. (Taken from the DAVE V2 design note, which is right about this.)
+
+        UNSEALED   any digest. The account is not promising anything, so its
+                   signature is worth exactly what its holder's is.
+
+        SEALED     only digests this account can rebuild under ITS OWN
+                   EIP-712 domain. The caller hands over the preimage; the
+                   account recomputes the digest from `IPSEITY_ATTESTATION`
+                   with `verifyingContract = address(this)` and checks it
+                   equals the hash it was asked about, before it verifies a
+                   single byte of signature.
+
+      Every venue hashes its orders under its own domain separator — its own
+      name, its own version, its own verifyingContract. So an order hash can
+      never be the output of this account's `_attestationDigest`, and a sealed
+      account is structurally incapable of signing one. Not disallowed:
+      incapable. There is no venue to add to an allowlist and no allowlist to
+      get wrong.
+
+      What a sealed account CAN still do is say what it is — attest to a
+      statement, prove its conviction to a counterparty, sign into something
+      that speaks its language. It says who it is and cannot promise what it
+      holds, which is exactly the shape of a seal.                          */
+
+    bytes32 private constant _DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant _ATTESTATION_TYPEHASH =
+        keccak256("Attestation(string purpose,bytes32 payload)");
+    bytes32 private constant _NAME_HASH = keccak256("IPSEITY_ATTESTATION");
+    bytes32 private constant _VERSION_HASH = keccak256("1");
+
+    function domainSeparator() public view returns (bytes32) {
+        return keccak256(abi.encode(_DOMAIN_TYPEHASH, _NAME_HASH, _VERSION_HASH,
+                                    block.chainid, address(this)));
+    }
+
+    /// @notice The only digest a sealed account will ever put its name to.
+    function attestationDigest(string memory purpose, bytes32 payload)
+        public view returns (bytes32)
+    {
+        return keccak256(abi.encodePacked(
+            "\x19\x01",
+            domainSeparator(),
+            keccak256(abi.encode(_ATTESTATION_TYPEHASH, keccak256(bytes(purpose)), payload))
+        ));
+    }
+
+    /// @notice Decode an attestation envelope. External so the account can
+    ///         call it through `try`, which is the only way to attempt an
+    ///         `abi.decode` without a malformed blob reverting the caller.
+    /// @dev    ERC-1271 owes its callers a plain no, not a revert.
+    function decodeAttestation(bytes calldata blob)
+        external pure returns (string memory purpose, bytes32 payload, bytes memory inner)
+    {
+        return abi.decode(blob, (string, bytes32, bytes));
+    }
+
+    /// @notice ERC-1271.
+    /// @param  signature while unsealed, 65 bytes. While sealed,
+    ///         `abi.encode(string purpose, bytes32 payload, bytes inner)` —
+    ///         the preimage, so the account can rebuild the digest itself
+    ///         instead of taking a hash on trust.
     function isValidSignature(bytes32 hash, bytes calldata signature)
         external view returns (bytes4)
     {
-        if (isSealed()) return bytes4(0);
-        if (signature.length != 65) return bytes4(0);
+        if (!isSealed()) {
+            return _signedByHolder(hash, signature) ? bytes4(0x1626ba7e) : bytes4(0);
+        }
+
+        // sealed: the hash has to be one this account could have built
+        try this.decodeAttestation(signature)
+            returns (string memory purpose, bytes32 payload, bytes memory inner)
+        {
+            if (hash != attestationDigest(purpose, payload)) return bytes4(0);
+            return _signedByHolder(hash, inner) ? bytes4(0x1626ba7e) : bytes4(0);
+        } catch {
+            return bytes4(0);
+        }
+    }
+
+    function _signedByHolder(bytes32 hash, bytes memory signature) internal view returns (bool) {
+        if (signature.length != 65) return false;
 
         bytes32 r; bytes32 s; uint8 v;
         assembly {
-            r := calldataload(signature.offset)
-            s := calldataload(add(signature.offset, 0x20))
-            v := byte(0, calldataload(add(signature.offset, 0x40)))
+            r := mload(add(signature, 0x20))
+            s := mload(add(signature, 0x40))
+            v := byte(0, mload(add(signature, 0x60)))
         }
         // reject the malleable upper half of the curve order
         if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
-            return bytes4(0);
+            return false;
         }
         address signer = ecrecover(hash, v, r, s);
-        if (signer != address(0) && signer == owner()) return 0x1626ba7e;
-        return bytes4(0);
+        return signer != address(0) && signer == owner();
     }
 
     function supportsInterface(bytes4 id) external pure returns (bool) {

@@ -133,8 +133,8 @@ no flash loans.
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists fifty-one such
-statements and names the test for each, plus ten known limitations that are
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists fifty-four such
+statements and names the test for each, plus twelve known limitations that are
 documented rather than defended.
 
 Writing an invariant down is not the same as running it. Nine of these were
@@ -211,6 +211,22 @@ never. No function exists.*
 The cost is stated in `INVARIANTS.md` rather than buried: a Grip is permanent,
 there is no burn, and a mistaken transfer into one is a permanent mistake.
 
+**The voice, and the wall that survives it.** A sealed vault used to return
+zero to every signature. Safe, and wrong: an account that cannot sign anything
+for a year cannot prove to a counterparty that it is the thing holding what it
+holds, which is half of what this collection claims a token is.
+
+The fix is domain separation rather than omission — the best idea in the DAVE
+V2 audit, and it applies here exactly. Unsealed, the account validates any
+digest its holder signed. **Sealed, it validates only digests it can rebuild
+itself**, under its own EIP-712 domain (`IPSEITY_ATTESTATION`,
+`verifyingContract` = the account), with the caller obliged to hand over the
+preimage so the account reconstructs rather than trusts. Every venue hashes its
+orders under its own domain separator, so an order hash can never be the output
+of `attestationDigest`. A sealed vault is not *forbidden* from signing its
+assets away — it is *incapable* of it. There is no allowlist to maintain and
+none to get wrong.
+
 **Session keys, for something that is not you.** A holder can grant a bounded
 key to a bot, a keeper or a model without handing over the token. Four bounds,
 all checked on every call: an expiry it cannot extend, a target allowlist and a
@@ -252,7 +268,93 @@ breaks every guarantee above it. This is the Dave Held Granary pattern — *"sil
 are timelock-blessed only"* — and it is a real centralisation trade-off, stated
 rather than hidden.
 
-### What was deliberately not taken
+### Read against the DAVE V2 audit
+
+A v2 audit of a different collection — a covenant NFT with a 6551 vault, a
+conviction pool and an on-chain website — was reviewed against this one. Its
+findings are good, and the useful thing was that most of them **did not
+transfer**, for reasons worth stating.
+
+**C1, a single bag bricks the exit — applies inverted, and that was the find.**
+Dave's ragequit hard-requires a transfer from every listed token, so one token
+that reverts freezes the only exit from a four-year seal, and a stranger can
+put that token on the list for dust. Here `guard` is holder-only, so nobody can
+aim it, and `_balance` already used a staticcall so nothing bricks.
+
+But the staticcall returned zero on failure, and the comment beside it claimed
+that "can only ever tighten the check". **That was wrong.** A token that stops
+answering reads as zero *before and after* a call, so `now < pre` is false and
+the seal quietly stops promising anything about it — no revert, no event, no
+signal to a buyer. Same root cause as Dave's brick — a measurement that does
+not distinguish *answered zero* from *did not answer* — and the opposite
+failure. Now the two are separate, `unmeasurable()` names every asset that has
+fallen out of the promise, and an asset readable before a call and not after
+reverts rather than shrugs.
+
+**C2, a stranger fills the roster — does not apply, but half of it did.**
+`guard` is `onlySigner`, so the attack is not available. The append-only part
+was still a real cost: sixteen slots, no removal, and the manifest travels with
+the token. `unguard` now exists, and reverts for everyone while sealed.
+
+**C3, 1155 batch receiver missing — does not apply.** Both accounts already
+implement `onERC1155BatchReceived`, and both `supportsInterface` answers are
+already complete. The Grip's omission of `0x51945447` is deliberate and
+documented.
+
+**M1, no reentrancy guard — did not apply, added anyway.** Ownership already
+stops the re-entry: a token called from inside `_act` that calls back arrives
+as itself, not as the holder. But the thing being protected is a snapshot taken
+around an external call, and this contract can never be redeployed — its
+address is an input to every vault's address. On code that is final, cheap
+insurance against a class of bug beats the gas.
+
+**M2, ERC-1271 by domain separation — applies fully, and is the best idea in
+the document.** This vault returned zero to every signature while sealed, which
+is exactly the omission the audit criticises. See *the voice* above.
+
+**C4, the website is one DNS record — does not apply, and could not.** There is
+no hostname in this bytecode, no `fetch`, and no `new Function` over remote
+bytes. One sub-point does land: the audit is right that serial on-chain
+assembly grows quadratically and eventually exceeds the `eth_call` cap. This
+collection's `tokenURI` read is **23.99M gas against a 30M ceiling** and it has
+grown this cycle. That margin is measured on every run and it is the number to
+watch.
+
+### What was deliberately not taken from it
+
+**The Premises architecture** — ERC-5219, ERC-4804/6860, ERC-5018, ERC-7087,
+SHA-256 chunk integrity, three-transport loading. All of it is a good answer to
+a problem this collection does not have. A contract that answers HTTP is a
+better origin server than a hostname in bytecode, but it is still a worse
+answer than *no server*, and the artwork here is already a self-contained
+`data:` URI. Adding it would introduce a network dependency to remove a network
+dependency. The chunk-integrity design is elegant precisely because bytes
+arrive over a wire; nothing here arrives over a wire, so there is nothing to
+verify.
+
+**ERC-7066 lienholder locks.** ERC-5192 is already here and `locked()` is the
+part marketplaces read. ERC-7066 adds a third-party locker for lending against
+the token — a capability with no consumer in this collection. Shipping the
+surface before the desk is how immutable contracts accumulate attack surface
+that never earns its keep.
+
+**ERC-4494 permit.** Considered and declined. The audit's justification is "a
+sale should be one transaction", which is a property Dave's covenant claims and
+this one does not. External marketplaces use `setApprovalForAll`, 4494 adoption
+is thin, and it would add a signature-verification surface plus ~1.5 KB to a
+contract that can never be redeployed. If a desk here ever needs it, it needs
+it for a stated reason.
+
+**`setTrait` reverting unconditionally.** Right for Dave, wrong here. Its
+traits are pure functions of covenant state, so a settable one could be false.
+This collection's only settable trait is `hue`, which is genuinely holder
+state — part of the section word the artwork exists to let you edit. Reverting
+would remove a real function to make a point that does not apply.
+
+**ERC-2309, ERC-721A, the royalty splitter doctrine.** No batch mint, a
+different base, and no 69/31 split to obey.
+
+### What was deliberately not taken from the Dave Held core
 
 The Dave Held core is twenty-one DeFi desks. Porting them into an artwork would
 be reckless, so the teardown asked of each mechanism: *what guarantee does this
@@ -535,8 +637,8 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 
 `glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `verify.mjs` in
 both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62), `verify-vault.mjs`
-(69), `verify-kernel.mjs` (36), `verify-timelock.mjs` (24) and `fuzz.mjs` (14
-properties) were executed in this environment — 368 assertions plus the property run —
+(86), `verify-kernel.mjs` (36), `verify-timelock.mjs` (24) and `fuzz.mjs` (14
+properties) were executed in this environment — 385 assertions plus the property run —
 and every number in this document comes from those runs.
 
 `forge test` was **not** executed: Foundry's installer is unreachable from this

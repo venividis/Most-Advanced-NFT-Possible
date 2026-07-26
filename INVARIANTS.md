@@ -183,10 +183,31 @@ outright. There is no venue registry here to make exceptions for, so there are
 no exceptions.
 → `tools/verify-vault.mjs` · *"approving a spender to pull later"*
 
-**34. While sealed, no ether leaves and no signature is honoured.**
-Both are authorities whose effect lands outside the window a same-transaction
-measurement can observe. `isValidSignature` returns zero while sealed.
-→ `tools/verify-vault.mjs`
+**34. While sealed, no ether leaves, and the only signature honoured is one
+this account could have built itself.**
+Ether is refused outright: its effect lands outside the window a
+same-transaction measurement can observe.
+
+Signatures used to be refused outright too, and that was the safe answer
+rather than the right one. An account that cannot sign anything for a year
+cannot prove to a counterparty that it is the thing holding what it holds —
+which is half of what this collection claims a token is. While sealed,
+`isValidSignature` now validates *only* digests it can rebuild under its own
+EIP-712 domain (`IPSEITY_ATTESTATION`, `verifyingContract = the account`), and
+the caller must hand over the preimage so the account rebuilds rather than
+trusts. Every venue hashes orders under its own domain separator, so an order
+hash can never be the output of `attestationDigest` — a sealed account is
+structurally incapable of signing one away. Not disallowed: incapable, with no
+allowlist to maintain and none to get wrong.
+→ `tools/verify-vault.mjs` · *"a sealed vault can say who it is, and cannot promise what it holds"*
+
+**34b. A batch is one act or none, and the seal measures the whole of it.**
+`executeBatch` snapshots once before and verifies once after, so a sequence
+that is genuinely poorer in the middle and whole at the end goes through —
+which is the ordinary shape of real work and what per-call measurement would
+refuse. Approvals are still refused call by call, because their damage lands
+in a later block that no end-of-batch measurement can reach.
+→ `tools/verify-vault.mjs` · *"a batch is one act or none"*
 
 **35. The seal only ratchets, has a ceiling, and survives the sale.**
 It can be pushed further out by the holder and lowered by nobody. It cannot run
@@ -363,6 +384,26 @@ holdings a token carries as part of what it *is*, and the wrong trade for
 anything that has to stay liquid — which is why market inventory lives in
 `Pool.sol` behind a time-boxed bond and working capital lives in the Reach.
 
+**A00. An asset can stop answering, and the account says so rather than
+guessing.**
+`balanceOf` is read by staticcall, and "answered zero" and "did not answer"
+are different facts. Collapsing them was a silent hole: a token whose proxy
+breaks reads as zero before and after a call, so `now < pre` is false and the
+seal quietly stops promising anything about it. `unmeasurable()` names every
+manifest asset the account currently cannot read, and a buyer reads it beside
+`holdings()`.
+
+Refusing every sealed call instead would be the opposite failure — the one
+that bricks Dave's ragequit, where a third party who gets one asset onto the
+list freezes the whole account for the length of the seal. Only the holder can
+`guard` here, so nobody else can aim it, but a token can break on its own and
+a promise contingent on every listed token staying healthy for a year is not a
+promise. So the account measures what it can and discloses what it cannot.
+
+The one case it does refuse: an asset readable *before* a call and not after.
+That is a state change the seal cannot attest to, and it reverts.
+→ `tools/verify-vault.mjs` · *"an asset that stops answering"*, *"going blind during a call"*
+
 **A. The seal covers the manifest, and nothing else.**
 *(This was previously "the vault can be emptied between a handshake and a
 settlement", with no fix. It is fixed: the collection ships its own ERC-6551
@@ -374,6 +415,16 @@ in a contract nobody listed, can leave freely. The manifest is additive and
 public for exactly that reason: a buyer reads `manifest()` and `holdings()`,
 they do not assume. The cap is sixteen entries, because every entry is two
 balance reads on every sealed call.
+
+**A1. The manifest is removable while unsealed, and frozen while sealed.**
+`guard` was append-only forever on the reasoning that an un-promisable asset
+makes the manifest emptiable instead of the vault. That is right *while the
+seal holds* and wrong outside it — an unsealed account promises nothing, so
+removing an entry takes nothing from anybody. Append-only had a cost nobody
+was paying for: sixteen slots, no removal, and the manifest travels with the
+token, so a holder who filled it left every future owner unable to re-point it.
+`unguard` reverts for everyone while `isSealed()`.
+→ `tools/verify-vault.mjs` · *"the manifest is no longer append-only forever"*
 
 **A2. The seal cannot promise about a lying token.**
 `_balance` reads `balanceOf(address)` from the asset itself. A token contract
