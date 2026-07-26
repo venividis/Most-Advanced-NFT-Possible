@@ -62,7 +62,8 @@ const A = {
   Ipseity:  artifact(out, "src/Ipseity.sol", "Ipseity"),
   Registry: artifact(out, "test/mocks/ERC6551Registry.sol", "ERC6551Registry"),
   Verifier: artifact(out, "test/mocks/MockVerifier.sol", "MockVerifier"),
-  Receiver: artifact(out, "test/mocks/MockReceiver.sol", "MockReceiver")
+  Receiver: artifact(out, "test/mocks/MockReceiver.sol", "MockReceiver"),
+  Account:  artifact(out, "src/IpseityAccount.sol", "IpseityAccount")
 };
 ok("contracts compile", true);
 
@@ -84,7 +85,9 @@ const engine = await c.deploy(A.Engine.bytecode, RAW ? "0".repeat(64) : "0".repe
 const sigil = await c.deploy(A.Sigil.bytecode, "", "Sigil");
 const renderer = await c.deploy(
   A.Renderer.bytecode, encodeAddressArg(engine) + encodeAddressArg(sigil), "Renderer");
-const nft = await c.deploy(A.Ipseity.bytecode, encodeAddressArg(renderer), "Ipseity");
+const acctImpl = await c.deploy(A.Account.bytecode, "", "IpseityAccount");
+const nft = await c.deploy(A.Ipseity.bytecode,
+  encodeAddressArg(renderer) + encodeAddressArg(acctImpl), "Ipseity");
 console.log(`      Engine ${engine}\n      Sigil  ${sigil}\n      Renderer ${renderer}\n      Ipseity ${nft}`);
 
 /*──────────────────── load the document ────────────────────*/

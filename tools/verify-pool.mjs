@@ -56,7 +56,9 @@ const engine = await c.deploy(A("src/Engine.sol", "Engine").bytecode, "0".repeat
 const sigil = await c.deploy(A("src/Sigil.sol", "Sigil").bytecode);
 const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
   encodeAddressArg(engine) + encodeAddressArg(sigil));
-const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode, encodeAddressArg(renderer));
+const acctImpl = await c.deploy(A("src/IpseityAccount.sol", "IpseityAccount").bytecode);
+const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode,
+  encodeAddressArg(renderer) + encodeAddressArg(acctImpl));
 
 const CAP = 10n ** 24n;   // 1,000,000 tokens per side while unaudited
 const timelock = await c.deploy(A("src/lib/Timelock.sol", "Timelock").bytecode,

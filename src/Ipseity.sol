@@ -89,7 +89,16 @@ contract Ipseity is
     /*──────────────────────── ERC-6551 ────────────────────────*/
     IERC6551Registry public constant REGISTRY =
         IERC6551Registry(0x000000006551c19487814612e58FE06813775758);
-    address public constant ACCOUNT_IMPL = 0x55266d75D1a14E4572138116aF39863Ed6596E7F;
+    /// @notice The account implementation every token's vault runs.
+    /// @dev    ERC-6551 makes the registry canonical and the implementation a
+    ///         parameter. Most collections pass the reference implementation
+    ///         and inherit its one structural gap: a holder can empty the
+    ///         vault between agreeing a price for the token and settling it.
+    ///         This collection passes its own, which can be sealed — see
+    ///         IpseityAccount.sol. Immutable, because the account address is
+    ///         derived from it and a mutable implementation would mean a
+    ///         mutable vault address.
+    address public immutable ACCOUNT_IMPL;
     bytes32 public constant ACCOUNT_SALT = bytes32(0);
 
     /*──────────────────────── state ────────────────────────*/
@@ -216,7 +225,9 @@ contract Ipseity is
         _lock = 1;
     }
 
-    constructor(IRenderer renderer_) {
+    constructor(IRenderer renderer_, address accountImpl_) {
+        if (accountImpl_ == address(0)) revert ZeroAddress();
+        ACCOUNT_IMPL = accountImpl_;
         emit OwnershipTransferred(address(0), msg.sender);
         curator = msg.sender;
         royaltyReceiver = msg.sender;

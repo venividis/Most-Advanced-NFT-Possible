@@ -145,6 +145,46 @@ no data at all is accepted.
 
 ---
 
+## The vault
+
+**32. A sealed vault's manifest never shrinks.**
+While `sealedUntil` has not passed, no call through `execute` may leave the
+account holding less of any listed asset, or less ether, than it held before —
+whatever that call was. Enforced by measuring balances either side of the call,
+not by listing the words that move assets, because that list cannot be
+completed.
+→ `tools/verify-vault.mjs` · *"a word no list has ever heard of"*
+
+**33. While sealed, no approval executes.**
+An approval moves nothing at the moment it is granted, so measurement is
+structurally blind to it and the loss lands in a later block. `approve`,
+`setApprovalForAll`, `increaseAllowance` and both `permit` shapes are refused
+outright. There is no venue registry here to make exceptions for, so there are
+no exceptions.
+→ `tools/verify-vault.mjs` · *"approving a spender to pull later"*
+
+**34. While sealed, no ether leaves and no signature is honoured.**
+Both are authorities whose effect lands outside the window a same-transaction
+measurement can observe. `isValidSignature` returns zero while sealed.
+→ `tools/verify-vault.mjs`
+
+**35. The seal only ratchets, has a ceiling, and survives the sale.**
+It can be pushed further out by the holder and lowered by nobody. It cannot run
+past a year. It binds the buyer exactly as it bound the seller.
+→ `tools/verify-vault.mjs` · *the seal*, *the promise survives the sale*
+
+**36. `execute` is CALL only.**
+`delegatecall` would let the holder rewrite the account's own storage, including
+the seal. Any operation other than 0 reverts.
+→ `tools/verify-vault.mjs` · *"delegatecall, which would rewrite the account"*
+
+**37. A sealed vault can still act.**
+Anything leaving it no poorer goes through. Measuring rather than freezing is
+the whole reason: a vault that cannot act is a safe.
+→ `tools/verify-vault.mjs` · *"but the vault still works"*
+
+---
+
 ## Privilege
 
 **27. No admin path can move an asset.**
@@ -183,12 +223,22 @@ seven days as anything else.
 These are true, they are not tested, and they are not defended against. They are
 here because an undocumented limitation is worse than a documented one.
 
-**A. The vault can be emptied between a handshake and a settlement.**
-The bond protects a market's inventory. It does not protect the ERC-6551
-account's contents, because that account is a third-party implementation this
-project does not control and cannot add a guard to. A buyer paying for a token
-because of what its *vault* holds has no on-chain promise — only the market has
-one. Check the vault is empty, or price the risk.
+**A. The seal covers the manifest, and nothing else.**
+*(This was previously "the vault can be emptied between a handshake and a
+settlement", with no fix. It is fixed: the collection ships its own ERC-6551
+implementation — see `src/IpseityAccount.sol` — so the vault can be sealed the
+same way a market can be bonded. What follows is what remains.)*
+
+Only assets on the manifest are measured. An asset that arrives after the seal,
+in a contract nobody listed, can leave freely. The manifest is additive and
+public for exactly that reason: a buyer reads `manifest()` and `holdings()`,
+they do not assume. The cap is sixteen entries, because every entry is two
+balance reads on every sealed call.
+
+**A2. The seal cannot promise about a lying token.**
+`_balance` reads `balanceOf(address)` from the asset itself. A token contract
+that misreports its own balances defeats the measurement, as it defeats every
+other accounting built on it. Seal assets you would hold anyway.
 
 **B. A holder can re-shape an unbonded curve against a pending trade.**
 Where the art and the price are the same numbers, this is not preventable. It is

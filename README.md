@@ -129,6 +129,31 @@ market's admin hand over by propose-and-accept. A one-step transfer to a
 mistyped address is how a collection loses its admin permanently; this deviates
 from a literal reading of ERC-173 and says so.
 
+**The vault seals too.** ERC-6551 makes the registry canonical and the
+*implementation* a parameter. Most collections pass the reference
+implementation and inherit its one structural gap: the holder can empty the
+vault between agreeing a price for the token and settling it. This one passes
+`src/IpseityAccount.sol` instead, which carries the same ratcheting promise the
+market does.
+
+How "nothing leaves" is enforced matters more than that it is. Not by listing
+the calls that move assets — that list cannot be completed, because `transfer`
+is on it but so is any protocol's `withdrawTo`, `redeem`, `exit`, or a function
+nobody has written yet. The account **measures**: it records its balance of
+every manifest asset before a sealed call and checks that none fell after. What
+the call did is irrelevant; what is left is not. The suite proves this with a
+drainer whose function name was invented for the test and appears on no list
+anywhere.
+
+Measurement has exactly one blind spot, and it is covered separately: an
+approval moves nothing at the moment it is granted, so the loss lands in a later
+block where no same-transaction check can see it. So while sealed, approvals,
+ether transfers and ERC-1271 signatures are refused outright — those being the
+three authorities whose effect escapes the measurement window.
+
+A sealed vault can still act. Anything that leaves it no poorer goes through,
+because a vault that cannot act is a safe.
+
 **The bond.** "Selling the token sells the market" is mechanically true the
 moment `ownerOf` changes and worth nothing to a buyer on its own — the seller
 can empty it between the handshake and the settlement. So a holder may bond a
@@ -160,12 +185,16 @@ The Dave Held core is twenty-one DeFi desks. Porting them into an artwork would
 be reckless, so the teardown asked of each mechanism: *what guarantee does this
 serve, and does anything here make that promise?*
 
-**The selector firewall** — the sharpest thing in that codebase, refusing
-transfer-family selectors by shape while a vault is sealed — is **not** ported.
-It exists because a Dave vault makes a sealed promise about assets it holds and
-lets docked modules call out with its arm. IPSEITY has no module system and its
-vault makes no such promise, so the firewall would guard nothing. Copying it
-would be cargo-culting a defence with no attack behind it.
+**The selector firewall** — refusing transfer-family selectors by shape while a
+vault is sealed — was initially skipped on the grounds that IPSEITY's vault made
+no promise, so the firewall would guard nothing. Adding the seal created the
+promise, and the question came back. The answer, on a second look, is that the
+firewall is *not* the mechanism: a selector list only blocks the words it knows,
+and the drainer in `tools/verify-vault.mjs` walks straight past any such list.
+Measurement is the mechanism. The firewall survives as a second layer covering
+one specific case — approvals — because that is the case measurement is blind
+to. Dave Held's Chambers has both for the same reason, and their hardening pass
+(finding S1) is a record of learning it.
 
 **The covenant seal, ragequit tax, tranches, rank engraving, Harberger keeper
 seats, perps, RWA lots, options, bonds, strips, restaking, basket funds** —
@@ -369,6 +398,7 @@ src/
   Renderer.sol          tokenURI, the three faces, the JSON
   Sigil.sol             the 4D projector, in Solidity
   Pool.sol              every token as its own exchange
+  IpseityAccount.sol    the ERC-6551 vault, sealable and measured
   lib/                  SSTORE2, Base64, Trig, Curve, Timelock, the section word
   interfaces/           every standard, with the reasoning
 tools/
@@ -377,6 +407,7 @@ tools/
   build-engine.mjs      minify → gzip → shards
   verify.mjs            deploy on a real EVM, read it all back
   verify-pool.mjs       try to break the market on a real EVM
+  verify-vault.mjs      try to drain a sealed vault
   verify-timelock.mjs   try to escape the delay
   preview.mjs           dist/preview.html
   evm.mjs, compile.mjs  the harness
@@ -389,9 +420,10 @@ script/Deploy.s.sol     deploy, load, seal
 ## What was and was not run here
 
 `glsl-check.mjs`, `selftest.mjs` (52 assertions), `build-engine.mjs`, `verify.mjs` in
-both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62 assertions) and
-`verify-timelock.mjs` (24 assertions) were executed in this environment — 260 in
-total — and every number in this document comes from those runs.
+both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62),
+`verify-vault.mjs` (35) and `verify-timelock.mjs` (24) were executed in this
+environment — 295 assertions in total — and every number in this document comes
+from those runs.
 
 `forge test` was **not** executed: Foundry's installer host is blocked by this
 session's network egress policy. The Foundry suite and the deploy script were
