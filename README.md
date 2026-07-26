@@ -372,6 +372,7 @@ reaches it with no DNS and no server —
 web3://<premises>/               the index
 web3://<premises>/token/42       one token
 web3://<premises>/token/42/raw   that token's tokenURI, plain
+web3://<premises>/token/42/live  the instrument, on its own origin
 ```
 
 — and an ENS `contenthash` makes that a name. An HTTP gateway is a convenience
@@ -381,13 +382,26 @@ for everyone else, and a convenience is exactly what it should be.
 a document that *names* it, emitting the token's own `data:` URI read from the
 hub at request time. The suite asserts that byte for byte: what the page hands
 a viewer equals `tokenURI(id)` exactly, and the contract's deployed code
-contains none of the document. So an attacker who owned this contract would own
-a page that links to the artwork and could not alter one byte of it — and if it
-is never deployed, or deployed and abandoned, every token renders identically.
+contains none of the document.
 
-That is the difference between a front door and infrastructure, and it is why
-this one is safe to have where a hostname in immutable bytecode is not. It has
-no state-changing function at all, and a request for nonsense is a 404 rather
+Be exact about what that buys. Premises composes the page, so a compromised
+Premises could put anything in that frame — no assertion prevents that. What it
+buys is that **the artwork is untouched**: the bytes are in the collection,
+anyone can call `tokenURI` directly, `/raw` hands back the URI to check against,
+and every token renders identically whether this contract exists, is abandoned,
+or is replaced. The index is convenience, and nothing depends on it. That is the
+difference between a front door and infrastructure, and it is why this one is
+safe to have where a hostname in immutable bytecode is not.
+
+**`/live` is the route that makes it usable.** A `data:` document gets an opaque
+origin and wallet extensions do not inject into one — so the instrument in the
+frame renders perfectly and cannot connect to anything. It can be looked at, not
+used. `/token/42/live` serves `Renderer.document(...)`, the same bytes one step
+before base64, as a first-class HTML response on a real `web3://` origin, where
+EIP-6963 discovery works and the twelve instruments do what they were built for.
+The suite asserts those bytes equal what `tokenURI` base64s.
+
+No state-changing function at all, and a request for nonsense is a 404 rather
 than a revert.
 
 ---
@@ -677,9 +691,9 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 
 `glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `verify.mjs` in
 both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62), `verify-vault.mjs`
-(86), `verify-kernel.mjs` (36), `verify-premises.mjs` (25), `verify-timelock.mjs` (24)
+(86), `verify-kernel.mjs` (36), `verify-premises.mjs` (29), `verify-timelock.mjs` (24)
 and `fuzz.mjs` (14
-properties) were executed in this environment — 410 assertions plus the property run —
+properties) were executed in this environment — 414 assertions plus the property run —
 and every number in this document comes from those runs.
 
 `forge test` was **not** executed: Foundry's installer is unreachable from this

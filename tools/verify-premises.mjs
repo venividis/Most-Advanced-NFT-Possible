@@ -11,12 +11,21 @@
       PREMISES NEVER SERVES THE ARTWORK.
 
   It serves a document that names the artwork, by emitting the token's own
-  data: URI read from the hub at request time. So the strongest assertion in
-  this file is a byte-for-byte comparison: what the page hands a viewer must
-  equal tokenURI(id) exactly. If that holds, then an attacker who owns this
-  contract owns a page that links to the artwork and cannot alter one byte
-  of it — and if the contract is never deployed, or is abandoned, every
-  token renders exactly the same.
+  data: URI read from the hub at request time, and it stores none of it.
+
+  Be exact about what that buys. Premises composes the whole page, so a
+  compromised Premises could put anything in that frame — no assertion here
+  can prevent that, and claiming otherwise would be the kind of guarantee
+  this project exists not to make. What it buys is that the ARTWORK is
+  untouched: the bytes live in the collection, anyone can call tokenURI
+  directly, /raw hands back the URI to check against, and every token
+  renders identically whether this contract exists, is abandoned, or is
+  replaced by something else entirely. The index is convenience. Nothing
+  depends on it, which is the only reason it is safe to have one.
+
+  So the assertions are: the honest deployment emits exactly tokenURI(id),
+  and the deployed code contains none of the document — a reader can verify
+  both against the source.
 
   Also under test: a request for nonsense is a 404, not a revert. A client
   asking for a path that does not exist deserves an answer.
@@ -152,12 +161,36 @@ const tokenUri = (() => {
 const m = one.body.match(/<iframe[^>]*src="([^"]*)"/);
 ok("the page embeds a src", m !== null);
 eq("and it is tokenURI(1), byte for byte", m && m[1] === tokenUri, true);
-console.log("      an attacker who owned this contract would own a page that");
-console.log("      links to the artwork, and could not alter one byte of it");
+console.log("      this deployment emits the token's own URI. A compromised one");
+console.log("      could not — but the artwork is in the collection either way");
 
 const raw = await GET(["token", "1", "raw"]);
 eq("/raw returns the URI itself", raw.body, tokenUri);
 eq("as text/plain", raw.headers[0][1], "text/plain; charset=utf-8");
+
+/*════════════ the one that decides whether it is usable ════════════
+
+  A `data:` document gets an opaque origin, and wallet extensions do not
+  inject into one. So the frame on the token page renders the instrument
+  perfectly and cannot connect to anything — it can be looked at, not used.
+  /live serves the same bytes one step earlier, as a first-class HTML
+  response on a real origin, where EIP-6963 discovery works.               */
+head("the instrument, on an origin a wallet will talk to");
+const live = await GET(["token", "1", "live"]);
+eq("200", live.status, 200);
+eq("served as html, not as a URI in a page", live.headers[0][1], "text/html; charset=utf-8");
+ok("the body is a document, not a data: URI", !live.body.startsWith("data:"));
+
+/* the bytes must be the same ones — one step before base64, not a rebuild */
+const inner = (() => {
+  const m2 = tokenUri.match(/^data:application\/json;base64,(.*)$/);
+  const json = JSON.parse(Buffer.from(m2[1], "base64").toString("utf8"));
+  return Buffer.from(json.animation_url.replace(/^data:text\/html;base64,/, ""), "base64")
+    .toString("utf8");
+})();
+eq("and they are exactly what tokenURI base64s", live.body, inner);
+console.log("      same document, one step earlier — a real origin instead of");
+console.log("      an opaque one, which is the difference between look and use");
 
 /*──────────────── nonsense gets an answer ────────────────*/
 head("a request for nonsense is a 404, never a revert");

@@ -57,14 +57,26 @@ derivation carried inside the engine match published vectors.
 
 ## The front door
 
-**9b. The index cannot touch the artwork.**
+**9b. Nothing depends on the index.**
 `Premises.request` emits the token's own `data:` URI, read from the hub at
-request time, and what the page hands a viewer equals `tokenURI(id)` byte for
-byte. The contract's deployed code contains none of the document, and it has no
-state-changing function at all. So an attacker holding this contract holds a
-page that links to the artwork and cannot alter one byte of it, and every token
-renders identically whether it exists, is abandoned, or is replaced.
+request time; its deployed code contains none of the document; it has no
+state-changing function at all.
+
+Stated exactly: Premises composes the page, so a compromised Premises could put
+anything in that frame, and no assertion prevents that. What holds is that the
+*artwork* is untouched — the bytes are in the collection, `tokenURI` can be
+called directly, `/raw` returns the URI to check against, and every token
+renders identically whether this contract exists, is abandoned or is replaced.
+An index is safe to have only because nothing depends on it.
 → `tools/verify-premises.mjs` · *"what the page hands you is the token's own bytes"*, *"it holds none of the artwork's bytes"*
+
+**9d. `/live` serves the same bytes, one step earlier.**
+The document at `/token/<id>/live` equals what `tokenURI` base64s into its
+`animation_url`. It exists because a `data:` document gets an opaque origin and
+wallet extensions do not inject into one — the framed instrument can be looked
+at and not used. A real `web3://` origin is what makes the twelve instruments
+work.
+→ `tools/verify-premises.mjs` · *"the instrument, on an origin a wallet will talk to"*
 
 **9c. A request for nonsense is answered, not reverted.**
 A missing token, a non-numeric path segment, an undefined route and an empty

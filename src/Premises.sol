@@ -2,7 +2,13 @@
 pragma solidity ^0.8.24;
 
 import {LibNum} from "./lib/LibNum.sol";
-import {Section} from "./lib/Types.sol";
+import {Section, TokenView} from "./lib/Types.sol";
+
+interface IRendererDoc {
+    /// @dev The document before it is base64'd into a data: URI — the same
+    ///      bytes, one step earlier.
+    function document(TokenView memory v) external view returns (bytes memory);
+}
 
 interface IIpseityIndex {
     function totalSupply() external view returns (uint256);
@@ -14,6 +20,8 @@ interface IIpseityIndex {
     function locked(uint256 id) external view returns (bool);
     function account(uint256 id) external view returns (address);
     function grip(uint256 id) external view returns (address);
+    function viewOf(uint256 id) external view returns (TokenView memory);
+    function renderer() external view returns (address);
 }
 
 /*═══════════════════════════════════════════════════════════════════════════
@@ -61,6 +69,7 @@ interface IIpseityIndex {
       web3://<this address>/                  the index
       web3://<this address>/token/42          one token
       web3://<this address>/token/42/raw      that token's tokenURI, plain
+      web3://<this address>/token/42/live     the instrument, on its own origin
 
   Point an ENS `contenthash` at it and a name resolves natively in any
   web3://-aware client. An HTTP gateway is a convenience for everyone else,
@@ -120,6 +129,29 @@ contract Premises {
             if (resource.length >= 3 && _eq(resource[2], "raw")) {
                 return (200, HUB.tokenURI(id), _headers("text/plain; charset=utf-8"));
             }
+
+            // /token/<id>/live — the instrument itself, as a first-class HTML
+            // response rather than a data: URI inside a frame.
+            //
+            // This exists for one specific reason and it is not aesthetics. A
+            // `data:` document gets an opaque origin, and wallet extensions do
+            // not inject into one — so the instrument embedded on the page
+            // below renders perfectly and cannot connect to anything. It can
+            // be looked at and not used. Served here it has a real origin
+            // under `web3://`, EIP-6963 discovery works, and the twelve
+            // instruments do what they were built to do.
+            //
+            // The bytes are `Renderer.document(...)` — exactly what
+            // `tokenURI` base64s, one step earlier, read from the same
+            // renderer the token uses. Nothing is stored here.
+            if (resource.length >= 3 && _eq(resource[2], "live")) {
+                return (
+                    200,
+                    string(IRendererDoc(HUB.renderer()).document(HUB.viewOf(id))),
+                    _headers("text/html; charset=utf-8")
+                );
+            }
+
             return (200, _token(id), _headers("text/html; charset=utf-8"));
         }
 
@@ -214,10 +246,15 @@ contract Premises {
     function _frame(uint256 id) private view returns (string memory) {
         return string.concat(
             "<h2>the instrument</h2>"
+            "<p><a class=g href=\"/token/", id.str(), "/live\">open it properly &rarr;</a></p>"
             "<iframe title=\"IPSEITY #", id.str(), "\" src=\"", HUB.tokenURI(id), "\"></iframe>",
-            "<p class=e>Those bytes came out of <code>tokenURI(", id.str(), ")</code>. This page "
-            "did not fetch them from anywhere and could not have altered them if it wanted to. "
-            "<a href=\"/token/", id.str(), "/raw\">read the URI itself</a>.</p>"
+            "<p class=e>Those bytes came out of <code>tokenURI(", id.str(), ")</code>, embedded "
+            "here rather than fetched from anywhere. A <code>data:</code> document gets an opaque "
+            "origin and wallet extensions do not inject into one, so the frame above can be "
+            "looked at and not used &mdash; <a href=\"/token/", id.str(), "/live\">open it on "
+            "its own</a> to connect a wallet. Or "
+            "<a href=\"/token/", id.str(), "/raw\">read the URI itself</a> and check it against "
+            "<code>tokenURI</code>.</p>"
         );
     }
 
@@ -235,6 +272,8 @@ contract Premises {
             "h2{font-weight:500;letter-spacing:.14em;font-size:.8rem;text-transform:uppercase;"
             "color:#8b95ad;margin:2.6rem 0 .8rem}"
             "a{color:#7fd4ff}.b{text-decoration:none;color:#8b95ad}"
+            ".g{display:inline-block;border:1px solid #2a3550;border-radius:.4rem;"
+            "padding:.5rem .9rem;text-decoration:none;margin-bottom:.8rem}"
             ".e{color:#8b95ad;font-size:.92rem}"
             "code{font:12.5px ui-monospace,monospace;color:#9fb0cc;overflow-wrap:anywhere}"
             "dl{display:grid;grid-template-columns:8.5rem 1fr;gap:.35rem 1rem;margin:1.6rem 0}"
