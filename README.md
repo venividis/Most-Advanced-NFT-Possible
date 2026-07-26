@@ -67,10 +67,50 @@ positioned in the same 3-space as the solid. The instance inside can do it again
 
 ---
 
+## The market — every token is its own exchange
+
+A token can hold two assets and let **anyone** trade against them. The holder is the
+sole liquidity provider: they put the inventory in, they set the fee, they take the
+fee, they take it back out. Because the right to all of that is "whoever `ownerOf()`
+says", **selling the NFT sells the exchange** — reserves, fee income and price curve,
+in one transaction, with no migration.
+
+**The curve is the solid.** The pool prices on constant product with *virtual
+reserves*, and those come from how far the artwork has been turned through `w` — the
+same three rotation planes that change the shape of the section:
+
+```
+solid barely turned    →  concentration 0       →  a wide, forgiving market
+solid turned edge on   →  concentration 80,000  →  a tight market that holds its price
+```
+
+Spinning the section (`xy`, `xz`, `yz`) does nothing to the market, exactly as it does
+nothing to the shape. Only the three planes that reach into `w` matter, to the picture
+and to the price alike.
+
+This is safe because it is still constant product with a change of origin: the
+invariant is a hyperbola for every rotation a holder can commit, so no shape anyone can
+make will bend it into something that leaks. The one thing virtual reserves genuinely
+break is the promise that the pool can pay — a curve pricing against liquidity it does
+not hold will happily quote too much. That is not solved by cleverness. The pool
+refuses: no single trade may take more than half the real reserve, and it says so.
+
+**The curve is a copy, not a live read** — and that distinction is a bug the test suite
+caught. A token can be rented out under ERC-4907, and a renter may operate the artwork.
+With a live read, a renter could concentrate a curve holding *someone else's* inventory,
+trade through it at the improved rate, and hand the token back. So the market keeps its
+own copy of the section word, only the holder can update it with `syncCurve()`, and
+`pendingCurve()` reports when the two have drifted apart.
+
+Deliberately absent: no LP shares (one provider per market removes share accounting and
+the first-depositor attack, at the honest cost of not aggregating deep liquidity), no
+oracle or TWAP (a curve its owner can move has no business being read as a price feed),
+no flash loans.
+
 ## The instrument
 
-Eleven nodes on two counter-tilted shells. Six are open at mint — the ones that only
-look. The five that move value stay sealed until a holder deliberately opens them.
+Twelve nodes on two counter-tilted shells. Six are open at mint — the ones that only
+look. The six that move value stay sealed until a holder deliberately opens them.
 
 | | | |
 |---|---|---|
@@ -85,6 +125,7 @@ look. The five that move value stay sealed until a holder deliberately opens the
 | **Call** | any signature, any contract, encoded in the frame | sealed |
 | **Sign** | `personal_sign` and EIP-712, with the digest computed locally | sealed |
 | **Issue** | the token mints its siblings | sealed |
+| **Market** | this token's own exchange: quote, trade, add or take inventory | sealed |
 
 Drag to orbit. The slider under the field moves your 3-space along `w`. The six chips
 are dials — drag one to turn in that plane, click to set it spinning, double-click to
@@ -256,12 +297,15 @@ src/
   Engine.sol            the document, held as contract bytecode
   Renderer.sol          tokenURI, the three faces, the JSON
   Sigil.sol             the 4D projector, in Solidity
-  lib/                  SSTORE2, Base64, Trig, LibNum, the section word
+  Pool.sol              every token as its own exchange
+  lib/                  SSTORE2, Base64, Trig, Curve, LibNum, the section word
   interfaces/           every standard, with the reasoning
 tools/
+  glsl-check.mjs        every shader parses and type-checks
   selftest.mjs          the engine's crypto against published vectors
   build-engine.mjs      minify → gzip → shards
   verify.mjs            deploy on a real EVM, read it all back
+  verify-pool.mjs       try to break the market on a real EVM
   preview.mjs           dist/preview.html
   evm.mjs, compile.mjs  the harness
 test/                   Foundry unit, property and fuzz tests
@@ -272,18 +316,22 @@ script/Deploy.s.sol     deploy, load, seal
 
 ## What was and was not run here
 
-`selftest.mjs` (52 assertions), `build-engine.mjs`, and `verify.mjs` in both storage
-modes (122 packed / 121 raw) were executed in this environment, and every number in
-this document comes from those runs.
+`glsl-check.mjs`, `selftest.mjs` (52 assertions), `build-engine.mjs`, `verify.mjs` in
+both storage modes (122 packed / 121 raw) and `verify-pool.mjs` (35 assertions) were
+executed in this environment, and every number in this document comes from those runs.
 
 `forge test` was **not** executed: Foundry's installer host is blocked by this
 session's network egress policy. The Foundry suite and the deploy script were
 type-checked against the compiler with a `forge-std` stub, so they compile, but they
 have not been run. Run them before deploying anywhere real.
 
-Nothing here has been audited. It is an artwork with a wallet client inside it, and
-the wallet client can sign arbitrary calldata; that is the point of the Call node and
-it is also the largest thing an auditor would want to look at.
+**Nothing here has been audited, and `Pool.sol` holds other people's money.** That is
+a different risk class to the rest of the repo: the worst bug in the artwork renders a
+picture wrong, the worst bug in the market takes funds, permanently, with no undo. It
+ships with a per-market deposit cap for exactly that reason — raise it only after a
+review. The artwork also has a wallet client inside it that can sign arbitrary
+calldata; that is the point of the Call node and the other thing an auditor would want
+to look at first.
 
 ---
 

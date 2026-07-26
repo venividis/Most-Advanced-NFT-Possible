@@ -95,6 +95,7 @@ contract Renderer {
             '",chainId:', block.chainid.str(),
             ',owner:"', LibNum.hexAddr(v.owner),
             '",account:"', LibNum.hexAddr(v.boundAccount),
+            '",pool:"', LibNum.hexAddr(v.pool),
             '",seed:"', LibNum.hex32(v.seed), '"'
         );
     }
@@ -208,7 +209,7 @@ contract Renderer {
               ',', _num("Strata", uint256(v.strata)),
               ',', _num("Operations", uint256(v.ops)),
               ',', _num("Transfers", uint256(v.xfers)),
-              ',', _numMax("Nodes open", _popcount(v.open), 11),
+              ',', _numMax("Nodes open", _popcount(v.open), 12),
               ',', _trait("Bound account", LibNum.hexAddr(v.boundAccount)),
               ',', _trait("Bound", v.locked ? "yes" : "no"),
               ',', _trait("Kernel", v.hasKernel ? "sealed" : "none"),
@@ -307,7 +308,7 @@ contract Renderer {
                 '"ops":{"displayName":"Operations","dataType":{"type":"decimal","signed":false,"decimals":0}},'
                 '"xfers":{"displayName":"Transfers","dataType":{"type":"decimal","signed":false,"decimals":0}},'
                 '"nodes":{"displayName":"Nodes open","dataType":{"type":"decimal","signed":false,'
-                  '"decimals":0,"minValue":"0","maxValue":"11"}},'
+                  '"decimals":0,"minValue":"0","maxValue":"12"}},'
                 '"locked":{"displayName":"Bound","dataType":{"type":"decimal","signed":false,'
                   '"decimals":0,"minValue":"0","maxValue":"1"}},'
                 '"kernel":{"displayName":"Sealed kernel","dataType":{"type":"decimal","signed":false,'

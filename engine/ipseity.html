@@ -391,6 +391,8 @@ const S = Object.assign({
   collection: "0x0000000000000000000000000000000000000000",
   chainId: 1,
   owner: "0x0000000000000000000000000000000000000000",
+  account: "0x0000000000000000000000000000000000000000",
+  pool: "0x0000000000000000000000000000000000000000",
   seed: "0x0000000000000000000000000000000000000000000000000000000000000000",
   hue: 34,
   form: 0,
@@ -430,6 +432,8 @@ const MODULES = [
     blurb:"The ERC-6551 account bound to this token — derived here by CREATE2 from the registry, not asked for. Anything this address holds is held by the token itself, and travels with it." },
   { id:"MINT",   name:"Issue",   ring:1, key:"0",
     blurb:"The token issues its siblings. Minting from inside one token draws the next from the same contract, seeded by the block that carried the call." },
+  { id:"MARKET", name:"Market",  ring:1, key:"m",
+    blurb:"This token is an exchange. Its market holds two assets and anyone may trade against them; the holder is the only one who puts inventory in or takes it out, and the only one who earns the fee. Selling the token sells the market with it. The curve is the solid: how far it has been turned through w sets how tightly the liquidity is concentrated." },
   { id:"NEST",   name:"Nest",    ring:1, key:"n",
     blurb:"Open this token inside this token. The frame loads a live instance of itself one section deeper, which can do the same, until the plane runs out of room." }
 ];
@@ -572,7 +576,7 @@ uniform float uHue;
 uniform float uOps, uPulse, uStrata, uGhost, uAura, uDepth;
 uniform float uSteps, uFlags;
 uniform vec4  uSeedA, uSeedB;
-uniform vec4  uNode[11];
+uniform vec4  uNode[12];
 uniform float uSel;
 
 #define PI  3.141592653589793
@@ -672,7 +676,7 @@ vec2 map(vec3 p){
   float r  = min(rA, rB);
   if(r < res.x) res = vec2(r, 2.0);
 
-  for(int i = 0; i < 11; i++){
+  for(int i = 0; i < 12; i++){
     vec4  n = uNode[i];
     float k = 0.052 + (n.w > 0.5 ? 0.020 : 0.0) + (n.w > 1.5 ? 0.034 : 0.0);
     float d = length(p - n.xyz) - k;
@@ -871,7 +875,7 @@ void main(){
       /*── the instrument nodes ──*/
       float idx = mat - 10.0;
       float st  = 0.0;
-      for(int i = 0; i < 11; i++){ if(abs(float(i) - idx) < 0.5) st = uNode[i].w; }
+      for(int i = 0; i < 12; i++){ if(abs(float(i) - idx) < 0.5) st = uNode[i].w; }
       vec3 nc = st < 0.5 ? vec3(0.13, 0.15, 0.21)
               : st < 1.5 ? cool * 0.80
                          : warm * 1.55;
@@ -2611,6 +2615,247 @@ BUILD.MINT = m => {
       });
       look();
     });
+};
+
+/*───────────────────────────────────────────────────────────────────────────
+ 12 · MARKET — the token as an exchange
+
+  Reading is done here in the frame, by eth_call, the same way everything
+  else in this instrument reads. Every trade is quoted first, shown with
+  the price it implies and how far that is from the pool's own spot, and
+  sent with a floor the trader sets — because the holder of a market can
+  re-shape its curve, and a minimum is the only thing that makes that
+  survivable.
+───────────────────────────────────────────────────────────────────────────*/
+const POOL = String(S.pool || "0x0000000000000000000000000000000000000000");
+const hasPool = /^0x[0-9a-fA-F]{40}$/.test(POOL) && !/^0x0{40}$/.test(POOL);
+
+const MKT = { base:null, quote:null, rb:0n, rq:0n, fee:0, open:false,
+              conc:0n, spot:0n, maxIn:[0n,0n], trades:0n,
+              bd:18, qd:18, bs:"?", qs:"?", drift:false, liveConc:0n };
+
+async function readMarket(){
+  const raw = await readSig(POOL, "market(uint256)", [S.id]);
+  MKT.base = decAddr(raw, 0); MKT.quote = decAddr(raw, 1);
+  MKT.rb = decUint(raw, 2);   MKT.rq = decUint(raw, 3);
+  MKT.fee = Number(decUint(raw, 4));
+  MKT.open = decUint(raw, 5) !== 0n;
+  MKT.conc = decUint(raw, 6); MKT.spot = decUint(raw, 7);
+  MKT.maxIn = [decUint(raw, 8), decUint(raw, 9)];
+  MKT.trades = decUint(raw, 10);
+  if(MKT.open){
+    const [bd, qd, bs, qs] = await Promise.all([
+      readSig(MKT.base, "decimals()").then(h => Number(decUint(h))).catch(() => 18),
+      readSig(MKT.quote, "decimals()").then(h => Number(decUint(h))).catch(() => 18),
+      readSig(MKT.base, "symbol()").then(decStringLoose).catch(() => "?"),
+      readSig(MKT.quote, "symbol()").then(decStringLoose).catch(() => "?")
+    ]);
+    MKT.bd = bd; MKT.qd = qd; MKT.bs = bs; MKT.qs = qs;
+    try {
+      const p = await readSig(POOL, "pendingCurve(uint256)", [S.id]);
+      MKT.drift = decUint(p, 0) !== 0n;
+      MKT.liveConc = decUint(p, 2);
+    } catch { MKT.drift = false; }
+  }
+  return MKT;
+}
+
+BUILD.MARKET = m => {
+  if(!hasPool){
+    return panel(m.name,
+      '<div class="blurb">' + esc(m.blurb) + '</div>' +
+      '<p class="s" style="color:var(--warn)">This collection has no market contract set, ' +
+      'so this token cannot hold one. Nothing else about the token is affected.</p>', m.i);
+  }
+
+  panel(m.name,
+    '<div class="blurb">' + esc(m.blurb) + '</div>' +
+    '<div id="mk-body"><p class="s">reading the market…</p></div>', m.i, () => paintMarket());
+
+  async function paintMarket(){
+    const host = () => $("#mk-body");
+    try { await readMarket(); }
+    catch(e){
+      host().innerHTML = '<p class="s" style="color:var(--bad)">Could not read the market: ' +
+        esc(String(e.message || e).slice(0, 120)) + "</p>";
+      return;
+    }
+
+    const mine = NET.account && NET.account.toLowerCase() === String(S.owner).toLowerCase();
+
+    if(!MKT.open){
+      host().innerHTML =
+        '<p class="s" style="color:var(--mid);margin-bottom:12px">This token has no market yet.' +
+        (mine ? " Open one and it becomes an exchange." :
+                " Only the holder can open one.") + "</p>" +
+        (mine
+          ? fld("Base token", "mk-b", "0x… the asset being priced") +
+            fld("Quote token", "mk-q", "0x… what it is priced in") +
+            '<label class="f k">Fee <span class="mut" id="mk-fv">0.30%</span></label>' +
+            '<input type="range" id="mk-f" min="0" max="500" step="5" value="30">' +
+            '<button class="b" id="mk-open">Open the market</button>'
+          : "");
+      if(mine){
+        $("#mk-f").addEventListener("input", e =>
+          $("#mk-fv").textContent = (e.target.value / 100).toFixed(2) + "%");
+        $("#mk-open").onclick = guard(async () => {
+          await needWallet(); needOwner();
+          const b = val("mk-b"), q = val("mk-q");
+          if(!isAddr(b) || !isAddr(q)) throw new Error("Both sides need a token address.");
+          const { data, sig, types } = encodeCall("openMarket(uint256,address,address,uint16)",
+            [S.id, checksum(b), checksum(q), $("#mk-f").value]);
+          propose({ to: POOL, data, sig, types, value: 0n,
+            plain: "Open a market on this token. Anyone will be able to trade against whatever " +
+                   "you put in, and you keep the fee. Selling the token sells the market.",
+            then: paintMarket });
+        });
+      }
+      return;
+    }
+
+    const B = MKT.bs, Q = MKT.qs;
+    const price = MKT.spot === 0n ? "—"
+      : fmtUnits(MKT.spot * (10n ** BigInt(MKT.bd)) / (10n ** BigInt(MKT.qd)), 18, 6);
+
+    host().innerHTML =
+      kv("Pair", esc(B) + " / " + esc(Q)) +
+      kv("Price", "1 " + esc(B) + " = " + esc(price) + " " + esc(Q)) +
+      kv("Reserves", fmtUnits(MKT.rb, MKT.bd) + " " + esc(B) + " · " +
+                     fmtUnits(MKT.rq, MKT.qd) + " " + esc(Q)) +
+      kv("Fee", (MKT.fee / 100).toFixed(2) + "%") +
+      kv("Trades", MKT.trades.toString()) +
+      kv("Concentration", MKT.conc.toString() + " bps" +
+         (MKT.conc === 0n ? " · plain constant product" : "")) +
+      (MKT.drift
+        ? '<div class="s" style="color:var(--warn);margin:8px 0">The solid has been turned since ' +
+          'the market last took a copy of it. Syncing would move the concentration to <b>' +
+          MKT.liveConc.toString() + '</b> bps.' +
+          (mine ? ' <span class="chip" id="mk-sync" style="margin-left:6px">Sync the curve</span>' : "") +
+          "</div>"
+        : "") +
+      '<hr><div class="k">Trade</div>' +
+      '<div class="chips" id="mk-dir"><span class="chip on" data-d="1">' + esc(B) + " → " + esc(Q) +
+        '</span><span class="chip" data-d="0">' + esc(Q) + " → " + esc(B) + "</span></div>" +
+      fld("Amount in", "mk-amt", "0.0") +
+      '<div id="mk-quote" class="s" style="min-height:34px;color:var(--mid)"></div>' +
+      '<label class="f k">Most you will give up to slippage <span class="mut" id="mk-slipv">1.0%</span></label>' +
+      '<input type="range" id="mk-slip" min="1" max="500" step="1" value="100">' +
+      '<button class="b" id="mk-swap">Review the trade</button>' +
+      (mine
+        ? '<hr><div class="k">Inventory</div>' +
+          '<div class="row">' + fld("Add " + esc(B), "mk-db", "0.0") + fld("Add " + esc(Q), "mk-dq", "0.0") + "</div>" +
+          '<button class="b g" id="mk-dep">Deposit</button>' +
+          '<div class="row">' + fld("Take " + esc(B), "mk-wb", "0.0") + fld("Take " + esc(Q), "mk-wq", "0.0") + "</div>" +
+          '<button class="b g" id="mk-wd">Withdraw</button>'
+        : "");
+
+    let baseIn = true;
+    $$("#mk-dir .chip").forEach(ch => ch.onclick = () => {
+      baseIn = ch.dataset.d === "1";
+      $$("#mk-dir .chip").forEach(x => x.classList.toggle("on", x === ch));
+      refreshQuote();
+    });
+    $("#mk-slip").addEventListener("input", e =>
+      $("#mk-slipv").textContent = (e.target.value / 100).toFixed(1) + "%");
+
+    let lastQuote = 0n, quoteTimer = 0;
+    const refreshQuote = () => {
+      clearTimeout(quoteTimer);
+      quoteTimer = setTimeout(async () => {
+        const el = $("#mk-quote");
+        if(!el) return;
+        const raw = val("mk-amt");
+        if(!raw){ el.textContent = ""; lastQuote = 0n; return; }
+        let amt;
+        try { amt = toUnits(raw, baseIn ? MKT.bd : MKT.qd); }
+        catch { el.textContent = "not a number"; return; }
+        if(amt === 0n){ el.textContent = ""; return; }
+        if(amt > MKT.maxIn[baseIn ? 0 : 1]){
+          el.innerHTML = '<span style="color:var(--warn)">Larger than this market will take. ' +
+            'The most it will accept is ' +
+            fmtUnits(MKT.maxIn[baseIn ? 0 : 1], baseIn ? MKT.bd : MKT.qd) + " " +
+            esc(baseIn ? B : Q) + ".</span>";
+          lastQuote = 0n; return;
+        }
+        try {
+          lastQuote = decUint(await readSig(POOL, "quote(uint256,bool,uint256)", [S.id, baseIn, amt.toString()]));
+          const outDec = baseIn ? MKT.qd : MKT.bd;
+          const got = fmtUnits(lastQuote, outDec);
+          // what this trade actually costs against the pool's own spot
+          const ideal = baseIn
+            ? (amt * MKT.spot) / (10n ** 18n)
+            : (amt * (10n ** 18n)) / (MKT.spot === 0n ? 1n : MKT.spot);
+          const slip = ideal === 0n ? 0
+            : Number(((ideal - lastQuote) * 10000n) / ideal) / 100;
+          el.innerHTML = "You receive <b>" + esc(got) + " " + esc(baseIn ? Q : B) + "</b>" +
+            '<br><span style="color:var(--dim)">' + slip.toFixed(2) +
+            "% below this market's spot price, fee included</span>";
+        } catch(e){
+          el.innerHTML = '<span style="color:var(--bad)">' +
+            esc(String(e.message || e).slice(0, 90)) + "</span>";
+          lastQuote = 0n;
+        }
+      }, 220);
+    };
+    $("#mk-amt").addEventListener("input", refreshQuote);
+
+    $("#mk-swap").onclick = guard(async () => {
+      await needWallet();
+      if(lastQuote === 0n) throw new Error("Nothing to trade yet — enter an amount that this market can take.");
+      const amt = toUnits(val("mk-amt"), baseIn ? MKT.bd : MKT.qd);
+      const slipBps = BigInt($("#mk-slip").value);
+      const floor = (lastQuote * (10000n - slipBps)) / 10000n;
+      const { data, sig, types } = encodeCall(
+        "swap(uint256,bool,uint256,uint256,address,uint256)",
+        [S.id, baseIn, amt.toString(), floor.toString(), NET.account,
+         (Math.floor(Date.now() / 1000) + 1800).toString()]);
+      propose({ to: POOL, data, sig, types, value: 0n,
+        note: "You must have approved the pool to take your " + (baseIn ? B : Q) + " first.",
+        plain: "Trade " + fmtUnits(amt, baseIn ? MKT.bd : MKT.qd) + " " + (baseIn ? B : Q) +
+               " for at least " + fmtUnits(floor, baseIn ? MKT.qd : MKT.bd) + " " + (baseIn ? Q : B) +
+               ". The trade fails rather than paying you less. It expires in thirty minutes.",
+        then: paintMarket });
+    });
+
+    if(MKT.drift && mine && $("#mk-sync")){
+      $("#mk-sync").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const { data, sig, types } = encodeCall("syncCurve(uint256)", [S.id]);
+        propose({ to: POOL, data, sig, types, value: 0n,
+          plain: "Copy the solid's current orientation into the market, changing how tightly " +
+                 "the liquidity is concentrated and so what traders are quoted.",
+          then: paintMarket });
+      });
+    }
+
+    if(mine){
+      $("#mk-dep").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const b = val("mk-db") ? toUnits(val("mk-db"), MKT.bd) : 0n;
+        const q = val("mk-dq") ? toUnits(val("mk-dq"), MKT.qd) : 0n;
+        if(b === 0n && q === 0n) throw new Error("Nothing to deposit.");
+        const { data, sig, types } = encodeCall("deposit(uint256,uint256,uint256)",
+          [S.id, b.toString(), q.toString()]);
+        propose({ to: POOL, data, sig, types, value: 0n,
+          note: "The pool must be approved to take both tokens first.",
+          plain: "Put " + fmtUnits(b, MKT.bd) + " " + B + " and " + fmtUnits(q, MKT.qd) + " " + Q +
+                 " into this token's market. It stays yours, and travels with the token if you sell it.",
+          then: paintMarket });
+      });
+      $("#mk-wd").onclick = guard(async () => {
+        await needWallet(); needOwner();
+        const b = val("mk-wb") ? toUnits(val("mk-wb"), MKT.bd) : 0n;
+        const q = val("mk-wq") ? toUnits(val("mk-wq"), MKT.qd) : 0n;
+        if(b === 0n && q === 0n) throw new Error("Nothing to withdraw.");
+        const { data, sig, types } = encodeCall("withdraw(uint256,uint256,uint256,address)",
+          [S.id, b.toString(), q.toString(), NET.account]);
+        propose({ to: POOL, data, sig, types, value: 0n,
+          plain: "Take " + fmtUnits(b, MKT.bd) + " " + B + " and " + fmtUnits(q, MKT.qd) + " " + Q +
+                 " back out of this token's market.",
+          then: paintMarket });
+      });
+    }
+  }
 };
 
 /*───────────────────────────────────────────────────────────────────────────

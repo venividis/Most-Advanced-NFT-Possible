@@ -83,8 +83,8 @@ contract Ipseity is
     ///      that move value are sealed until the holder deliberately opens
     ///      them — Self, Rotate, Section, Scan, Vault, Nest.
     uint16 public constant BORN_OPEN = 0x587;
-    uint16 public constant ALL_OPEN  = 0x7FF;
-    uint8  public constant NODE_COUNT = 11;
+    uint16 public constant ALL_OPEN  = 0xFFF;
+    uint8  public constant NODE_COUNT = 12;
 
     /*──────────────────────── ERC-6551 ────────────────────────*/
     IERC6551Registry public constant REGISTRY =
@@ -137,6 +137,10 @@ contract Ipseity is
     /// @dev `curator` is the ERC-173 owner; owner() is the alias marketplaces
     ///      actually call. One variable, two names, so they cannot diverge.
     address public curator;
+    /// @notice The market contract for this collection, if one exists. The
+    ///         instrument reads it out of the state block rather than being
+    ///         told; sealing the renderer fixes it for good.
+    address public pool;
     IRenderer public renderer;
     bool     public rendererSealed;
     uint256  public price     = 0.01 ether;
@@ -352,7 +356,7 @@ contract Ipseity is
         Stats memory s = _stats[id];
         v = TokenView({
             id: id, word: sectionOf[id], seed: seedOf[id], owner: o,
-            collection: address(this), boundAccount: account(id),
+            collection: address(this), boundAccount: account(id), pool: pool,
             ops: s.ops, strata: s.strata, xfers: s.xfers, open: s.open,
             mintBlock: s.mintBlock, locked: _locked[id], hasKernel: _kernel[id].active
         });
@@ -711,6 +715,12 @@ contract Ipseity is
     }
 
     /*═══════════════════════ curation ═══════════════════════*/
+
+    function setPool(address p) external onlyCurator {
+        if (rendererSealed) revert AlreadySealed();
+        pool = p;
+        emit BatchMetadataUpdate(1, totalSupply == 0 ? 1 : totalSupply);
+    }
 
     function setRenderer(IRenderer r) external onlyCurator {
         if (rendererSealed) revert AlreadySealed();

@@ -66,6 +66,7 @@ struct TokenView {
     address owner;
     address collection;
     address boundAccount;
+    address pool;
     uint32  ops;
     uint32  strata;
     uint32  xfers;

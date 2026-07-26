@@ -1,0 +1,389 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {Curve} from "./lib/Curve.sol";
+
+interface IIpseity {
+    function ownerOf(uint256 id) external view returns (address);
+    function sectionOf(uint256 id) external view returns (uint256);
+    function userOf(uint256 id) external view returns (address);
+}
+
+interface IERC20 {
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function balanceOf(address who) external view returns (uint256);
+    function decimals() external view returns (uint8);
+    function symbol() external view returns (string memory);
+}
+
+/*═══════════════════════════════════════════════════════════════════════════
+
+  POOL — every token is its own exchange
+
+  One market per token. The holder of token #7 is the sole liquidity
+  provider of market #7: they put both sides in, they set the fee, they
+  take the fee, and they can take the inventory back out. Anyone at all may
+  trade against it.
+
+  Because the right to that inventory is "whoever ownerOf() says", selling
+  the NFT sells the market — the reserves, the fee income and the price
+  curve go with it in the same transaction, with no migration and no
+  wrapper. That is the whole reason this is a separate contract keyed by
+  token id rather than a fork of Uniswap with an NFT bolted on.
+
+  The curve comes from the artwork. See lib/Curve.sol: how far the solid
+  has been turned out of the holder's 3-space sets how concentrated the
+  liquidity is. Committing a rotation re-prices the market, which is why
+  every swap takes a minOut and a deadline — see "the holder can move the
+  curve" below.
+
+  ── deliberately not built ──
+
+  There are no LP shares. A single provider per market removes share
+  accounting, the first-depositor donation attack, and every rounding
+  question that comes with dividing a pool between people. It also means
+  this cannot aggregate deep liquidity, which is a real limitation and the
+  honest cost of the design.
+
+  There is no oracle, no TWAP and no flash loan. A pool whose curve its
+  owner can move on demand has no business being read as a price feed by
+  anything else, and this contract should not make that mistake easy.
+
+  ── the curve is a copy, not a live read ──
+
+  The obvious thing is for the pool to read sectionOf(id) on every swap, so
+  that turning the artwork instantly re-prices the market. That is wrong,
+  and the test suite caught it: a token can be rented out under ERC-4907,
+  a renter may operate the artwork, and a live read would therefore let a
+  renter re-shape a curve holding somebody else's inventory — concentrate
+  it, trade through it at the improved rate, and hand the token back.
+
+  So the market keeps its own copy of the section word, and only the holder
+  can update it, with syncCurve(). The artwork still sets the shape of the
+  market; the holder decides when. pendingCurve() reports when the two have
+  drifted apart, so a front end can offer to sync.
+
+  ── the holder can move the curve ──
+
+  Committing a new section changes the pricing. A holder can therefore
+  watch a pending swap and re-shape the curve to take more of it. This is
+  not preventable in a design where the art and the curve are the same
+  numbers — so it is bounded instead: every swap carries a minOut that the
+  trader sets, checked after the fact. A trader who sets it is unharmed. A
+  trader who passes zero has chosen to be.
+
+  ── this has not been audited ──
+
+  It holds other people's money and it has never been reviewed by anyone.
+  See MAX_DEPOSIT and the README.
+
+═══════════════════════════════════════════════════════════════════════════*/
+contract Pool {
+    using Curve for uint256;
+
+    IIpseity public immutable collection;
+
+    /// @dev A ceiling on what any one market can hold, so an unaudited
+    ///      contract cannot quietly accumulate a life-changing amount of
+    ///      somebody's money. Raise it only after review.
+    uint256 public immutable maxDeposit;
+
+    /// @dev A pool priced against virtual reserves can quote more than it
+    ///      holds. Rather than pretend otherwise, no single trade may take
+    ///      more than this share of the real outgoing reserve.
+    uint256 public constant MAX_OUT_BPS = 5_000;      // half the reserve
+    uint256 public constant MAX_FEE_BPS = 500;        // 5%
+    uint256 public constant BPS = 10_000;
+
+    struct Market {
+        address base;
+        address quote;
+        uint112 rBase;
+        uint112 rQuote;
+        uint16  feeBps;
+        bool    open;
+        /// @dev A *copy* of the section word, not a live read of it. See
+        ///      syncCurve: the artwork drives the curve, but only when the
+        ///      holder says so.
+        uint256 curveWord;
+    }
+    mapping(uint256 => Market) public marketOf;
+
+    /// @notice Lifetime fee income, in each token, for whoever holds the id.
+    mapping(uint256 => uint256) public feesBase;
+    mapping(uint256 => uint256) public feesQuote;
+    mapping(uint256 => uint256) public tradeCount;
+
+    event MarketOpened(uint256 indexed id, address base, address quote, uint16 feeBps);
+    event MarketClosed(uint256 indexed id);
+    event Deposited(uint256 indexed id, uint256 amountBase, uint256 amountQuote);
+    event Withdrawn(uint256 indexed id, uint256 amountBase, uint256 amountQuote);
+    event FeeSet(uint256 indexed id, uint16 feeBps);
+    event CurveSynced(uint256 indexed id, uint256 word, uint256 concentrationBps);
+    event Swapped(
+        uint256 indexed id, address indexed trader, bool baseIn,
+        uint256 amountIn, uint256 amountOut, uint112 rBase, uint112 rQuote
+    );
+
+    error NotHolder();
+    error MarketNotOpen();
+    error MarketAlreadyOpen();
+    error MarketNotEmpty();
+    error SameToken();
+    error ZeroAddress();
+    error ZeroAmount();
+    error MoreThanHeld();
+    error FeeTooHigh();
+    error DepositCap();
+    error ReserveOverflow();
+    error TradeTooLarge();
+    error Slippage(uint256 got, uint256 wanted);
+    error Expired();
+    error TransferFailed();
+    error Reentrancy();
+
+    uint256 private _lock = 1;
+    modifier nonReentrant() {
+        if (_lock != 1) revert Reentrancy();
+        _lock = 2;
+        _;
+        _lock = 1;
+    }
+
+    /// @dev Liquidity is the holder's alone. A renter may operate the
+    ///      artwork (ERC-4907) but must never be able to move the inventory.
+    modifier onlyHolder(uint256 id) {
+        if (collection.ownerOf(id) != msg.sender) revert NotHolder();
+        _;
+    }
+
+    modifier before(uint256 deadline) {
+        if (block.timestamp > deadline) revert Expired();
+        _;
+    }
+
+    constructor(IIpseity collection_, uint256 maxDeposit_) {
+        collection = collection_;
+        maxDeposit = maxDeposit_;
+    }
+
+    /*═══════════════════ the market ═══════════════════*/
+
+    function openMarket(uint256 id, address base, address quote, uint16 feeBps)
+        external onlyHolder(id)
+    {
+        Market storage m = marketOf[id];
+        if (m.open) revert MarketAlreadyOpen();
+        if (base == address(0) || quote == address(0)) revert ZeroAddress();
+        if (base == quote) revert SameToken();
+        if (feeBps > MAX_FEE_BPS) revert FeeTooHigh();
+
+        m.base = base;
+        m.quote = quote;
+        m.feeBps = feeBps;
+        m.open = true;
+        m.curveWord = collection.sectionOf(id);
+        emit MarketOpened(id, base, quote, feeBps);
+        emit CurveSynced(id, m.curveWord, Curve.concentration(m.curveWord));
+    }
+
+    /// @notice Close a market so the pair can be changed. Take the inventory
+    ///         out first; this will not do it for you, because a function
+    ///         that both closes and pays out is a function that can fail
+    ///         halfway.
+    function closeMarket(uint256 id) external onlyHolder(id) {
+        Market storage m = marketOf[id];
+        if (!m.open) revert MarketNotOpen();
+        if (m.rBase != 0 || m.rQuote != 0) revert MarketNotEmpty();
+        delete marketOf[id];
+        emit MarketClosed(id);
+    }
+
+    function setFee(uint256 id, uint16 feeBps) external onlyHolder(id) {
+        if (feeBps > MAX_FEE_BPS) revert FeeTooHigh();
+        Market storage m = marketOf[id];
+        if (!m.open) revert MarketNotOpen();
+        m.feeBps = feeBps;
+        emit FeeSet(id, feeBps);
+    }
+
+    /*═══════════════════ liquidity ═══════════════════*/
+
+    function deposit(uint256 id, uint256 amountBase, uint256 amountQuote)
+        external onlyHolder(id) nonReentrant
+    {
+        Market storage m = marketOf[id];
+        if (!m.open) revert MarketNotOpen();
+        if (amountBase == 0 && amountQuote == 0) revert ZeroAmount();
+
+        // measure what actually arrived: a token that takes a cut on
+        // transfer must not be able to overstate the reserve
+        uint256 gotBase = amountBase == 0 ? 0 : _pull(m.base, amountBase);
+        uint256 gotQuote = amountQuote == 0 ? 0 : _pull(m.quote, amountQuote);
+
+        uint256 nb = uint256(m.rBase) + gotBase;
+        uint256 nq = uint256(m.rQuote) + gotQuote;
+        if (nb > maxDeposit || nq > maxDeposit) revert DepositCap();
+        if (nb > Curve.MAX_RESERVE || nq > Curve.MAX_RESERVE) revert ReserveOverflow();
+
+        m.rBase = uint112(nb);
+        m.rQuote = uint112(nq);
+        emit Deposited(id, gotBase, gotQuote);
+    }
+
+    function withdraw(uint256 id, uint256 amountBase, uint256 amountQuote, address to)
+        external onlyHolder(id) nonReentrant
+    {
+        Market storage m = marketOf[id];
+        if (!m.open) revert MarketNotOpen();
+        if (to == address(0)) revert ZeroAddress();
+        if (amountBase > m.rBase || amountQuote > m.rQuote) revert MoreThanHeld();
+
+        // state first, then the outside world
+        m.rBase = uint112(uint256(m.rBase) - amountBase);
+        m.rQuote = uint112(uint256(m.rQuote) - amountQuote);
+
+        if (amountBase != 0) _push(m.base, to, amountBase);
+        if (amountQuote != 0) _push(m.quote, to, amountQuote);
+        emit Withdrawn(id, amountBase, amountQuote);
+    }
+
+    /*═══════════════════ trading ═══════════════════*/
+
+    /// @notice What this market would pay for `amountIn` right now.
+    /// @dev    A view, and only a view: the holder may re-shape the curve in
+    ///         the next block. Never trade on this without a minOut.
+    function quote(uint256 id, bool baseIn, uint256 amountIn)
+        public view returns (uint256 out)
+    {
+        Market memory m = marketOf[id];
+        if (!m.open) revert MarketNotOpen();
+        (uint256 rIn, uint256 rOut) = baseIn
+            ? (uint256(m.rBase), uint256(m.rQuote))
+            : (uint256(m.rQuote), uint256(m.rBase));
+        out = Curve.amountOut(amountIn, rIn, rOut, m.curveWord, m.feeBps);
+        if (out > (rOut * MAX_OUT_BPS) / BPS) revert TradeTooLarge();
+    }
+
+    /// @notice Trade against this token's market.
+    /// @param  minOut the least you will accept. Setting zero is a decision.
+    function swap(
+        uint256 id,
+        bool baseIn,
+        uint256 amountIn,
+        uint256 minOut,
+        address to,
+        uint256 deadline
+    ) external before(deadline) nonReentrant returns (uint256 out) {
+        Market storage m = marketOf[id];
+        if (!m.open) revert MarketNotOpen();
+        if (to == address(0)) revert ZeroAddress();
+        if (amountIn == 0) revert ZeroAmount();
+
+        address tokenIn = baseIn ? m.base : m.quote;
+        address tokenOut = baseIn ? m.quote : m.base;
+
+        // what actually arrived, not what was asked for
+        uint256 got = _pull(tokenIn, amountIn);
+
+        uint256 rIn = baseIn ? m.rBase : m.rQuote;
+        uint256 rOut = baseIn ? m.rQuote : m.rBase;
+
+        out = Curve.amountOut(got, rIn, rOut, m.curveWord, m.feeBps);
+
+        // the curve prices against liquidity the pool does not hold, so the
+        // pool states its maximum trade rather than promising what it cannot pay
+        if (out > (rOut * MAX_OUT_BPS) / BPS) revert TradeTooLarge();
+        if (out < minOut) revert Slippage(out, minOut);
+        if (out == 0) revert ZeroAmount();
+
+        uint256 newIn = rIn + got;
+        uint256 newOut = rOut - out;
+        if (newIn > Curve.MAX_RESERVE) revert ReserveOverflow();
+
+        // the fee never leaves; it stays as reserve for whoever holds the id
+        uint256 fee = (got * m.feeBps) / BPS;
+        if (baseIn) {
+            m.rBase = uint112(newIn);
+            m.rQuote = uint112(newOut);
+            feesBase[id] += fee;
+        } else {
+            m.rQuote = uint112(newIn);
+            m.rBase = uint112(newOut);
+            feesQuote[id] += fee;
+        }
+        unchecked { tradeCount[id] += 1; }
+
+        _push(tokenOut, to, out);
+
+        emit Swapped(id, msg.sender, baseIn, got, out, m.rBase, m.rQuote);
+    }
+
+    /// @notice Bring the market's curve up to date with the artwork.
+    /// @dev    Holder only, and deliberately not automatic — see the note at
+    ///         the top about renters.
+    function syncCurve(uint256 id) external onlyHolder(id) {
+        Market storage m = marketOf[id];
+        if (!m.open) revert MarketNotOpen();
+        uint256 word = collection.sectionOf(id);
+        m.curveWord = word;
+        emit CurveSynced(id, word, Curve.concentration(word));
+    }
+
+    /// @notice Whether the artwork has been turned since the market last
+    ///         took a copy of it, and what syncing would change.
+    function pendingCurve(uint256 id)
+        external view returns (bool drifted, uint256 nowBps, uint256 wouldBeBps)
+    {
+        Market memory m = marketOf[id];
+        uint256 live = collection.sectionOf(id);
+        return (live != m.curveWord, Curve.concentration(m.curveWord), Curve.concentration(live));
+    }
+
+    /*═══════════════════ reading ═══════════════════*/
+
+    /// @notice Everything a front end needs in one call.
+    function market(uint256 id)
+        external view
+        returns (
+            address base, address quote,
+            uint112 rBase, uint112 rQuote,
+            uint16 feeBps, bool open,
+            uint256 concentrationBps,
+            uint256 spotBaseInQuote,
+            uint256 maxBaseIn, uint256 maxQuoteIn,
+            uint256 trades
+        )
+    {
+        Market memory m = marketOf[id];
+        uint256 word = m.curveWord;
+        return (
+            m.base, m.quote, m.rBase, m.rQuote, m.feeBps, m.open,
+            Curve.concentration(word),
+            Curve.spot(m.rBase, m.rQuote, word),
+            (uint256(m.rBase) * MAX_OUT_BPS) / BPS,
+            (uint256(m.rQuote) * MAX_OUT_BPS) / BPS,
+            tradeCount[id]
+        );
+    }
+
+    /*═══════════════════ ERC-20, defensively ═══════════════════*/
+
+    /// @dev Plenty of real tokens return nothing at all from transfer.
+    ///      Accept an empty return, reject an explicit false.
+    function _push(address token, address to, uint256 amount) private {
+        (bool ok, bytes memory data) =
+            token.call(abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
+        if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TransferFailed();
+    }
+
+    function _pull(address token, uint256 amount) private returns (uint256 received) {
+        uint256 before_ = IERC20(token).balanceOf(address(this));
+        (bool ok, bytes memory data) = token.call(
+            abi.encodeWithSelector(IERC20.transferFrom.selector, msg.sender, address(this), amount));
+        if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TransferFailed();
+        received = IERC20(token).balanceOf(address(this)) - before_;
+        if (received == 0) revert ZeroAmount();
+    }
+}
