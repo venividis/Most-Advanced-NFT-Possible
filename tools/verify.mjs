@@ -63,7 +63,8 @@ const A = {
   Registry: artifact(out, "test/mocks/ERC6551Registry.sol", "ERC6551Registry"),
   Verifier: artifact(out, "test/mocks/MockVerifier.sol", "MockVerifier"),
   Receiver: artifact(out, "test/mocks/MockReceiver.sol", "MockReceiver"),
-  Account:  artifact(out, "src/IpseityAccount.sol", "IpseityAccount")
+  Account:  artifact(out, "src/IpseityAccount.sol", "IpseityAccount"),
+  Grip:     artifact(out, "src/GripVault.sol", "GripVault")
 };
 ok("contracts compile", true);
 
@@ -86,8 +87,9 @@ const sigil = await c.deploy(A.Sigil.bytecode, "", "Sigil");
 const renderer = await c.deploy(
   A.Renderer.bytecode, encodeAddressArg(engine) + encodeAddressArg(sigil), "Renderer");
 const acctImpl = await c.deploy(A.Account.bytecode, "", "IpseityAccount");
+const gripImpl = await c.deploy(A.Grip.bytecode, "", "GripVault");
 const nft = await c.deploy(A.Ipseity.bytecode,
-  encodeAddressArg(renderer) + encodeAddressArg(acctImpl), "Ipseity");
+  encodeAddressArg(renderer) + encodeAddressArg(acctImpl) + encodeAddressArg(gripImpl), "Ipseity");
 console.log(`      Engine ${engine}\n      Sigil  ${sigil}\n      Renderer ${renderer}\n      Ipseity ${nft}`);
 
 /*──────────────────── load the document ────────────────────*/

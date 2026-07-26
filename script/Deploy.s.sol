@@ -7,6 +7,9 @@ import {Engine} from "../src/Engine.sol";
 import {Sigil} from "../src/Sigil.sol";
 import {Renderer} from "../src/Renderer.sol";
 import {Ipseity, IRenderer} from "../src/Ipseity.sol";
+import {IpseityAccount} from "../src/IpseityAccount.sol";
+import {GripVault} from "../src/GripVault.sol";
+import {Disposition, IERC721Min} from "../src/Disposition.sol";
 
 /*───────────────────────────────────────────────────────────────────────────
   Deploying IPSEITY
@@ -47,7 +50,23 @@ contract Deploy is Script {
         Engine engine = new Engine(packed);
         Sigil sigil = new Sigil();
         Renderer renderer = new Renderer(engine, sigil);
-        Ipseity token = new Ipseity(IRenderer(address(renderer)));
+
+        // the two hands. Both are ERC-6551 implementations under the same
+        // canonical registry, at two different salts — the Reach acts and is
+        // measured, the Grip receives and has no function that spends.
+        IpseityAccount reachImpl = new IpseityAccount();
+        GripVault gripImpl = new GripVault();
+
+        Ipseity token = new Ipseity(
+            IRenderer(address(renderer)), address(reachImpl), address(gripImpl)
+        );
+
+        // the private half. VERIFIER is zero deliberately: this deployment
+        // ships no TEE attestation and no ZK circuit, so isAttested() is
+        // false for every token and says so rather than implying otherwise.
+        // See AGENT.md.
+        Disposition disposition =
+            new Disposition(IERC721Min(address(token)), address(0));
 
         for (uint256 i; i < headCount; ++i) {
             engine.loadHead(plan.readBytes(string.concat(".head[", vm.toString(i), "].data")));
@@ -65,6 +84,9 @@ contract Deploy is Script {
         console.log("Sigil         ", address(sigil));
         console.log("Renderer      ", address(renderer));
         console.log("Ipseity       ", address(token));
+        console.log("Reach impl    ", address(reachImpl));
+        console.log("Grip impl     ", address(gripImpl));
+        console.log("Disposition   ", address(disposition));
         console.log("");
         console.log("head bytes    ", h);
         console.log("body bytes    ", b);

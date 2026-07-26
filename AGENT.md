@@ -1,0 +1,272 @@
+# The agent question
+
+Three things were asked, and they have three different answers:
+
+| | |
+|---|---|
+| **What is the best way to use ERC-7857 here?** | For the agent's private strategy — not for the artwork. Built: `src/Disposition.sol`. |
+| **Can Claude control some of our executions?** | Yes, and it already can: `grantSession` on the Reach. Bounded four ways, revocable in one transaction. |
+| **Can Claude render a live GUI for it?** | Not literally, and the reason is a feature. What it can do is write the state the GUI already draws. |
+
+The rest of this document is why, in that order.
+
+---
+
+## 1 · ERC-7857, actually read
+
+ERC-7857 is *Intelligent NFTs* — AI agents as transferable tokens. Its
+premise is that an agent's value is in metadata that **must not be public**:
+model weights, a system prompt, a strategy, a memory. Publishing that
+destroys it. So the standard says:
+
+- the metadata lives off-chain as **ciphertext**;
+- the chain holds a **commitment** to it (a hash) and a pointer;
+- on transfer the blob is **re-encrypted to the buyer's key**, and an
+  **oracle** — a TEE attestation or a zero-knowledge proof — testifies that
+  the re-encryption was honest;
+- `authorizeUsage` lets the owner delegate use without handing over
+  the secret.
+
+Two things follow immediately.
+
+**It has no interface ID and no ERC-165 entry.** Its normative surface is
+`transfer` / `clone` with a proof argument. There is nothing to advertise,
+so `supportsInterface` says nothing about it. Any project claiming
+"ERC-7857 compliant" via `supportsInterface` is claiming something the
+standard does not define.
+
+**Its premise is the exact inverse of this collection's.** IPSEITY's whole
+argument is that the artwork is *bytes in contract code* — no server, no
+IPFS, no gateway, nothing to trust. Encrypting that would be a
+self-inflicted wound. So the answer to "can we make the NFT an iNFT" is:
+not the artwork. Never the artwork.
+
+### Where it is not a stretch
+
+The moment the collection grew session keys — a bounded authority handed
+to something that is not the holder — it grew a secret worth protecting.
+Not *what the agent may do*: that is on-chain, bounded, and public, and it
+has to be, or nobody can price the token. What is private is **how it
+decides**. The prompt. The thresholds. The strategy.
+
+That thing is:
+
+- valuable, and worthless once public;
+- genuinely part of what the token *is*, so it should follow the sale;
+- useless to the buyer unless it is re-sealed to them.
+
+Which is precisely and only what ERC-7857 is for. So that is what got
+built.
+
+---
+
+## 2 · What was built: `src/Disposition.sol`
+
+A sidecar keyed by token id. Per token it holds a `commitment`
+(`keccak256` of the ciphertext), a `uri`, the owner it was `sealedTo`, and
+an `attestedBy` that is usually zero.
+
+```
+publish(id, commitment, uri)      holder only; binds to ownerOf(id), not to msg.sender
+attest(id, commitment)            verifier only; must name the exact blob on file
+clear(id)                         holder only
+status(id) → ABSENT|CURRENT|STALE derived, never stored
+```
+
+**The staleness derivation is the interesting part.** There is no transfer
+hook and none is needed:
+
+```
+sealedTo == ownerOf(id)  →  CURRENT
+sealedTo != ownerOf(id)  →  STALE
+```
+
+A sale invalidates the disposition **with no gas, no hook, no transaction,
+and no cooperation from the seller**. The buyer reads `status()` before
+they pay and is told, by arithmetic, that what they are buying is a
+pointer that must be re-sealed. A seller cannot dress a stale kernel up as
+a live one, because the only thing they control is the half of the
+comparison that already moved.
+
+ERC-7857 makes re-encryption atomic with transfer, verified by an oracle.
+Without an oracle you cannot verify that atomically. But you can always
+**refuse to pretend it happened**, and that is strictly better than a
+contract that emits a `Transferred` event over an unverified re-seal.
+
+### What was deliberately not built: the verifier
+
+`VERIFIER` is immutable and, in this deployment, **zero**.
+`hasVerifier()` returns false. `isAttested()` returns false for every
+token. `attest()` reverts for everyone including the zero address.
+
+A TEE attestation verifier or a ZK circuit is the trust anchor of the whole
+7857 design, and shipping a stub would be worse than shipping nothing —
+it would let a marketplace render a green check next to a claim nobody
+checked. The contract is wired for one (`oracled` in the test suite proves
+the path works end to end) and honest that it does not have one.
+
+`isCurrent()` and `isAttested()` are two functions on purpose. *Addressed
+to you* and *checked by somebody* are different questions, and the UI must
+never merge them.
+
+35 assertions: `node tools/verify-disposition.mjs`.
+
+---
+
+## 3 · Can Claude control executions? Yes — and here is exactly how much
+
+Claude cannot sign an Ethereum transaction. It has no key and should not
+have one. What it can do is **hold a session key** — a keypair on a server
+Claude talks to, which the token holder has authorized on-chain with
+`IpseityAccount.grantSession`.
+
+```solidity
+grantSession(
+    key,        // the agent's address
+    expires,    // it cannot extend this
+    spendCap,   // cumulative native value, it cannot raise this
+    targets,    // it cannot widen this
+    selectors   // it cannot widen this
+);
+```
+
+Every one of the four is checked on **every** call through
+`executeAsSession`. `revokeSession(key)` is one transaction, immediate,
+unilateral, with no delay and no notice.
+
+### The three escalations refused by shape
+
+Bounds are only worth what the first move cannot undo. Three moves are
+refused structurally rather than budgeted:
+
+1. **A session cannot call the account.** Otherwise the agent's first act
+   is `grantSession` on itself with no limits and all four bounds become
+   decorative. `to == address(this)` reverts, and so does listing the
+   account as a target at grant time — closing both the front door and the
+   allowlist.
+2. **A session cannot approve a spender it was not told about.** `approve`
+   is called *on* the token contract, so allowlisting the target says
+   nothing about who is being trusted. The **argument** is checked against
+   the target allowlist, for `approve`, `increaseAllowance` and
+   `setApprovalForAll`. This is the one place a venue registry genuinely
+   earns its keep.
+3. **A session cannot touch the Grip.** Nothing enforces this. There is
+   nothing to enforce: `GripVault` has no function that spends. The
+   holdings a buyer prices the token on are not merely off-limits to the
+   agent — they are off-limits to everyone, forever, including the holder.
+
+And the seal composes on top: while the Reach is sealed, a session key is
+subject to the same balance measurement and the same approval refusals as
+the holder. **A session is never more trusted than the person who granted
+it.**
+
+### What this actually buys
+
+The interesting property is not that the agent is restricted. It is that
+**the restriction is public and the strategy is private, and the first one
+makes the second one safe.**
+
+A buyer cannot read the agent's prompt — that is the point of the
+disposition. But they can read `sessionOf(key)`, `sessionTarget`,
+`sessionSelector`, `sealedUntil`, `manifest()`, and the Grip's
+`holdings()`. So they can compute the worst case over *every possible
+prompt*: the agent's authority is a fixed, enumerable set of doors, and no
+text behind the ciphertext can open a door that is not in it.
+
+That is a strictly stronger guarantee than "we audited the prompt", and it
+is the reason the private half is tolerable at all.
+
+### The wiring, concretely
+
+```
+Claude  ──MCP──▶  a signer service  ──▶  executeAsSession(to, value, data)
+                  (holds the session key,          on IpseityAccount
+                   holds the decrypted kernel)
+```
+
+The MCP server would expose roughly four tools:
+
+| tool | does |
+|---|---|
+| `ipseity_read` | `status(id)`, `market(id)`, `holdings()`, `sessionAllows(...)` — all `eth_call`, no key touched |
+| `ipseity_propose` | build calldata + simulate it, return the decoded effect. **Never sends.** |
+| `ipseity_act` | send a previously-proposed call through `executeAsSession` |
+| `ipseity_kernel` | fetch the ciphertext at `uri`, check it against `commitment`, decrypt, return the strategy as context |
+
+Two properties matter more than the tool list. **`propose` and `act` are
+separate**, so the model's reasoning happens over a simulated result rather
+than a committed one. And **`sessionAllows(key, to, selector)` is checked
+client-side before sending**, so a policy violation is a refusal the model
+can read and reason about, not a reverted transaction and a wasted fee.
+
+That service is not in this repository. It holds a private key and talks to
+a live RPC, so nothing about it can be exercised by the harness here, and
+shipping untested key-handling code alongside tested contracts would
+misrepresent which parts have been checked. The contract side of the
+interface is built, tested, and documented above.
+
+---
+
+## 4 · The live GUI: the honest answer
+
+**No — and refusing this is load-bearing.**
+
+`tokenURI` returns a `data:` URI. The document inside it has no `fetch`, no
+WebSocket, no script tag pointing anywhere, no font, no image, no analytics.
+That is the entire reason it will still render in thirty years, and the
+reason it renders identically for everyone. The moment it can be fed by a
+live service, the artwork depends on that service being up and being
+honest, and every claim in `README.md` about what this collection *is*
+becomes a claim about somebody's uptime.
+
+So Claude does not render the GUI. What it does instead:
+
+> **Claude writes on-chain state that the GUI already draws.**
+
+The engine reads its entire world from `window.IPSE`, injected at render
+time from chain state. So when an agent commits a section word, syncs a
+curve, publishes a disposition or grants a key, the artwork shows it on the
+next render — the rotation changes, the concentration of the pricing curve
+visibly tightens, the vault panel updates. Nothing was streamed. The
+picture changed because the chain changed.
+
+That is the version worth having. The agent is not painting the picture; it
+is turning the solid, and the solid *is* the price curve, so the picture and
+the position are the same object. `syncCurve` under a session key is
+literally an agent re-shaping the artwork by re-shaping the market.
+
+If you want a genuinely live surface — a dashboard, a chat panel, streaming
+telemetry — build it as a **companion page** outside the token, reading the
+same chain state. It can be as live as you like, because when it goes down
+the NFT is unaffected. Keeping those two things separate is not a
+compromise; it is the only arrangement in which either one can make an
+honest promise.
+
+---
+
+## 5 · What breaks
+
+Written here rather than left for someone to find.
+
+**The seller does not forget.** Re-sealing gives the buyer the secret.
+Nothing on any chain takes it back from whoever held it first. This is a
+limitation of ERC-7857 itself, not of this implementation, and no oracle
+fixes it. A disposition is worth buying when its value is *use going
+forward*, and worth nothing when its value is *exclusivity*.
+
+**An unattested kernel is an unverified kernel.** With `VERIFIER == 0`, a
+buyer must fetch the ciphertext, hash it, compare against `commitment`, and
+decrypt it themselves before paying. The contract makes that possible and
+does not make it unnecessary.
+
+**A session key is a hot key.** Its bounds hold if it is stolen — that is
+the design — but everything inside those bounds is gone. Set `spendCap`
+and `expires` to numbers you would be willing to lose outright, and grant
+targets one at a time.
+
+**The disposition's `uri` can rot.** The commitment is permanent; the blob
+is not. If the ciphertext disappears, the token still says what it
+committed to and can no longer prove what that was. Pin it.
+
+**Nothing here has been audited**, and `forge test` has never run in this
+environment — see the end of `INVARIANTS.md`.

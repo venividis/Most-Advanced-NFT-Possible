@@ -95,6 +95,7 @@ contract Renderer {
             '",chainId:', block.chainid.str(),
             ',owner:"', LibNum.hexAddr(v.owner),
             '",account:"', LibNum.hexAddr(v.boundAccount),
+            '",grip:"', LibNum.hexAddr(v.grip),
             '",pool:"', LibNum.hexAddr(v.pool),
             '",seed:"', LibNum.hex32(v.seed), '"'
         );

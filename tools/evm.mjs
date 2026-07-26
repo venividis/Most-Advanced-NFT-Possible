@@ -65,6 +65,10 @@ export function enc(sig, args = []) {
       if (typeof v === "number" || typeof v === "bigint") return pad(BigInt(v).toString(16));
       return pad(String(v).replace(/^0x/, ""));
     }
+    if (/^bytes([1-9]|[12]\d|3[0-2])$/.test(t)) {
+      // a fixed-size bytesN is LEFT-aligned in its word
+      return String(v).replace(/^0x/, "").padEnd(64, "0");
+    }
     if (/^u?int/.test(t)) {
       let n = BigInt(v);
       if (n < 0n) n = (1n << 256n) + n;
@@ -78,6 +82,17 @@ export function enc(sig, args = []) {
       const b = t === "string" ? Buffer.from(String(v), "utf8") : Buffer.from(String(v).replace(/^0x/, ""), "hex");
       head += pad((headLen + tail.length / 2).toString(16));
       tail += pad(b.length.toString(16)) + b.toString("hex").padEnd(Math.ceil(b.length / 32) * 64, "0");
+    } else if (t === "address[]") {
+      const arr = v || [];
+      head += pad((headLen + tail.length / 2).toString(16));
+      tail += pad(arr.length.toString(16)) +
+              arr.map((x) => pad(String(x).slice(2).toLowerCase())).join("");
+    } else if (/^bytes([1-9]|[12]\d|3[0-1])\[\]$/.test(t)) {
+      // elements of a fixed-size bytesN array are LEFT-aligned in their words
+      const arr = v || [];
+      head += pad((headLen + tail.length / 2).toString(16));
+      tail += pad(arr.length.toString(16)) +
+              arr.map((x) => String(x).replace(/^0x/, "").padEnd(64, "0")).join("");
     } else if (t === "bytes32[]") {
       const arr = v || [];
       head += pad((headLen + tail.length / 2).toString(16));

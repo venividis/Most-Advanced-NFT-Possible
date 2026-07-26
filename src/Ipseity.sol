@@ -99,7 +99,30 @@ contract Ipseity is
     ///         derived from it and a mutable implementation would mean a
     ///         mutable vault address.
     address public immutable ACCOUNT_IMPL;
-    bytes32 public constant ACCOUNT_SALT = bytes32(0);
+    /// @notice Two hands, two salts, two accounts per token.
+    ///
+    ///   REACH  a working account. Trades, signs, claims, can be sealed for
+    ///          a time, and can be emptied by its holder whenever it is not.
+    ///          It can be drained, and that is disclosed rather than fixed —
+    ///          an account with nothing at risk proves nothing by holding.
+    ///
+    ///   GRIP   receives and never spends. No execute, no withdraw, no
+    ///          rescue, no admin. What a buyer reads out of it is a floor
+    ///          rather than a snapshot, because the seller has no function
+    ///          with which to move it.
+    ///
+    /// The split is taken from the CONGREGATION meld design. The point is
+    /// not that the Grip is guarded better than the Reach; it is that the
+    /// Grip has nothing to guard, because the capability to spend was never
+    /// written. One hand holds, one hand reaches.
+    bytes32 public constant REACH_SALT = bytes32(0);
+    bytes32 public constant GRIP_SALT  = keccak256("IPSEITY.GRIP.v1");
+
+    /// @dev Kept as an alias so the ERC-6551 convention of "the" account
+    ///      still resolves, and resolves to the one that can act.
+    bytes32 public constant ACCOUNT_SALT = REACH_SALT;
+
+    address public immutable GRIP_IMPL;
 
     /*──────────────────────── state ────────────────────────*/
     /// @notice The orientation of every token's section. One word, one store.
@@ -225,9 +248,10 @@ contract Ipseity is
         _lock = 1;
     }
 
-    constructor(IRenderer renderer_, address accountImpl_) {
-        if (accountImpl_ == address(0)) revert ZeroAddress();
+    constructor(IRenderer renderer_, address accountImpl_, address gripImpl_) {
+        if (accountImpl_ == address(0) || gripImpl_ == address(0)) revert ZeroAddress();
         ACCOUNT_IMPL = accountImpl_;
+        GRIP_IMPL = gripImpl_;
         emit OwnershipTransferred(address(0), msg.sender);
         curator = msg.sender;
         royaltyReceiver = msg.sender;
@@ -322,7 +346,7 @@ contract Ipseity is
     ///         for this; the address was already determined at mint.
     function embody(uint256 id) external returns (address acct) {
         if (_ownerOf[id] == address(0)) revert Nonexistent();
-        acct = REGISTRY.createAccount(ACCOUNT_IMPL, ACCOUNT_SALT, block.chainid, address(this), id);
+        acct = REGISTRY.createAccount(ACCOUNT_IMPL, REACH_SALT, block.chainid, address(this), id);
         Stats storage s = _stats[id];
         _bump(id, s);
         emit Embodied(id, acct);
@@ -343,8 +367,23 @@ contract Ipseity is
         emit Operated(id, s.ops);
     }
 
+    /// @notice The Reach: the hand that acts. This is "the" ERC-6551 account.
     function account(uint256 id) public view returns (address) {
-        return REGISTRY.account(ACCOUNT_IMPL, ACCOUNT_SALT, block.chainid, address(this), id);
+        return REGISTRY.account(ACCOUNT_IMPL, REACH_SALT, block.chainid, address(this), id);
+    }
+
+    /// @notice The Grip: the hand that only closes. Derived, never asked for.
+    function grip(uint256 id) public view returns (address) {
+        return REGISTRY.account(GRIP_IMPL, GRIP_SALT, block.chainid, address(this), id);
+    }
+
+    /// @notice Bring the Grip into being. Anyone may pay for this; the
+    ///         address was determined at mint and nothing about it is a
+    ///         choice.
+    function embodyGrip(uint256 id) external returns (address acct) {
+        if (_ownerOf[id] == address(0)) revert Nonexistent();
+        acct = REGISTRY.createAccount(GRIP_IMPL, GRIP_SALT, block.chainid, address(this), id);
+        emit Embodied(id, acct);
     }
 
     /*═══════════════════════ reading ═══════════════════════*/
@@ -369,7 +408,7 @@ contract Ipseity is
         Stats memory s = _stats[id];
         v = TokenView({
             id: id, word: sectionOf[id], seed: seedOf[id], owner: o,
-            collection: address(this), boundAccount: account(id), pool: pool,
+            collection: address(this), boundAccount: account(id), grip: grip(id), pool: pool,
             ops: s.ops, strata: s.strata, xfers: s.xfers, open: s.open,
             mintBlock: s.mintBlock, locked: _locked[id], hasKernel: _kernel[id].active
         });

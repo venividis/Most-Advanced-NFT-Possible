@@ -108,6 +108,14 @@ contract IpseityAccount {
     error ManifestFull();
     error AlreadyListed();
     error OwnershipCycle();
+    error NoSession();
+    error SessionExpired();
+    error TargetNotAllowed(address target);
+    error SelectorNotAllowed(bytes4 selector);
+    error SpendCapExceeded(uint256 cap, uint256 wanted);
+    error SpenderNotAllowed(address spender);
+    error NoPrivilegeEscalation();
+    error ListTooLong();
 
     receive() external payable {}
 
@@ -189,6 +197,134 @@ contract IpseityAccount {
         ether_ = address(this).balance;
     }
 
+    /*═══════════════════ SESSION KEYS ═══════════════════
+
+      A key the holder grants to something that is not them — a bot, a
+      keeper, an agent, a model — so it can act on the Reach without
+      holding the token.
+
+      Every session is bounded four ways, and all four are checked on
+      every call: an expiry it cannot extend, an allowlist of targets it
+      cannot widen, an allowlist of selectors it cannot widen, and a
+      cumulative spend cap it cannot raise. The holder revokes instantly
+      and unilaterally.
+
+      Three escalations are refused by shape rather than by budget:
+
+        · a session cannot call this account. Otherwise its first act is
+          grantSession on itself with no limits, and every bound above
+          becomes decorative.
+        · a session cannot grant an approval to a spender that is not
+          itself on the target allowlist. `approve` is called *on* the
+          token contract, so allowlisting the target says nothing about
+          who is being trusted — the argument has to be checked, not the
+          callee. (This is the one place a venue registry genuinely earns
+          its keep, and where the Dave Held approve-gate is exactly right.)
+        · a session cannot touch the Grip, because the Grip has no
+          function that spends. Nothing enforces this; there is nothing
+          to enforce.
+
+      The seal composes on top: while the Reach is sealed, a session is
+      subject to the same measurement and the same refusals as the holder.
+      A session is never *more* trusted than the person who granted it.  */
+
+    struct Session {
+        uint64  expires;
+        uint128 spendCap;      // cumulative native value, over the session's life
+        uint128 spent;
+        bool    active;
+    }
+
+    uint256 public constant MAX_LIST = 16;
+
+    mapping(address => Session) public sessionOf;
+    mapping(address => mapping(address => bool)) public sessionTarget;
+    mapping(address => mapping(bytes4 => bool))  public sessionSelector;
+
+    event SessionGranted(address indexed key, uint64 expires, uint128 spendCap);
+    event SessionRevoked(address indexed key);
+    event SessionActed(address indexed key, address indexed to, uint256 value, bytes4 selector);
+
+    /// @notice Hand a bounded key to something that is not you.
+    /// @dev    Re-granting an existing key overwrites its terms and resets
+    ///         what it has spent, which is the only sane reading of
+    ///         "these are the new terms".
+    function grantSession(
+        address key,
+        uint64 expires,
+        uint128 spendCap,
+        address[] calldata targets,
+        bytes4[] calldata selectors
+    ) external onlySigner {
+        if (key == address(0) || key == address(this)) revert NoPrivilegeEscalation();
+        if (targets.length > MAX_LIST || selectors.length > MAX_LIST) revert ListTooLong();
+
+        Session storage s = sessionOf[key];
+        s.expires = expires;
+        s.spendCap = spendCap;
+        s.spent = 0;
+        s.active = true;
+
+        for (uint256 i; i < targets.length; ++i) {
+            // an allowlist entry pointing back here is the escalation again
+            if (targets[i] == address(this)) revert NoPrivilegeEscalation();
+            sessionTarget[key][targets[i]] = true;
+        }
+        for (uint256 i; i < selectors.length; ++i) sessionSelector[key][selectors[i]] = true;
+
+        emit SessionGranted(key, expires, spendCap);
+    }
+
+    /// @notice Immediate and unilateral. No delay, no notice, no appeal.
+    function revokeSession(address key) external onlySigner {
+        delete sessionOf[key];
+        emit SessionRevoked(key);
+    }
+
+    function sessionAllows(address key, address to, bytes4 selector)
+        external view returns (bool)
+    {
+        Session memory s = sessionOf[key];
+        return s.active && s.expires >= block.timestamp
+            && sessionTarget[key][to] && sessionSelector[key][selector];
+    }
+
+    /// @notice Act under a session key rather than as the holder.
+    function executeAsSession(address to, uint256 value, bytes calldata data)
+        external returns (bytes memory result)
+    {
+        Session storage s = sessionOf[msg.sender];
+        if (!s.active) revert NoSession();
+        if (s.expires < block.timestamp) revert SessionExpired();
+        if (to == address(this)) revert NoPrivilegeEscalation();
+        if (!sessionTarget[msg.sender][to]) revert TargetNotAllowed(to);
+
+        bytes4 sel = data.length >= 4 ? bytes4(data[0:4]) : bytes4(0);
+        if (!sessionSelector[msg.sender][sel]) revert SelectorNotAllowed(sel);
+
+        // an approval is a standing authority, so the party being trusted
+        // has to be one the holder named, not merely the contract it is
+        // named on
+        if (sel == 0x095ea7b3 || sel == 0x39509351) {
+            if (data.length < 68) revert SpenderNotAllowed(address(0));
+            (address spender,) = abi.decode(data[4:], (address, uint256));
+            if (!sessionTarget[msg.sender][spender]) revert SpenderNotAllowed(spender);
+        } else if (sel == 0xa22cb465) {
+            if (data.length < 68) revert SpenderNotAllowed(address(0));
+            (address operator, bool okFlag) = abi.decode(data[4:], (address, bool));
+            if (okFlag && !sessionTarget[msg.sender][operator]) revert SpenderNotAllowed(operator);
+        }
+
+        if (value != 0) {
+            uint256 wanted = uint256(s.spent) + value;
+            if (wanted > s.spendCap) revert SpendCapExceeded(s.spendCap, wanted);
+            s.spent = uint128(wanted);
+        }
+
+        result = _act(to, value, data);
+        emit SessionActed(msg.sender, to, value, sel);
+    }
+
     /*──────────────────── acting ────────────────────*/
 
     /// @notice ERC-6551 execute. Only CALL; only the holder.
@@ -197,6 +333,14 @@ contract IpseityAccount {
     {
         if (operation != 0) revert OnlyCall();
 
+        result = _act(to, value, data);
+    }
+
+    /// @dev The gauntlet, shared by the holder and by every session key, so
+    ///      that a session is never more trusted than whoever granted it.
+    function _act(address to, uint256 value, bytes calldata data)
+        internal returns (bytes memory result)
+    {
         bool locked = isSealed();
         uint256[] memory pre;
         uint256 preEth;

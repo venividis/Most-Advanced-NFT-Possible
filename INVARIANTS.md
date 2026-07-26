@@ -185,6 +185,107 @@ the whole reason: a vault that cannot act is a safe.
 
 ---
 
+## The other hand
+
+Every token has two ERC-6551 accounts at two salts. The Reach
+(`IpseityAccount`) can act and is policed. The Grip (`GripVault`) cannot act
+and needs no policing. The registry is canonical and the implementation is a
+parameter, which is what makes this possible at all.
+
+**38. The Grip has no function that spends.**
+Every state-changing function in its compiled ABI is a token receiver. There
+is no `execute`, no withdraw, no sweep, no rescue, no owner override, no
+admin, no upgrade path — for the holder, for the collection, for governance,
+forever. Asserted against the ABI, not the source, because the guarantee is
+structural rather than behavioural.
+→ `tools/verify-vault.mjs` · *"every state-changing function is a token receiver"*, *"there is no execute"*
+
+**39. The Grip does not advertise a capability it lacks.**
+`supportsInterface` deliberately excludes `0x51945447` (IERC6551Executable), so
+a client that checks before calling `execute` is told the truth in advance
+rather than discovering it in a revert.
+→ `tools/verify-vault.mjs` · *"it declines to advertise IERC6551Executable"*
+
+**40. A Grip's holdings are a floor, not a snapshot.**
+Because nothing can leave, the number a buyer reads before they pay is a
+number the seller cannot move between a handshake and a settlement. This is
+the invariant the whole two-hand split exists to produce.
+→ `tools/verify-vault.mjs` · *"so the attacks have nothing to aim at"*
+
+---
+
+## Session keys
+
+**41. A session is bounded four ways and can widen none of them.**
+An expiry it cannot extend, a target allowlist it cannot widen, a selector
+allowlist it cannot widen, and a cumulative native spend cap it cannot raise.
+All four are checked on every call, and the cap counts across the session's
+whole life rather than per call, so the same allowance cannot be spent twice.
+→ `tools/verify-vault.mjs` · *"a selector it was not granted"*, *"a target it was not granted"*, *"the spend cap counts across the whole session"*, *"the expiry is a wall the key cannot move"*
+
+**42. A session cannot reach the account itself.**
+`to == address(this)` reverts in `executeAsSession`, and `address(this)` is
+refused as an allowlist entry at grant time. Otherwise the agent's first act
+is granting itself a session with no limits and every other bound is
+decorative.
+→ `tools/verify-vault.mjs` · *"calling the account itself, to grant itself more"*
+
+**43. A session cannot approve a spender that was not named.**
+For `approve`, `increaseAllowance` and `setApprovalForAll`, the *spender
+argument* must itself be on the target allowlist. Allowlisting the token
+contract says who is being called, never who is being trusted.
+→ `tools/verify-vault.mjs` · *"approving a spender nobody named"*, *"setApprovalForAll is checked the same way"*
+
+**44. Revocation is immediate and unilateral.**
+One transaction by the holder, no delay, no notice, no appeal.
+→ `tools/verify-vault.mjs` · *"revoked instantly"*
+
+**45. A session is never more trusted than the holder.**
+Session calls go through the same `_act` gauntlet, so while the Reach is
+sealed a session is subject to the same measurement and the same approval
+refusals. And the Grip is out of reach because the Grip has no function to
+reach for.
+→ `tools/verify-vault.mjs` · *"the Grip is not on any allowlist it could be given"*
+
+---
+
+## The disposition
+
+The one place ERC-7857 is not a stretch here — see `AGENT.md`.
+
+**46. A kernel is bound to the chain's owner, not to the caller's claim.**
+`publish` reads `ownerOf` from the token contract and seals to that, so the
+binding is the chain's opinion rather than the publisher's.
+→ `tools/verify-disposition.mjs` · *"it is sealed to the holder"*
+
+**47. A sale invalidates a disposition, with no cooperation from anyone.**
+`status()` is derived by comparing `sealedTo` with `ownerOf` at read time —
+no hook, no gas, no transaction. A seller cannot present a stale kernel as a
+live one, because the only half of the comparison they control has already
+moved.
+→ `tools/verify-disposition.mjs` · *"the kernel went STALE by itself"*
+
+**48. Current and attested are separate questions, and are asked separately.**
+`isCurrent()` says the ciphertext is addressed to whoever holds the token.
+`isAttested()` says somebody with a proof system checked it. With no verifier
+deployed the second is false for every token, and no reading of the first can
+be mistaken for it.
+→ `tools/verify-disposition.mjs` · *"but current is not attested"*
+
+**49. An attestation cannot outlive the blob it checked.**
+`attest` names the exact commitment and reverts on a mismatch; every
+`publish` clears `attestedBy`. Swapping the ciphertext under a standing
+attestation is the race this closes.
+→ `tools/verify-disposition.mjs` · *"swapping the ciphertext clears the attestation"*
+
+**50. The disposition holds nothing and moves nothing.**
+Three state-changing functions, none payable, none able to name an asset or
+an amount. The verifier attests and cannot publish; the holder publishes and
+cannot attest.
+→ `tools/verify-disposition.mjs` · *"what it cannot do, read off the compiled ABI"*
+
+---
+
 ## Privilege
 
 **27. No admin path can move an asset.**
@@ -223,6 +324,16 @@ seven days as anything else.
 These are true, they are not tested, and they are not defended against. They are
 here because an undocumented limitation is worse than a documented one.
 
+**A0. A Grip is permanent, and permanence is not a feature that can be
+walked back.**
+An asset sent to a Grip is there until the token stops existing, which in
+this collection is never — there is no burn. A mistaken transfer into a Grip
+is a permanent mistake. The interface says so before it will build the
+calldata, and that is all any interface can do. This is the correct trade for
+holdings a token carries as part of what it *is*, and the wrong trade for
+anything that has to stay liquid — which is why market inventory lives in
+`Pool.sol` behind a time-boxed bond and working capital lives in the Reach.
+
 **A. The seal covers the manifest, and nothing else.**
 *(This was previously "the vault can be emptied between a handshake and a
 settlement", with no fix. It is fixed: the collection ships its own ERC-6551
@@ -245,6 +356,32 @@ Where the art and the price are the same numbers, this is not preventable. It is
 bounded instead: every swap carries a trader-set `minOut`, checked after the
 fact. A trader who sets it is unharmed. A bond removes the possibility entirely
 for as long as it holds.
+
+**B2. A session key is a hot key.**
+Its bounds hold if it is stolen — that is the entire design — but everything
+inside those bounds is gone. `spendCap` and `expires` should be numbers you
+would be willing to lose outright, and targets should be granted one at a
+time. The collection makes theft survivable; it does not make it free.
+
+**B3. Re-sealing a disposition does not make the seller forget.**
+ERC-7857's re-encryption gives the buyer the secret. Nothing on any chain
+takes it back from whoever held it first, and no oracle changes that. A
+disposition is worth buying when its value is *use going forward*, and worth
+nothing when its value is *exclusivity*. This is a limitation of the standard
+rather than of `Disposition.sol`.
+
+**B4. There is no verifier, so every kernel is unattested.**
+`VERIFIER` is zero in this deployment, `hasVerifier()` says so, and
+`isAttested()` is false for every token. A buyer must fetch the ciphertext,
+hash it, compare it against `commitment` and decrypt it themselves before
+paying. The contract makes that possible and does not make it unnecessary. A
+stub verifier was not shipped because a green check nobody earned is worse
+than no check at all.
+
+**B5. A disposition's `uri` can rot.**
+The commitment is permanent; the blob it commits to is not. If the ciphertext
+disappears, the token still states what it committed to and can no longer
+demonstrate what that was. Pin it.
 
 **C. Nothing here has been audited.**
 `Pool.sol` holds other people's money and has never been reviewed by anyone. The

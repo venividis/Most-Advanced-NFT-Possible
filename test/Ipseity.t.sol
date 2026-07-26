@@ -9,6 +9,8 @@ import {Ipseity, IRenderer} from "../src/Ipseity.sol";
 import {Section} from "../src/lib/Types.sol";
 import {SSTORE2} from "../src/lib/SSTORE2.sol";
 import {Trig} from "../src/lib/Trig.sol";
+import {IpseityAccount} from "../src/IpseityAccount.sol";
+import {GripVault} from "../src/GripVault.sol";
 import {ERC6551Registry} from "./mocks/ERC6551Registry.sol";
 import {MockVerifier} from "./mocks/MockVerifier.sol";
 import {MockReceiver} from "./mocks/MockReceiver.sol";
@@ -45,7 +47,8 @@ contract IpseityTest is Test {
         engine   = new Engine(false);
         sigil    = new Sigil();
         renderer = new Renderer(engine, sigil);
-        token    = new Ipseity(IRenderer(address(renderer)));
+        token    = new Ipseity(IRenderer(address(renderer)),
+            address(new IpseityAccount()), address(new GripVault()));
 
         engine.loadHead(HEAD);
         engine.loadBody(BODY);

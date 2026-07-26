@@ -47,12 +47,13 @@ await c.vm.stateManager.putCode(createAddressFromString(REGISTRY),
   await c.vm.stateManager.getCode(createAddressFromString(tmpReg)));
 
 const impl = await c.deploy(A("src/IpseityAccount.sol", "IpseityAccount").bytecode, "", "IpseityAccount");
+const gripImpl = await c.deploy(A("src/GripVault.sol", "GripVault").bytecode, "", "GripVault");
 const engine = await c.deploy(A("src/Engine.sol", "Engine").bytecode, "0".repeat(64));
 const sigil = await c.deploy(A("src/Sigil.sol", "Sigil").bytecode);
 const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
   encodeAddressArg(engine) + encodeAddressArg(sigil));
 const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode,
-  encodeAddressArg(renderer) + encodeAddressArg(impl));
+  encodeAddressArg(renderer) + encodeAddressArg(impl) + encodeAddressArg(gripImpl));
 const drainer = await c.deploy(A("test/mocks/Drainer.sol", "Drainer").bytecode);
 
 const encStr = (s) => {
@@ -250,6 +251,217 @@ try {
 ok("an asset nobody put on the manifest can still leave — by design, and why manifest() is public",
    unlistedLeft);
 console.log("      a buyer reads manifest(), they do not assume it");
+
+/*════════════════ THE GRIP ════════════════*/
+head("the other hand — the Grip");
+
+const grip = decAddr(await c.read(nft, "grip(uint256)", [1]));
+ok("a second account, at a second salt", grip.toLowerCase() !== vault.toLowerCase());
+console.log(`      reach ${vault}`);
+console.log(`      grip  ${grip}`);
+await c.exec(nft, "embodyGrip(uint256)", [1], { label: "embodyGrip" });
+ok("it exists", (await c.codeSize(grip)) > 0);
+eq("and it knows whose it is", decAddr(await c.read(grip, "owner()")).toLowerCase(), buyer);
+
+/* The Reach needs 35 assertions because it has a capability being policed.
+   The Grip needs almost none, because the guarantee is structural — so the
+   right way to test it is against the compiled ABI, not by trying calls. */
+head("the guarantee is in the shape, so read the shape");
+const gripAbi = A("src/GripVault.sol", "GripVault").abi;
+const writes = gripAbi.filter(f => f.type === "function" &&
+  f.stateMutability !== "view" && f.stateMutability !== "pure");
+const receivers = writes.filter(f => /^onERC(721|1155)/.test(f.name));
+
+eq("every state-changing function is a token receiver", writes.length, receivers.length);
+console.log("      " + (writes.map(f => f.name).join(", ") || "(none)"));
+ok("there is no execute", !gripAbi.some(f => f.name === "execute"));
+ok("there is no withdraw, sweep, rescue or transfer",
+   !gripAbi.some(f => /withdraw|sweep|rescue|transfer|send|drain|claim/i.test(f.name || "")));
+ok("there is no owner override, admin or upgrade path",
+   !gripAbi.some(f => /setOwner|admin|upgrade|initialize|delegate/i.test(f.name || "")));
+ok("it says so itself", decBool(await c.read(grip, "isOneWay()")));
+ok("and it declines to advertise IERC6551Executable",
+   !decBool(await c.call(grip, "0x01ffc9a7" + "51945447".padEnd(64, "0"))),
+   "a client checking before calling execute would be misled");
+
+head("so the attacks have nothing to aim at");
+await c.exec(GOLD, "mint(address,uint256)", [grip, 500n * WAD]);
+await c.send({ to: grip, value: 2n * WAD });
+eq("the grip holds gold", decUint(await c.read(GOLD, "balanceOf(address)", [grip])), 500n * WAD);
+
+const asBuyer2 = async (sig, args) => {
+  const r = await c.vm.evm.runCall({
+    to: createAddressFromString(grip), caller: createAddressFromString(buyer),
+    origin: createAddressFromString(buyer), data: hexToBytes(enc(sig, args)),
+    gasLimit: 20_000_000n, value: 0n, block: evm.BLOCK
+  });
+  if (r.execResult.exceptionError) throw new Error(r.execResult.exceptionError.error);
+  return bytesToHex(r.execResult.returnValue);
+};
+await refuses("the holder calling execute", () =>
+  asBuyer2("execute(address,uint256,bytes,uint8)",
+    [GOLD, 0, enc("transfer(address,uint256)", [buyer, WAD]), 0]),
+  "the Grip has an execute after all");
+await refuses("the holder calling anything that spends", () =>
+  asBuyer2("withdraw(address,uint256)", [GOLD, WAD]),
+  "the Grip has a withdraw after all");
+eq("nothing moved, because nothing could", decUint(await c.read(GOLD, "balanceOf(address)", [grip])), 500n * WAD);
+eq("no signer is ever valid",
+   decUint(await c.read(grip, "isValidSigner(address,bytes)", [buyer, "0x"])), 0);
+
+head("what a buyer reads is a floor, not a snapshot");
+const h = await c.read(grip, "holdings(address[])", [[GOLD]]);
+eq("ether", decUint(h, 0), 2n * WAD);
+console.log("      a seller has no function with which to move either number");
+
+/*════════════════ SESSION KEYS ════════════════*/
+head("a bounded key, for something that is not you");
+await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+const v3 = decAddr(await c.read(nft, "account(uint256)", [3]));
+await c.exec(nft, "embody(uint256)", [3]);
+await c.exec(GOLD, "mint(address,uint256)", [v3, 100n * WAD]);
+
+const agent = "0x" + "a9e07".padStart(40, "0");
+await c.fund(agent, 10n ** 18n);
+const asAgent = async (to, sig, args) => {
+  const r = await c.vm.evm.runCall({
+    to: createAddressFromString(to), caller: createAddressFromString(agent),
+    origin: createAddressFromString(agent), data: hexToBytes(enc(sig, args)),
+    gasLimit: 20_000_000n, value: 0n, block: evm.BLOCK
+  });
+  if (r.execResult.exceptionError) {
+    const e = new Error(r.execResult.exceptionError.error);
+    e.data = bytesToHex(r.execResult.returnValue || new Uint8Array());
+    throw e;
+  }
+  return bytesToHex(r.execResult.returnValue);
+};
+
+const SEL_TRANSFER = "0xa9059cbb";
+const SEL_APPROVE  = "0x095ea7b3";
+const encAddrArr = (a) => "20".padStart(64, "0") + BigInt(a.length).toString(16).padStart(64, "0") +
+  a.map(x => x.slice(2).toLowerCase().padStart(64, "0")).join("");
+
+// grantSession(address,uint64,uint128,address[],bytes4[])
+const grantData = "0x" + (await import("./evm.mjs")).sel(
+  "grantSession(address,uint64,uint128,address[],bytes4[])").slice(2) +
+  agent.slice(2).toLowerCase().padStart(64, "0") +
+  (evm.GENESIS_TIME + 86400n).toString(16).padStart(64, "0") +
+  (WAD).toString(16).padStart(64, "0") +
+  (0xa0).toString(16).padStart(64, "0") +
+  (0xa0 + 32 + 32).toString(16).padStart(64, "0") +
+  "1".padStart(64, "0") + GOLD.slice(2).toLowerCase().padStart(64, "0") +
+  "1".padStart(64, "0") + SEL_TRANSFER.slice(2).padEnd(64, "0");
+await c.send({ to: v3, data: grantData, label: "grantSession" });
+ok("the session is live", decBool(await c.read(v3, "sessionAllows(address,address,bytes4)",
+   [agent, GOLD, SEL_TRANSFER])));
+
+let agentActed = false;
+try {
+  await asAgent(v3, "executeAsSession(address,uint256,bytes)",
+    [GOLD, 0, enc("transfer(address,uint256)", [agent, WAD])]);
+  agentActed = true;
+} catch (e) { console.log("      " + (e.data || e.message).slice(0, 90)); }
+ok("the agent can do the one thing it was granted", agentActed);
+eq("and it happened", decUint(await c.read(GOLD, "balanceOf(address)", [agent])), WAD);
+
+await refuses("a selector it was not granted", () =>
+  asAgent(v3, "executeAsSession(address,uint256,bytes)",
+    [GOLD, 0, enc("approve(address,uint256)", [agent, MAX])]),
+  "the selector allowlist is not enforced");
+
+await refuses("a target it was not granted", () =>
+  asAgent(v3, "executeAsSession(address,uint256,bytes)",
+    [SILVER, 0, enc("transfer(address,uint256)", [agent, WAD])]),
+  "the target allowlist is not enforced");
+
+await refuses("calling the account itself, to grant itself more", () =>
+  asAgent(v3, "executeAsSession(address,uint256,bytes)",
+    [v3, 0, enc("revokeSession(address)", [agent])]),
+  "a session can escalate its own privilege — this is the whole game");
+
+await refuses("granting a session at all", () =>
+  asAgent(v3, "grantSession(address,uint64,uint128,address[],bytes4[])", [agent, 0, 0]),
+  "a session key can mint session keys");
+
+await refuses("sealing the vault", () =>
+  asAgent(v3, "seal(uint64)", [evm.GENESIS_TIME + 1000n]),
+  "a session can seal a vault it does not own");
+
+/* An approval is called ON the token and names its spender in the argument,
+   so allowlisting the target says who is being called and nothing at all
+   about who is being trusted. The argument has to be checked. */
+head("an approval names its spender in the argument, not in the target");
+const GRANT = "grantSession(address,uint64,uint128,address[],bytes4[])";
+const SEL_APPROVE_ALL = "0xa22cb465";
+await c.exec(v3, GRANT,
+  [agent, evm.GENESIS_TIME + 86400n, WAD, [GOLD, SILVER], [SEL_TRANSFER, SEL_APPROVE, SEL_APPROVE_ALL]],
+  { label: "grantSession" });
+
+await refuses("approving a spender nobody named", () =>
+  asAgent(v3, "executeAsSession(address,uint256,bytes)",
+    [GOLD, 0, enc("approve(address,uint256)", [agent, MAX])]),
+  "a session with approve on an allowlisted token can approve anyone at all");
+
+let approvedNamed = false;
+try {
+  await asAgent(v3, "executeAsSession(address,uint256,bytes)",
+    [GOLD, 0, enc("approve(address,uint256)", [SILVER, WAD])]);
+  approvedNamed = true;
+} catch (e) { console.log("      " + (e.data || e.message).slice(0, 90)); }
+ok("but it may approve one that was", approvedNamed);
+
+await refuses("and setApprovalForAll is checked the same way", () =>
+  asAgent(v3, "executeAsSession(address,uint256,bytes)",
+    [GOLD, 0, enc("setApprovalForAll(address,bool)", [agent, true])]),
+  "the operator argument is not checked");
+
+/* The cap is cumulative over the session's life, not per call, so a session
+   cannot get around it by spending the same allowance twice. */
+head("the spend cap counts across the whole session, not per call");
+await c.send({ to: v3, value: 10n * WAD });
+await c.exec(v3, GRANT,
+  [agent, evm.GENESIS_TIME + 86400n, 2n * WAD, [agent], ["0x00000000"]]);
+
+const agentEth0 = (await c.vm.stateManager.getAccount(createAddressFromString(agent))).balance;
+await asAgent(v3, "executeAsSession(address,uint256,bytes)", [agent, WAD, "0x"]);
+await asAgent(v3, "executeAsSession(address,uint256,bytes)", [agent, WAD, "0x"]);
+ok("two sends inside the cap go through",
+   (await c.vm.stateManager.getAccount(createAddressFromString(agent))).balance - agentEth0 === 2n * WAD);
+await refuses("the third, which would exceed it, does not", () =>
+  asAgent(v3, "executeAsSession(address,uint256,bytes)", [agent, 1n, "0x"]),
+  "the cap is per call rather than cumulative, so it is not a cap");
+
+/* Re-granting is the only way terms change, and it is the holder's call. */
+await refuses("and the session cannot raise its own cap", () =>
+  asAgent(v3, GRANT, [agent, evm.GENESIS_TIME + 86400n, 100n * WAD, [agent], ["0x00000000"]]),
+  "a session key can re-grant itself");
+
+head("the expiry is a wall the key cannot move");
+evm.warp(evm.GENESIS_TIME + 86401n);
+ok("sessionAllows says no once it has passed",
+   !decBool(await c.read(v3, "sessionAllows(address,address,bytes4)", [agent, agent, "0x00000000"])));
+await refuses("and the call is refused", () =>
+  asAgent(v3, "executeAsSession(address,uint256,bytes)", [agent, 1n, "0x"]),
+  "an expired session still acts");
+evm.warp(evm.GENESIS_TIME);
+
+head("the holder takes it back");
+await c.exec(v3, GRANT, [agent, evm.GENESIS_TIME + 86400n, WAD, [GOLD], [SEL_TRANSFER]]);
+await c.exec(v3, "revokeSession(address)", [agent], { label: "revokeSession" });
+ok("revoked instantly", !decBool(await c.read(v3, "sessionAllows(address,address,bytes4)",
+   [agent, GOLD, SEL_TRANSFER])));
+await refuses("and the key is dead", () =>
+  asAgent(v3, "executeAsSession(address,uint256,bytes)",
+    [GOLD, 0, enc("transfer(address,uint256)", [agent, WAD])]),
+  "revocation does not take effect");
+
+head("and it never had a way to the Grip");
+const g3 = decAddr(await c.read(nft, "grip(uint256)", [3]));
+ok("the Grip is not on any allowlist it could be given",
+   !decBool(await c.read(v3, "sessionAllows(address,address,bytes4)",
+     [agent, g3, SEL_TRANSFER])));
+console.log("      and even allowlisted it would find no function that spends");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

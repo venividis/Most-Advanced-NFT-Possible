@@ -9,6 +9,8 @@ import {Ipseity, IRenderer} from "../src/Ipseity.sol";
 import {Pool, IIpseity} from "../src/Pool.sol";
 import {Curve} from "../src/lib/Curve.sol";
 import {Section} from "../src/lib/Types.sol";
+import {IpseityAccount} from "../src/IpseityAccount.sol";
+import {GripVault} from "../src/GripVault.sol";
 import {ERC6551Registry} from "./mocks/ERC6551Registry.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
@@ -43,7 +45,8 @@ contract PoolTest is Test {
         engine.loadBody("<body></body></html>");
         engine.freeze();
 
-        token = new Ipseity(IRenderer(address(renderer)));
+        token = new Ipseity(IRenderer(address(renderer)),
+            address(new IpseityAccount()), address(new GripVault()));
         // admin is the test contract; in production it is the Timelock
         pool = new Pool(IIpseity(address(token)), CAP, address(this), false);
         token.setPool(address(pool));

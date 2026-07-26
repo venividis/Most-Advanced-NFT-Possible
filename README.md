@@ -110,8 +110,8 @@ no flash loans.
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists thirty-one such
-statements and names the test for each, plus four known limitations that are
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists fifty such
+statements and names the test for each, plus ten known limitations that are
 documented rather than defended.
 
 **A seven-day timelock.** `src/lib/Timelock.sol` is meant to own every
@@ -153,6 +153,48 @@ three authorities whose effect escapes the measurement window.
 
 A sealed vault can still act. Anything that leaves it no poorer goes through,
 because a vault that cannot act is a safe.
+
+**The other hand.** Look at what the seal cost: a manifest, a snapshot, a
+verification pass, an approval blocklist, a delegatecall ban, an ERC-1271
+refusal, and a documented blind spot for assets nobody thought to list. Every
+one of those exists because the capability to spend exists and is being
+policed.
+
+So every token has a **second** ERC-6551 account, at a second salt, running
+`src/GripVault.sol`. It receives and it does not spend. There is no `execute`,
+no withdraw, no sweep, no rescue, no owner override, no admin — read the ABI:
+there is no function on that contract that moves an asset out of it, for
+anybody, ever. Nothing is policed because nothing is possible, and the test
+for it is an assertion against the compiled ABI rather than a list of attacks
+that bounced.
+
+Two hands, on purpose. The **Reach** is working capital: it acts, and it is
+guarded. The **Grip** is what a buyer prices the token on: `holdings()` there
+is a floor rather than a snapshot, because the seller has no function with
+which to move either number between a handshake and a settlement. Market
+inventory is a third case again — it has to stay liquid, so it lives in
+`Pool.sol` behind a time-boxed bond. Three places, three different promises.
+The shape is the Gate from the CONGREGATION meld design: *Grip → Reach:
+never. No function exists.*
+
+The cost is stated in `INVARIANTS.md` rather than buried: a Grip is permanent,
+there is no burn, and a mistaken transfer into one is a permanent mistake.
+
+**Session keys, for something that is not you.** A holder can grant a bounded
+key to a bot, a keeper or a model without handing over the token. Four bounds,
+all checked on every call: an expiry it cannot extend, a target allowlist and a
+selector allowlist it cannot widen, and a cumulative spend cap it cannot raise.
+Revocation is one transaction, immediate and unilateral.
+
+Three escalations are refused by *shape* rather than by budget, because bounds
+are only worth what the first move cannot undo. A session cannot call the
+account (otherwise its first act is granting itself a session with no limits).
+A session cannot approve a spender that is not itself on the target allowlist —
+`approve` is called *on* the token contract, so allowlisting the callee says
+nothing about who is being trusted, and the argument has to be checked. And a
+session cannot touch the Grip, which nothing enforces because there is nothing
+to enforce. The seal composes on top: a session is never more trusted than the
+person who granted it. See [AGENT.md](AGENT.md).
 
 **The bond.** "Selling the token sells the market" is mechanically true the
 moment `ownerOf` changes and worth nothing to a buyer on its own — the seller
@@ -272,21 +314,37 @@ it; it is not a spec-stated value and this document does not claim otherwise.
 
 ### Deliberately not claimed
 
-**ERC-7857 (iNFT).** The mechanism is here — a token may carry a payload that is not
-public, identified on chain only by its hash and sealed to a key its holder controls,
-so that handing the token over is not enough and a transfer is only accepted
-alongside a proof that the same payload was re-sealed to the recipient. What counts
-as a proof is a swappable verifier's business, because a TEE attestation and a
-zero-knowledge proof are both admissible and neither belongs hardcoded in a token.
+**ERC-7857 (iNFT).** The *mechanism* is built — `src/Disposition.sol` — and the
+*conformance claim* is deliberately withheld. Both halves of that are on purpose.
 
-It is **not** called ERC-7857, for three reasons. That specification's normative
-entry points are `iTransfer` and `iClone(…, TransferValidityProof[])`, and these are
-not those functions — a client written against the standard would not find them. It
-defines no ERC-165 identifier, so there is nothing to register or detect. And its
-premise is that the valuable metadata is encrypted and lives off chain behind an
-executor the spec declines to specify, which is the exact inverse of a work whose
-whole claim is that nothing is fetched. Shipping a false conformance claim in an
-immutable contract is worse than shipping no kernel at all.
+Built, because once the collection grew session keys it grew a secret worth
+protecting. Not what an agent may do — that is on chain, bounded and public, and has
+to be, or nobody can price the token — but **how it decides**: the prompt, the
+thresholds, the strategy. That is valuable, worthless once public, genuinely part of
+what the token is, and useless to a buyer unless it is re-sealed to them. Which is
+precisely and only what ERC-7857 is for. So a token may carry a ciphertext committed
+to on chain by hash, bound to the owner the chain reports, and a sale invalidates it
+automatically: `status()` compares `sealedTo` against `ownerOf` at read time, so a
+transfer goes `STALE` with no hook, no gas and no cooperation from the seller. A
+seller cannot present a stale kernel as a live one, because the only half of the
+comparison they control has already moved.
+
+Not claimed, for four reasons. The specification's normative entry points are
+`iTransfer` and `iClone(…, TransferValidityProof[])`, and these are not those
+functions — a client written against the standard would not find them. It defines no
+ERC-165 identifier, so there is nothing to register or detect, and anything
+advertising 7857 through `supportsInterface` is advertising something the standard
+does not define. Its premise — that the valuable metadata is encrypted and lives off
+chain — is the exact inverse of a work whose whole claim is that nothing is fetched,
+so it is applied to the agent's disposition and never to the artwork. And the
+re-seal proof requires a TEE attestation or a ZK circuit that this collection does
+not ship: `VERIFIER` is immutable and zero, `hasVerifier()` says so, and
+`isAttested()` is false for every token. A stub verifier would let a marketplace
+draw a green check next to a claim nobody checked, which is worse than no check.
+`isCurrent()` and `isAttested()` are two functions so that a UI cannot merge them.
+
+The full design, and the answer to what an agent can and cannot be given here, is in
+[AGENT.md](AGENT.md).
 
 **ERC-7007 (AIGC-NFT).** Requires a model and a verifier that do not exist here.
 There is no inference in this pipeline; the image is a deterministic function of a
@@ -398,7 +456,9 @@ src/
   Renderer.sol          tokenURI, the three faces, the JSON
   Sigil.sol             the 4D projector, in Solidity
   Pool.sol              every token as its own exchange
-  IpseityAccount.sol    the ERC-6551 vault, sealable and measured
+  IpseityAccount.sol    the Reach — the ERC-6551 vault, sealable and measured
+  GripVault.sol         the Grip — the second account, which cannot spend
+  Disposition.sol       the private kernel, in the shape ERC-7857 gives it
   lib/                  SSTORE2, Base64, Trig, Curve, Timelock, the section word
   interfaces/           every standard, with the reasoning
 tools/
@@ -407,12 +467,16 @@ tools/
   build-engine.mjs      minify → gzip → shards
   verify.mjs            deploy on a real EVM, read it all back
   verify-pool.mjs       try to break the market on a real EVM
-  verify-vault.mjs      try to drain a sealed vault
+  verify-vault.mjs      try to drain a sealed vault, and to widen a session key
+  verify-disposition.mjs  try to lie to a buyer about a private kernel
   verify-timelock.mjs   try to escape the delay
   preview.mjs           dist/preview.html
   evm.mjs, compile.mjs  the harness
 test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy, load, seal
+
+INVARIANTS.md           fifty statements that must hold, and the test for each
+AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 
 ---
@@ -421,9 +485,9 @@ script/Deploy.s.sol     deploy, load, seal
 
 `glsl-check.mjs`, `selftest.mjs` (52 assertions), `build-engine.mjs`, `verify.mjs` in
 both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62),
-`verify-vault.mjs` (35) and `verify-timelock.mjs` (24) were executed in this
-environment — 295 assertions in total — and every number in this document comes
-from those runs.
+`verify-vault.mjs` (69), `verify-disposition.mjs` (35) and `verify-timelock.mjs`
+(24) were executed in this environment — 364 assertions in total — and every number
+in this document comes from those runs.
 
 `forge test` was **not** executed: Foundry's installer host is blocked by this
 session's network egress policy. The Foundry suite and the deploy script were
@@ -437,6 +501,14 @@ ships with a per-market deposit cap for exactly that reason — raise it only af
 review. The artwork also has a wallet client inside it that can sign arbitrary
 calldata; that is the point of the Call node and the other thing an auditor would want
 to look at first.
+
+**The off-chain half of the agent story is not in this repository.** `AGENT.md`
+specifies the MCP surface a model would drive the session key through, and that
+service holds a private key and talks to a live RPC — so nothing about it can be
+exercised by the harness here. Shipping untested key-handling code alongside tested
+contracts would misrepresent which parts have been checked. The on-chain side —
+the four bounds, the three structural refusals, the disposition — is built and
+tested; the signer is specified and not written.
 
 ---
 

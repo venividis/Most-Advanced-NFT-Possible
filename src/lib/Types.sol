@@ -65,7 +65,8 @@ struct TokenView {
     bytes32 seed;
     address owner;
     address collection;
-    address boundAccount;
+    address boundAccount;   // the Reach — the hand that acts
+    address grip;           // the Grip — the hand that only closes
     address pool;
     uint32  ops;
     uint32  strata;
