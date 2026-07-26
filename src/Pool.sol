@@ -142,6 +142,16 @@ contract Pool {
         ///      syncCurve: the artwork drives the curve, but only when the
         ///      holder says so.
         uint256 curveWord;
+        /// @dev The anchored virtual reserves. Absolute offsets, set when
+        ///      liquidity or the curve changes and never by a trade.
+        ///
+        ///      These were once derived from the live reserves on every
+        ///      quote, which meant the curve re-anchored itself after each
+        ///      trade and a round trip could extract the difference. Held
+        ///      here instead, the curve stays where the holder put it. See
+        ///      Curve.anchor.
+        uint112 vBase;
+        uint112 vQuote;
     }
     mapping(uint256 => Market) public marketOf;
 
@@ -156,6 +166,9 @@ contract Pool {
     event Withdrawn(uint256 indexed id, uint256 amountBase, uint256 amountQuote);
     event FeeSet(uint256 indexed id, uint16 feeBps);
     event CurveSynced(uint256 indexed id, uint256 word, uint256 concentrationBps);
+    /// @dev Emitted wherever the curve is re-anchored, so the one thing a
+    ///      trade must never do is visible in the log when it happens.
+    event CurveAnchored(uint256 vBase, uint256 vQuote);
     event BondSet(uint256 indexed id, uint64 bondUntil);
     event PausedSet(bool paused);
     event Blessed(address indexed token, bool ok);
@@ -298,6 +311,7 @@ contract Pool {
         m.feeBps = feeBps;
         m.open = true;
         m.curveWord = collection.sectionOf(id);
+        _reanchor(m);
         emit MarketOpened(id, base, quote, feeBps);
         emit CurveSynced(id, m.curveWord, Curve.concentration(m.curveWord));
     }
@@ -372,6 +386,7 @@ contract Pool {
 
         m.rBase = uint112(nb);
         m.rQuote = uint112(nq);
+        _reanchor(m);
         emit Deposited(id, gotBase, gotQuote);
     }
 
@@ -387,10 +402,22 @@ contract Pool {
         // state first, then the outside world
         m.rBase = uint112(uint256(m.rBase) - amountBase);
         m.rQuote = uint112(uint256(m.rQuote) - amountQuote);
+        _reanchor(m);
 
         if (amountBase != 0) _push(m.base, to, amountBase);
         if (amountQuote != 0) _push(m.quote, to, amountQuote);
         emit Withdrawn(id, amountBase, amountQuote);
+    }
+
+    /// @dev Re-anchor the curve to the reserves as they now stand. Called
+    ///      from every path that changes liquidity or the curve, and from no
+    ///      path that trades — which is the entire distinction that makes
+    ///      the pricing sound.
+    function _reanchor(Market storage m) private {
+        (uint256 vb, uint256 vq) = Curve.anchor(m.curveWord, m.rBase, m.rQuote);
+        m.vBase = uint112(vb);
+        m.vQuote = uint112(vq);
+        emit CurveAnchored(vb, vq);
     }
 
     /*═══════════════════ trading ═══════════════════*/
@@ -406,7 +433,10 @@ contract Pool {
         (uint256 rIn, uint256 rOut) = baseIn
             ? (uint256(m.rBase), uint256(m.rQuote))
             : (uint256(m.rQuote), uint256(m.rBase));
-        out = Curve.amountOut(amountIn, rIn, rOut, m.curveWord, m.feeBps);
+        (uint256 vIn, uint256 vOut) = baseIn
+            ? (uint256(m.vBase), uint256(m.vQuote))
+            : (uint256(m.vQuote), uint256(m.vBase));
+        out = Curve.amountOut(amountIn, rIn, rOut, vIn, vOut, m.feeBps);
         if (out > (rOut * MAX_OUT_BPS) / BPS) revert TradeTooLarge();
     }
 
@@ -433,8 +463,12 @@ contract Pool {
 
         uint256 rIn = baseIn ? m.rBase : m.rQuote;
         uint256 rOut = baseIn ? m.rQuote : m.rBase;
+        uint256 vIn = baseIn ? m.vBase : m.vQuote;
+        uint256 vOut = baseIn ? m.vQuote : m.vBase;
 
-        out = Curve.amountOut(got, rIn, rOut, m.curveWord, m.feeBps);
+        // the offsets are read, never rewritten: a trade moves along the
+        // curve and does not move the curve
+        out = Curve.amountOut(got, rIn, rOut, vIn, vOut, m.feeBps);
 
         // the curve prices against liquidity the pool does not hold, so the
         // pool states its maximum trade rather than promising what it cannot pay
@@ -475,6 +509,7 @@ contract Pool {
         _unbonded(m);
         uint256 word = collection.sectionOf(id);
         m.curveWord = word;
+        _reanchor(m);
         emit CurveSynced(id, word, Curve.concentration(word));
     }
 
@@ -508,7 +543,7 @@ contract Pool {
         return (
             m.base, m.quote, m.rBase, m.rQuote, m.feeBps, m.open,
             Curve.concentration(word),
-            Curve.spot(m.rBase, m.rQuote, word),
+            Curve.spot(m.rBase, m.rQuote, m.vBase, m.vQuote),
             (uint256(m.rBase) * MAX_OUT_BPS) / BPS,
             (uint256(m.rQuote) * MAX_OUT_BPS) / BPS,
             tradeCount[id], m.bondUntil

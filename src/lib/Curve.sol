@@ -84,12 +84,30 @@ library Curve {
     }
 
     /// @notice The virtual reserves this section adds to each side.
-    function virtualReserves(uint256 word, uint256 rIn, uint256 rOut)
-        internal pure returns (uint256 vIn, uint256 vOut)
+    /// @notice The offsets a market anchors to, computed once from the
+    ///         reserves as they stand at that moment.
+    /// @dev    ANCHORING, not deriving. This is called when liquidity or the
+    ///         curve changes and the result is stored; it is never called
+    ///         from a trade.
+    ///
+    ///         It used to be called on every quote, from the live reserves,
+    ///         and that was a critical bug. Virtual reserves proportional to
+    ///         live reserves re-anchor the curve after every trade: k is
+    ///         conserved *within* a trade and not *across* two, so buying
+    ///         and selling straight back extracted the difference. At 8x
+    ///         concentration and a trade worth a third of the reserve, 400
+    ///         units in came back as 718. The fuzz suite found it — see
+    ///         tools/fuzz.mjs, "a round trip never profits".
+    ///
+    ///         Held as an offset, the curve stays where it was put, and the
+    ///         only thing that moves it is the holder deliberately moving
+    ///         it.
+    function anchor(uint256 word, uint256 rBase, uint256 rQuote)
+        internal pure returns (uint256 vBase, uint256 vQuote)
     {
         uint256 c = concentration(word);
-        vIn = (rIn * c) / BPS;
-        vOut = (rOut * c) / BPS;
+        vBase = (rBase * c) / BPS;
+        vQuote = (rQuote * c) / BPS;
     }
 
     /*───────────────── pricing ─────────────────*/
@@ -99,17 +117,20 @@ library Curve {
     ///         input still lands in the reserves, so k rises on every trade
     ///         and the fee accrues to whoever holds the token. Rounding is
     ///         always toward the pool.
+    /// @param vIn  the anchored offset on the incoming side
+    /// @param vOut the anchored offset on the outgoing side
+    /// @dev   Both are passed in rather than derived. The caller holds them;
+    ///        see `anchor` for why that distinction is the whole ballgame.
     function amountOut(
         uint256 amountIn,
         uint256 rIn,
         uint256 rOut,
-        uint256 word,
+        uint256 vIn,
+        uint256 vOut,
         uint256 feeBps
     ) internal pure returns (uint256 out) {
         if (amountIn == 0) revert ZeroInput();
         if (rIn == 0 || rOut == 0) revert NoLiquidity();
-
-        (uint256 vIn, uint256 vOut) = virtualReserves(word, rIn, rOut);
 
         uint256 x = rIn + vIn;
         uint256 y = rOut + vOut;
@@ -126,19 +147,20 @@ library Curve {
 
     /// @notice What one unit of the input side is worth right now, scaled by
     ///         1e18. For display only — a real trade moves the price.
-    function spot(uint256 rIn, uint256 rOut, uint256 word)
+    function spot(uint256 rIn, uint256 rOut, uint256 vIn, uint256 vOut)
         internal pure returns (uint256)
     {
         if (rIn == 0 || rOut == 0) return 0;
-        (uint256 vIn, uint256 vOut) = virtualReserves(word, rIn, rOut);
         return ((rOut + vOut) * 1e18) / (rIn + vIn);
     }
 
     /// @notice The invariant, for tests that need to prove it never falls.
-    function invariant(uint256 rIn, uint256 rOut, uint256 word)
+    /// @dev    Takes the anchored offsets, so what it measures is the
+    ///         quantity trading actually conserves rather than a quantity
+    ///         that moves underneath it.
+    function invariant(uint256 rIn, uint256 rOut, uint256 vIn, uint256 vOut)
         internal pure returns (uint256)
     {
-        (uint256 vIn, uint256 vOut) = virtualReserves(word, rIn, rOut);
         return (rIn + vIn) * (rOut + vOut);
     }
 }

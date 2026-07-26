@@ -158,11 +158,17 @@ eq("the trade counter moved", decUint(await c.read(pool, "tradeCount(uint256)", 
 
 /*──────────────────── the invariant ────────────────────*/
 head("the invariant never falls");
+/* Read the anchored offsets out of the market rather than recomputing them
+   from the live reserves. Recomputing is what hid the round-trip leak that
+   tools/fuzz.mjs found: virtual reserves proportional to live reserves move
+   the curve on every trade, so k measured that way is not the quantity the
+   pricing conserves. marketOf returns them in declaration order, words 8
+   and 9. */
 const inv = async () => {
   const m = await c.read(pool, "market(uint256)", [1]);
+  const raw = await c.read(pool, "marketOf(uint256)", [1]);
   const rb = decUint(m, 2), rq = decUint(m, 3);
-  const cbps = decUint(m, 6);
-  const vb = (rb * cbps) / 10000n, vq = (rq * cbps) / 10000n;
+  const vb = decUint(raw, 8), vq = decUint(raw, 9);
   return { k: (rb + vb) * (rq + vq), rb, rq };
 };
 

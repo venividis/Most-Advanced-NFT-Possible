@@ -102,6 +102,22 @@ break is the promise that the pool can pay — a curve pricing against liquidity
 not hold will happily quote too much. That is not solved by cleverness. The pool
 refuses: no single trade may take more than half the real reserve, and it says so.
 
+**The offsets are anchored, and a trade never moves them.** This is the subtle part,
+and it was got wrong first. The virtual reserves used to be derived from the live
+reserves on every quote — which sounds equivalent and is not. Offsets proportional to
+live reserves re-anchor the curve after every trade, so `k` is conserved *within* a
+trade and not *across* two, and buying then selling straight back extracts the
+difference: at eight-times concentration and a trade worth a third of the reserve,
+**400 units in came back as 718**. They are stored on the market now, written only by
+`openMarket`, `deposit`, `withdraw` and `syncCurve`, and read by `swap`. Every write
+emits `CurveAnchored`, so the one thing a trade must never do is visible in the log if
+it ever happens.
+
+That bug survived two test suites, because both recomputed `k` the same wrong way and
+the 200-trade walk caps every trade at 2.5% of the reserve, where the fee hides it. It
+was found the first time the stated properties were actually run against random inputs
+— see `tools/fuzz.mjs`, which exists for that reason.
+
 **The curve is a copy, not a live read** — and that distinction is a bug the test suite
 caught. A token can be rented out under ERC-4907, and a renter may operate the artwork.
 With a live read, a renter could concentrate a curve holding *someone else's* inventory,
@@ -117,9 +133,17 @@ no flash loans.
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists fifty such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists fifty-one such
 statements and names the test for each, plus ten known limitations that are
 documented rather than defended.
+
+Writing an invariant down is not the same as running it. Nine of these were
+stated as Foundry `testFuzz_` properties and had never been executed, because
+Foundry cannot be installed in this environment. `tools/fuzz.mjs` runs them
+here instead, against the real contracts on a real EVM with a seeded generator
+and a shrinker — and the first serious run found a leak in the pricing that
+both existing suites had passed over. The details are under *The market* above,
+and the fix is in `Curve.anchor`.
 
 **A seven-day timelock.** `src/lib/Timelock.sol` is meant to own every
 privileged path. Not because a delay makes a bad change good, but because it
@@ -495,6 +519,7 @@ tools/
   verify-vault.mjs      try to drain a sealed vault, and to widen a session key
   verify-kernel.mjs     try to lie to a buyer about a sealed kernel
   verify-timelock.mjs   try to escape the delay
+  fuzz.mjs              the stated properties, under seeded random attack
   preview.mjs           dist/preview.html
   evm.mjs, compile.mjs  the harness
 test/                   Foundry unit, property and fuzz tests
@@ -509,15 +534,24 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 ## What was and was not run here
 
 `glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `verify.mjs` in
-both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62), `verify-vault.mjs` (69),
-`verify-kernel.mjs` (36) and `verify-timelock.mjs` (24) were executed in this
-environment — 368 assertions in total — and every number in this document comes from
-those runs.
+both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62), `verify-vault.mjs`
+(69), `verify-kernel.mjs` (36), `verify-timelock.mjs` (24) and `fuzz.mjs` (14
+properties) were executed in this environment — 368 assertions plus the property run —
+and every number in this document comes from those runs.
 
-`forge test` was **not** executed: Foundry's installer host is blocked by this
-session's network egress policy. The Foundry suite and the deploy script were
-type-checked against the compiler with a `forge-std` stub, so they compile, but they
-have not been run. Run them before deploying anywhere real.
+`forge test` was **not** executed: Foundry's installer is unreachable from this
+session, and so are GitHub, codeload and the crates.io API, so there is no route to it.
+The Foundry suite and the deploy script were type-checked against the compiler with a
+`forge-std` stub, so they compile, but they have not been run.
+
+The nine `testFuzz_` properties they state **are** run, by `tools/fuzz.mjs`, against
+the same contracts compiled by the same solc on the same EVM as everything else in
+`tools/`. The generator is seeded and prints its seed, so a failure reproduces for
+anyone rather than only for whoever hit it, and it shrinks a counterexample before
+reporting it. That suite found the pricing bug described under *The market* on its
+first serious run. What it does not do is stateful invariant campaigns, coverage-guided
+corpora or cheatcodes — it is a smaller net, not a replacement. Run the Foundry suite
+before deploying anywhere real.
 
 **Nothing here has been audited, and `Pool.sol` holds other people's money.** That is
 a different risk class to the rest of the repo: the worst bug in the artwork renders a

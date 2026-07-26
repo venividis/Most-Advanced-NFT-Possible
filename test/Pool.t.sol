@@ -79,10 +79,14 @@ contract PoolTest is Test {
         vm.stopPrank();
     }
 
+    /// @dev Read out of the market's own storage rather than recomputed
+    ///      from the live reserves. Recomputing was the mistake: virtual
+    ///      reserves proportional to live reserves re-anchor the curve after
+    ///      every trade, so k measured that way is not the quantity trading
+    ///      conserves — and a round trip could extract the difference. The
+    ///      offsets are anchored now; this reads what was anchored.
     function _k() internal view returns (uint256) {
-        (, , uint112 rb, uint112 rq, , , uint256 c, , , , , ) = pool.market(1);
-        uint256 vb = (uint256(rb) * c) / 10_000;
-        uint256 vq = (uint256(rq) * c) / 10_000;
+        (, , uint112 rb, uint112 rq, , , , , uint112 vb, uint112 vq) = pool.marketOf(1);
         return (uint256(rb) + vb) * (uint256(rq) + vq);
     }
 
@@ -435,9 +439,10 @@ contract PoolTest is Test {
         uint256 rOut = 3_000_000 * 1e18;
         a = bound(a, 1e6, rIn / 4);
         b = bound(b, a, rIn / 3);
+        (uint256 vIn, uint256 vOut) = Curve.anchor(word, rIn, rOut);
         assertLe(
-            Curve.amountOut(a, rIn, rOut, word, 30),
-            Curve.amountOut(b, rIn, rOut, word, 30),
+            Curve.amountOut(a, rIn, rOut, vIn, vOut, 30),
+            Curve.amountOut(b, rIn, rOut, vIn, vOut, 30),
             "a larger trade got less out"
         );
     }
@@ -448,7 +453,7 @@ contract PoolTest is Test {
         uint256 rIn = 1000 * 1e18;
         uint256 rOut = 3_000_000 * 1e18;
         amount = bound(amount, 1, 1e30);
-        (, uint256 vOut) = Curve.virtualReserves(word, rIn, rOut);
-        assertLt(Curve.amountOut(amount, rIn, rOut, word, 30), rOut + vOut);
+        (uint256 vIn, uint256 vOut) = Curve.anchor(word, rIn, rOut);
+        assertLt(Curve.amountOut(amount, rIn, rOut, vIn, vOut, 30), rOut + vOut);
     }
 }

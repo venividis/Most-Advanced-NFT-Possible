@@ -83,16 +83,36 @@ holdings across arbitrary transfer orders.
 
 ## The market
 
-**15. The invariant never falls.**
+**15. The invariant never falls, measured against the offsets the market
+anchored to.**
 `(x + vx)(y + vy)` is the same or larger after every trade that succeeds, at
-every curve a holder can commit. If it can be made to fall the pool can be
-drained one trade at a time.
-→ `testFuzz_invariantNeverFalls`, `tools/verify-pool.mjs` (200 random trades)
+every curve a holder can commit — where `vx` and `vy` are the market's stored
+offsets, not a figure recomputed from the reserves as they now stand.
+
+*That qualifier is the whole invariant, and it was learned the hard way.*
+Virtual reserves used to be derived from the live reserves on every quote,
+which re-anchored the curve after every trade: k was conserved **within** a
+trade and not **across** two, and buying then selling straight back extracted
+the difference. At eight-times concentration and a trade worth a third of the
+reserve, 400 units in came back as 718. Both suites "verified" the old
+behaviour because both recomputed the offsets the same wrong way, and the
+200-trade walk caps every trade at 2.5% of the reserve, where the fee covers
+the leak. It was found the first time the properties were actually run against
+random inputs.
+→ `tools/fuzz.mjs` · *"k never falls, measured against the offsets the market anchored"*, *"a live swap never lowers the invariant"* · `testFuzz_invariantNeverFalls`, `tools/verify-pool.mjs` (200 random trades)
 
 **16. A round trip never profits.**
-Buying and immediately selling back always returns less than it cost, at every
-curve. There is no free arbitrage inside the pricing.
-→ `testFuzz_roundTripNeverProfits`, `tools/verify-pool.mjs`
+Buying and immediately selling back always returns less than it cost — at every
+curve, at every fee, and at every size up to 40% of the reserve. There is no
+free arbitrage inside the pricing.
+→ `tools/fuzz.mjs` · *"a round trip never profits, at any concentration, at any size"*, *"buying and selling straight back never comes out ahead"* · `testFuzz_roundTripNeverProfits`
+
+**16b. A trade moves along the curve and never moves the curve.**
+The anchored offsets are written by `openMarket`, `deposit`, `withdraw` and
+`syncCurve`, and by nothing else. `swap` reads them. Every write emits
+`CurveAnchored`, so the one thing a trade must never do is visible in the log
+if it ever happens.
+→ `tools/fuzz.mjs` · *the market*
 
 **17. The pool never pays out more than it holds.**
 The curve prices against virtual reserves and will quote more than the real
@@ -399,7 +419,14 @@ per-market deposit cap exists for that reason and should be raised only after a
 review.
 
 **D. `forge test` has never been executed.**
-Foundry's installer host is unreachable from the environment this was built in.
-The Solidity suites type-check against the compiler but have not run. The
-JavaScript harnesses in `tools/` have run, and every number in the README comes
-from them.
+Foundry's installer host is unreachable from the environment this was built in,
+and so are GitHub, codeload and the crates.io API, so there is no route to it
+from here. The Solidity suites type-check against the compiler but have not run.
+
+The nine `testFuzz_` properties they state are no longer only stated: they are
+run by `tools/fuzz.mjs`, against the same contracts compiled by the same solc,
+on the same EVM as the rest of `tools/`. That suite found the bug behind
+invariant 15 on its first serious run, which is the argument for it. What is
+still missing relative to Foundry is stateful/invariant campaigns, a
+coverage-guided corpus, and cheatcodes — so this is a smaller net, not a
+replacement. Run the Foundry suite before deploying anywhere real.
