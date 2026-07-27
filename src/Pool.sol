@@ -414,6 +414,27 @@ contract Pool {
     ///      path that trades — which is the entire distinction that makes
     ///      the pricing sound.
     function _reanchor(Market storage m) private {
+        /*  A bond freezes the curve, and that has to include the doors
+            nobody thought of as doors.
+
+            `syncCurve` — the function whose entire job is to move these
+            offsets — is gated by `_unbonded`. `deposit` is not, deliberately,
+            because deposits are additive to the promise and refusing them
+            would punish the one person keeping it. But deposit called this,
+            and this moved the offsets. So a bonded market's curve could be
+            re-shaped by its holder through the one entry point left open,
+            while the function built for the purpose was refused. An
+            adversarial review found it and it is a term moving under a
+            promise that no term moves.
+
+            Under a live bond the offsets stay where the bond found them.
+            Deposits still land; the curve simply does not follow them,
+            which is what "frozen" was always supposed to mean. The effect
+            on a depositor is that their new liquidity prices wider than the
+            committed shape — worse for them, never for a trader, and it
+            ends when the bond does.                                       */
+        if (m.bondUntil > block.timestamp) return;
+
         (uint256 vb, uint256 vq) = Curve.anchor(m.curveWord, m.rBase, m.rQuote);
         m.vBase = uint112(vb);
         m.vQuote = uint112(vq);

@@ -650,10 +650,25 @@ contract Ipseity is
     /// @notice The token reproducing: a new token carrying the same kernel,
     ///         re-sealed to the recipient, with its own seed and its own
     ///         section drawn fresh from this block.
+    /*  Payable, and it costs a mint.
+
+        It did not, and that was a hole with no bottom: `cloneWithKernel`
+        reaches `_issue` directly, every child is born with an active kernel
+        of its own, and so every child is immediately a parent. One paid
+        token could therefore be drawn from without limit until MAX_SUPPLY
+        was gone, for the price of gas — an adversarial review pulled eight
+        free tokens out of a single mint and the loop had no natural end.
+
+        The reasoning for free clones was that "a clone is drawn from a
+        token that was already paid for". That is true of the kernel and
+        false of the supply: a clone consumes a slot out of 4096 exactly as
+        a mint does, and the supply is the scarcer promise. So it is priced
+        like what it consumes.                                             */
     function cloneWithKernel(address to, uint256 id, bytes calldata proof)
-        external returns (uint256 child)
+        external payable returns (uint256 child)
     {
         if (_ownerOf[id] != msg.sender) revert NotHolder();
+        if (msg.value < price) revert Underpaid();
         Kernel storage k = _kernel[id];
         if (!k.active) revert KernelInactive();
         (bytes32[] memory newHashes, bytes32 to_) = _check(id, proof);

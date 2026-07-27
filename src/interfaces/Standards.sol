@@ -188,7 +188,10 @@ interface ISealedKernel {
     event VerifierUpdated(address verifier);
 
     function transferWithKernel(address to, uint256 tokenId, bytes calldata proof) external;
-    function cloneWithKernel(address to, uint256 tokenId, bytes calldata proof) external returns (uint256);
+    /// @dev Payable: a clone consumes a slot out of the supply exactly as a
+    ///      mint does, so it is priced like what it consumes.
+    function cloneWithKernel(address to, uint256 tokenId, bytes calldata proof)
+        external payable returns (uint256);
     function authorizeUsage(uint256 tokenId, address user) external;
     function dataHashesOf(uint256 tokenId) external view returns (bytes32[] memory);
     function sealedTo(uint256 tokenId) external view returns (bytes32);

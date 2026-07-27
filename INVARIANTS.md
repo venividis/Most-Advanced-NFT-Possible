@@ -400,6 +400,81 @@ seven days as anything else.
 
 ---
 
+## Found by adversarial review, and fixed
+
+Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue
+session-key holder, and a malicious token contract — were asked to attack this
+collection. They returned nineteen sharpened strategies. `tools/verify-findings.mjs`
+tries to make each one actually happen against the real compiled contracts; six
+reproduced, and all six are below with the fix. **A strategy is a claim, not a
+finding, and the file records the refutations too** — a panel that is never wrong
+is a panel nobody checked. (Two of the eight reproduced claims were disproved by
+that same file, and the reproduction suite now runs on every `npm run check` so
+none of them can come back.)
+
+**51. A guarded token cannot escape the seal by setting bit 255.**
+The snapshot used to pack a "was this measured" flag into bit 255 of the balance,
+on the reasoning that balances cannot reach 2^255. That was an assumption about
+someone else's contract. A token returning `balance | (1 << 255)` made the
+post-call comparison unconditionally false and walked 1,000 tokens out of a live
+seal. The flag lives in its own array now; no bit of the balance is borrowed.
+→ `tools/verify-findings.mjs` · *claim 4*
+
+**52. A sealed account will not call an asset it cannot see.**
+An asset unreadable at snapshot time is skipped by the check — correctly, since
+there is no number to compare against. The hole was that the skipped asset could
+be the *target* of the call, which emptied it and restored its readability on the
+way out. The identical call was refused while the asset was readable and went
+through while it was not. Now a sealed call aimed at an unmeasurable manifest
+asset reverts `BlindTarget`.
+→ `tools/verify-findings.mjs` · *claim 5*
+
+**53. A session key has a ceiling, like every other promise here.**
+`grantSession` accepted `2^64-1`. The seal caps at a year and the bond caps at a
+year; this was the one time-promise in the collection without a ceiling.
+`MAX_SESSION = 365 days`.
+→ `tools/verify-findings.mjs` · *claim 3*
+
+**54. No session acts while the account owns its own token.**
+`onlySigner` checked for an ownership cycle and `executeAsSession` did not. Moving
+a token into its own Reach made every holder path revert `OwnershipCycle` forever
+while an already-granted session kept full spending power that **no address could
+revoke** — there was none left that `onlySigner` would accept. The cycle is checked
+on the session path too, and `onERC721Received` refuses the token at the door. In
+that state assets are stuck, which is bad; they are not stealable, which is the
+part that matters.
+→ `tools/verify-findings.mjs` · *claim 3*
+
+**55. A clone costs what it consumes.**
+`cloneWithKernel` reached `_issue` without payment, and every child was born with
+an active kernel — so every child was immediately a parent. One paid token could
+be drawn from without limit until `MAX_SUPPLY` was gone; the review pulled eight
+free tokens out of one mint and the loop had no natural end. The old reasoning —
+"a clone is drawn from a token that was already paid for" — is true of the kernel
+and false of the supply. It is `payable` and costs a mint.
+→ `tools/verify-findings.mjs` · *claim 2*
+
+**56. A bond freezes the curve through every door, including deposit.**
+`syncCurve`, whose entire job is to move the anchored offsets, is gated by
+`_unbonded`. `deposit` is deliberately not — deposits are additive to the promise.
+But `deposit` called `_reanchor`, so a bonded market's curve could be re-shaped
+through the one entry point left open while the function built for the purpose was
+refused. `_reanchor` is now a no-op under a live bond: deposits still land, the
+curve does not follow them.
+→ `tools/verify-findings.mjs` · *claim 1*
+
+**57. A crowd cannot break what a caller cannot.**
+`tools/agents.mjs` runs seven agents with conflicting motives — holder,
+arbitrageur, whale, shrimp, sandwicher, griefer, ERC-4907 renter — against the real
+contracts for hundreds of blocks in shuffled turn order. Between every action it
+re-checks: conservation of every ERC-20 over every address, the invariant across
+each trade, the payout cap, the bond (by *trying every exit*, not by watching
+reserves), the seal (by attempting every drain shape), and the Grip (by calling
+every function anyone could imagine).
+→ `tools/agents.mjs`
+
+---
+
 ## Known and not fixed
 
 These are true, they are not tested, and they are not defended against. They are

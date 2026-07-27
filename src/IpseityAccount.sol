@@ -90,10 +90,19 @@ contract IpseityAccount {
     ///      that eventually makes the account unusable.
     uint256 public constant MAX_MANIFEST = 16;
 
-    /// @dev High bit of a snapshot word: set when the balance beside it
-    ///      was actually read rather than assumed. Balances cannot reach
-    ///      2^255, so the bit is free.
-    uint256 private constant MEASURED = 1 << 255;
+    /*  There used to be a MEASURED flag packed into bit 255 of each
+        snapshot word, on the reasoning that "balances cannot reach 2^255, so
+        the bit is free". That was an assumption about somebody else's
+        contract, and the assumption was the hole: a guarded token that
+        returns `balance | (1 << 255)` makes the post-call comparison
+        `now_ < pre` unconditionally false, and the seal silently stops
+        constraining that asset. An adversarial review reproduced it —
+        1,000 tokens walked out of a live seal.
+
+        Nothing in ERC-20 reserves the high bit. A token may pack a flag
+        there, return a scaled internal representation, or simply be
+        hostile. So the flag lives in its own array now: two allocations
+        instead of one, and no bit of the balance is ours to borrow.       */
 
     address[] internal _manifest;
     mapping(address => bool) public onManifest;
@@ -116,10 +125,13 @@ contract IpseityAccount {
     error NotListed();
     /// @dev An asset that could be read before a call and not after it.
     error WentBlind(address asset);
+    /// @dev A sealed call aimed at a manifest asset the account cannot read.
+    error BlindTarget(address asset);
     error Reentered();
     error OwnershipCycle();
     error NoSession();
     error SessionExpired();
+    error SessionTooLong();
     error TargetNotAllowed(address target);
     error SelectorNotAllowed(bytes4 selector);
     error SpendCapExceeded(uint256 cap, uint256 wanted);
@@ -301,6 +313,14 @@ contract IpseityAccount {
 
     uint256 public constant MAX_LIST = 16;
 
+    /// @dev The seal caps at a year. The market's bond caps at a year. This
+    ///      did not cap at all, and accepted 2^64-1 — a key that outlives
+    ///      everyone who could have revoked it. An adversarial review
+    ///      pointed out it was the only time-promise in the collection
+    ///      without a ceiling, which was an oversight rather than a
+    ///      decision.
+    uint64 public constant MAX_SESSION = 365 days;
+
     mapping(address => Session) public sessionOf;
     mapping(address => mapping(address => bool)) public sessionTarget;
     mapping(address => mapping(bytes4 => bool))  public sessionSelector;
@@ -322,6 +342,7 @@ contract IpseityAccount {
     ) external onlySigner {
         if (key == address(0) || key == address(this)) revert NoPrivilegeEscalation();
         if (targets.length > MAX_LIST || selectors.length > MAX_LIST) revert ListTooLong();
+        if (expires > block.timestamp + MAX_SESSION) revert SessionTooLong();
 
         Session storage s = sessionOf[key];
         s.expires = expires;
@@ -357,6 +378,21 @@ contract IpseityAccount {
     function executeAsSession(address to, uint256 value, bytes calldata data)
         external nonReentrant returns (bytes memory result)
     {
+        /*  An ownership cycle is checked in `onlySigner`, and this is not
+            `onlySigner`. That asymmetry was a hole with no floor under it:
+            move the token into its own Reach and every holder path reverts
+            OwnershipCycle forever, while an already-granted session key
+            keeps full spending power that literally nobody can revoke —
+            there is no address left that `onlySigner` will accept. An
+            adversarial review reproduced it and walked the balance out.
+
+            So the cycle is checked here too. In that state the assets are
+            stuck, which is bad; they are not stealable, which is the part
+            that matters. `onERC721Received` now also refuses the token at
+            the door, but a plain `transferFrom` fires no hook, so the door
+            alone was never going to be enough.                            */
+        if (owner() == address(this)) revert OwnershipCycle();
+
         Session storage s = sessionOf[msg.sender];
         if (!s.active) revert NoSession();
         if (s.expires < block.timestamp) revert SessionExpired();
@@ -423,10 +459,11 @@ contract IpseityAccount {
 
         bool locked = isSealed();
         uint256[] memory pre;
+        bool[] memory seen;
         uint256 preEth;
         if (locked) {
             if (msg.value != 0) revert ValueWhileSealed();
-            (pre, preEth) = _snapshot();
+            (pre, seen, preEth) = _snapshot();
         }
 
         results = new bytes[](n);
@@ -434,6 +471,7 @@ contract IpseityAccount {
             if (locked) {
                 if (calls[i].value != 0) revert ValueWhileSealed();
                 _refuseApprovals(calls[i].data);
+                _refuseBlindTarget(calls[i].to, seen);
             }
             unchecked { state++; }
 
@@ -446,7 +484,7 @@ contract IpseityAccount {
                           calls[i].data.length >= 4 ? bytes4(calls[i].data[0:4]) : bytes4(0), locked);
         }
 
-        if (locked) _verify(pre, preEth);
+        if (locked) _verify(pre, seen, preEth);
     }
 
     /// @notice ERC-6551 execute. Only CALL; only the holder.
@@ -465,6 +503,7 @@ contract IpseityAccount {
     {
         bool locked = isSealed();
         uint256[] memory pre;
+        bool[] memory seen;
         uint256 preEth;
 
         if (locked) {
@@ -473,7 +512,8 @@ contract IpseityAccount {
             if (value != 0) revert ValueWhileSealed();
             if (msg.value != 0) revert ValueWhileSealed();
             _refuseApprovals(data);
-            (pre, preEth) = _snapshot();
+            (pre, seen, preEth) = _snapshot();
+            _refuseBlindTarget(to, seen);
         }
 
         unchecked { state++; }
@@ -487,7 +527,7 @@ contract IpseityAccount {
             }
         }
 
-        if (locked) _verify(pre, preEth);
+        if (locked) _verify(pre, seen, preEth);
 
         emit Executed(to, value, data.length >= 4 ? bytes4(data[0:4]) : bytes4(0), locked);
     }
@@ -511,14 +551,15 @@ contract IpseityAccount {
         ) revert ApprovalWhileSealed();
     }
 
-    function _snapshot() internal view returns (uint256[] memory pre, uint256 preEth) {
+    function _snapshot()
+        internal view
+        returns (uint256[] memory pre, bool[] memory seen, uint256 preEth)
+    {
         uint256 n = _manifest.length;
-        // one slot per asset: the balance, and whether it was really read.
-        // packed into the high bit so the pair travels as one word
         pre = new uint256[](n);
+        seen = new bool[](n);
         for (uint256 i; i < n; ++i) {
-            (uint256 v, bool ok) = _measure(_manifest[i]);
-            pre[i] = ok ? (v | MEASURED) : 0;
+            (pre[i], seen[i]) = _measure(_manifest[i]);
         }
         preEth = address(this).balance;
     }
@@ -536,15 +577,38 @@ contract IpseityAccount {
     ///      account unable to see an asset it could see a moment ago has
     ///      moved the account outside what the seal can attest to, and the
     ///      seal refuses rather than shrug.
-    function _verify(uint256[] memory pre, uint256 preEth) internal view {
+    function _verify(uint256[] memory pre, bool[] memory seen, uint256 preEth) internal view {
         uint256 n = _manifest.length;
         for (uint256 i; i < n; ++i) {
-            if (pre[i] & MEASURED == 0) continue;          // was already blind here
+            if (!seen[i]) continue;                        // was already blind here
             (uint256 now_, bool ok) = _measure(_manifest[i]);
             if (!ok) revert WentBlind(_manifest[i]);
-            if (now_ < (pre[i] & ~MEASURED)) revert Shrank(_manifest[i], pre[i] & ~MEASURED, now_);
+            if (now_ < pre[i]) revert Shrank(_manifest[i], pre[i], now_);
         }
         if (address(this).balance < preEth) revert Shrank(address(0), preEth, address(this).balance);
+    }
+
+    /*  The other half of the blindness rule, and the half that was missing.
+
+        An asset that could not be read at snapshot time is skipped by
+        `_verify` — there is no number to compare against, and inventing one
+        would either brick the account or fake a promise. That is right, and
+        it left a door open: the call being checked can be a call TO that
+        very asset, which empties it and restores its readability on the way
+        out. Snapshot sees nothing, the drain happens, verify skips it. An
+        adversarial review reproduced it with a pausable token whose
+        withdrawal function unpauses first — the identical call is refused
+        while the asset is readable and goes through while it is not.
+
+        So: while sealed, the account will not call an asset it cannot
+        currently measure. It is not a rule about what the call might do —
+        it is a rule about the account's own eyesight. If it cannot see the
+        thing it is about to poke, it does not poke it.                    */
+    function _refuseBlindTarget(address to, bool[] memory seen) internal view {
+        uint256 n = _manifest.length;
+        for (uint256 i; i < n; ++i) {
+            if (_manifest[i] == to && !seen[i]) revert BlindTarget(to);
+        }
     }
 
     /// @dev balanceOf(address) is the same word for ERC-20 and ERC-721, so
@@ -600,7 +664,18 @@ contract IpseityAccount {
 
     /*──────────────────── receiving ────────────────────*/
 
-    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+    /// @dev Refuses this account's own token. An account that owns the token
+    ///      that owns it can authorise itself forever, and no holder
+    ///      function can ever run again. A plain `transferFrom` fires no
+    ///      hook, so this closes the polite door only — see the cycle check
+    ///      in `executeAsSession` for the other one.
+    function onERC721Received(address, address, uint256 tokenId, bytes calldata)
+        external view returns (bytes4)
+    {
+        (uint256 chainId, address tokenContract, uint256 id) = token();
+        if (msg.sender == tokenContract && tokenId == id && chainId == block.chainid) {
+            revert OwnershipCycle();
+        }
         return this.onERC721Received.selector;
     }
 
