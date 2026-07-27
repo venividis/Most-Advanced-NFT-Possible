@@ -578,7 +578,21 @@ contract Pool {
             uint16 feeBps, bool open,
             uint256 concentrationBps,
             uint256 spotBaseInQuote,
-            uint256 maxBaseIn, uint256 maxQuoteIn,
+            /*  These are OUTPUT caps and were named as though they were
+                input limits. The guard in `swap` is `out > rOut *
+                MAX_OUT_BPS / BPS` — it bounds what leaves, never what
+                arrives — so `maxBaseIn` was a number a front end would take
+                as "the most you may send" and use to build a trade the
+                contract then refuses for an unrelated reason.
+
+                Renamed rather than repurposed. A true maximum INPUT is the
+                inverse of the curve at half the outgoing reserve; it is
+                computable, and it is a different number that belongs in a
+                different function. What was here was always the output cap,
+                so the output cap is what it is called. (Return-parameter
+                names are not part of the selector, so nothing that already
+                decodes this by position is broken.)                       */
+            uint256 maxBaseOut, uint256 maxQuoteOut,
             uint256 trades, uint64 bondUntil
         )
     {

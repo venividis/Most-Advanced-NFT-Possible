@@ -195,6 +195,28 @@ await asOf(people.holder.addr, pool, "openMarket(uint256,address,address,uint16)
 await asOf(people.holder.addr, pool, "deposit(uint256,uint256,uint256)",
   [ID, 1_000n * WAD, 3_000_000n * WAD]);
 
+/*  A SECOND market on the same BASE token, held by somebody else.
+
+    The pool keeps every market's reserves at one address and tracks each
+    market's entitlement per id. Nothing in the contract ties the sum of
+    those entitlements to what the pool actually holds — and nothing in any
+    suite had ever opened two markets on one token, so nothing had ever
+    looked. An adversary lens pointed out that a token whose balance moves
+    out of band (a rebase, a fee on transfer, a compliance sweep) breaks the
+    sum, and whichever market withdraws first consumes the other's.
+
+    No contract change: putting a running total on the swap path is gas on
+    the hot path for something any observer can compute. So it is computed,
+    here, after every action. `bless` is the real defence and it is a
+    centralisation trade-off stated in the README.                          */
+await asOf(people.whale.addr, nft, "mint()", [], 10n ** 16n);
+const ID2 = decUint(await c.read(nft, "totalSupply()"));
+await asOf(people.whale.addr, pool, "openMarket(uint256,address,address,uint16)",
+  [ID2, BASE, QUOTE, 30]);
+await asOf(people.whale.addr, pool, "deposit(uint256,uint256,uint256)",
+  [ID2, 400n * WAD, 1_200_000n * WAD]);
+console.log(`      a second market, token #${ID2}, shares the same WETH balance`);
+
 /* the holder's vault, so the seal and the Grip are in play too */
 await asOf(people.holder.addr, nft, "embody(uint256)", [ID]);
 await asOf(people.holder.addr, nft, "embodyGrip(uint256)", [ID]);
@@ -333,6 +355,27 @@ monitors.push({
       bondEntry = { rB: after.rB, rQ: after.rQ, tick: TICK };
     } else if (!live && bondEntry !== null) {
       bondEntry = null;
+    }
+    return null;
+  }
+});
+
+monitors.push({
+  name: "two markets never claim more than the pool holds",
+  async check() {
+    for (const [sym, token] of [["WETH", BASE], ["USDC", QUOTE]]) {
+      const held = await balOf(token, pool);
+      let claimed = 0n;
+      for (const mid of [ID, ID2]) {
+        const raw = await c.read(pool, "marketOf(uint256)", [mid]);
+        const base = decAddr(raw, 0).toLowerCase(), quote = decAddr(raw, 1).toLowerCase();
+        if (base === token.toLowerCase()) claimed += decUint(raw, 2);
+        if (quote === token.toLowerCase()) claimed += decUint(raw, 3);
+      }
+      if (claimed > held) {
+        return `${sym}: two markets record ${claimed} between them and the pool holds ` +
+               `${held} — whichever withdraws first spends the other's inventory`;
+      }
     }
     return null;
   }
@@ -515,6 +558,19 @@ const turns = {
   },
 
   async whale(p) {
+    /* also the second market's holder, so both are live and the shared
+       balance is actually being pushed around from both sides */
+    if (chance(20)) {
+      await act(p, async () => {
+        await asOf(p.addr, pool, "deposit(uint256,uint256,uint256)", [ID2, 5n * WAD, 15_000n * WAD]);
+      });
+    } else if (chance(12)) {
+      await act(p, async () => {
+        const r = await c.read(pool, "marketOf(uint256)", [ID2]);
+        await asOf(p.addr, pool, "withdraw(uint256,uint256,uint256,address)",
+          [ID2, decUint(r, 2) / 20n, decUint(r, 3) / 20n, p.addr]);
+      });
+    }
     if (!chance(18)) return;
     const m = await market();
     const baseIn = chance(50);

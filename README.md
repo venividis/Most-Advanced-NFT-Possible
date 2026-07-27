@@ -133,7 +133,7 @@ no flash loans.
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists sixty-three such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists sixty-six such
 statements and names the test for each, plus twelve known limitations that are
 documented rather than defended.
 
@@ -697,9 +697,9 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 
 `glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `verify.mjs` in
 both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62), `verify-vault.mjs`
-(93), `verify-kernel.mjs` (36), `verify-premises.mjs` (29), `verify-timelock.mjs` (24)
+(97), `verify-kernel.mjs` (36), `verify-premises.mjs` (29), `verify-timelock.mjs` (24)
 and `fuzz.mjs` (14
-properties) were executed in this environment — 421 assertions, 14 properties, 15 refuted claims and a 220-tick agent run —
+properties) were executed in this environment — 425 assertions, 14 properties, 15 refuted claims and a 220-tick agent run —
 and every number in this document comes from those runs.
 
 `forge test` was **not** executed: Foundry's installer is unreachable from this

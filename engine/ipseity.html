@@ -2995,7 +2995,7 @@ const POOL = String(S.pool || "0x0000000000000000000000000000000000000000");
 const hasPool = /^0x[0-9a-fA-F]{40}$/.test(POOL) && !/^0x0{40}$/.test(POOL);
 
 const MKT = { base:null, quote:null, rb:0n, rq:0n, fee:0, open:false,
-              conc:0n, spot:0n, maxIn:[0n,0n], trades:0n, bond:0n,
+              conc:0n, spot:0n, maxOut:[0n,0n], trades:0n, bond:0n,
               bd:18, qd:18, bs:"?", qs:"?", drift:false, liveConc:0n };
 
 async function readMarket(){
@@ -3005,7 +3005,8 @@ async function readMarket(){
   MKT.fee = Number(decUint(raw, 4));
   MKT.open = decUint(raw, 5) !== 0n;
   MKT.conc = decUint(raw, 6); MKT.spot = decUint(raw, 7);
-  MKT.maxIn = [decUint(raw, 8), decUint(raw, 9)];
+  /* output caps, not input limits — the pool bounds what leaves */
+  MKT.maxOut = [decUint(raw, 8), decUint(raw, 9)];
   MKT.trades = decUint(raw, 10);
   MKT.bond = decUint(raw, 11);
   if(MKT.open){
@@ -3149,15 +3150,20 @@ BUILD.MARKET = m => {
         try { amt = toUnits(raw, baseIn ? MKT.bd : MKT.qd); }
         catch { el.textContent = "not a number"; return; }
         if(amt === 0n){ el.textContent = ""; return; }
-        if(amt > MKT.maxIn[baseIn ? 0 : 1]){
-          el.innerHTML = '<span style="color:var(--warn)">Larger than this market will take. ' +
-            'The most it will accept is ' +
-            fmtUnits(MKT.maxIn[baseIn ? 0 : 1], baseIn ? MKT.bd : MKT.qd) + " " +
-            esc(baseIn ? B : Q) + ".</span>";
-          lastQuote = 0n; return;
-        }
+        /*  The pool caps what LEAVES, not what arrives — so the size to
+            check is the quote, and the cap is on the far side. This used to
+            compare the input against the near side's cap, which is neither
+            the right number nor the right reserve, and would wave through a
+            trade the contract refuses while warning about ones it accepts. */
         try {
           lastQuote = decUint(await readSig(POOL, "quote(uint256,bool,uint256)", [S.id, baseIn, amt.toString()]));
+          if(lastQuote > MKT.maxOut[baseIn ? 1 : 0]){
+            el.innerHTML = '<span style="color:var(--warn)">This would take more out than the ' +
+              'market will pay. It caps a single trade at half the outgoing reserve &mdash; ' +
+              fmtUnits(MKT.maxOut[baseIn ? 1 : 0], baseIn ? MKT.qd : MKT.bd) + " " +
+              esc(baseIn ? Q : B) + '.</span>';
+            lastQuote = 0n; return;
+          }
           const outDec = baseIn ? MKT.qd : MKT.bd;
           const got = fmtUnits(lastQuote, outDec);
           // what this trade actually costs against the pool's own spot

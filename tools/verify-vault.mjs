@@ -461,6 +461,23 @@ await refuses("and the call is refused", () =>
   "an expired session still acts");
 evm.warp(evm.GENESIS_TIME);
 
+/*  Pinned rather than discovered. Two allowlists are a cross-product, not a
+    set of pairs, and a holder who wants "deposit to A, withdraw from B" must
+    use two keys. That is a decision with a gas reason behind it — explicit
+    pairs would be up to 256 SSTOREs in one grant — and an undocumented
+    decision is just a surprise with a rationale attached. */
+head("two allowlists are a cross-product, and this is what that means");
+await c.exec(v3, GRANT, [agent, evm.GENESIS_TIME + 86400n, 0,
+  [GOLD, SILVER], [SEL_TRANSFER, SEL_APPROVE]]);
+for (const [tName, tAddr] of [["GOLD", GOLD], ["SILVER", SILVER]]) {
+  for (const [sName, sel] of [["transfer", SEL_TRANSFER], ["approve", SEL_APPROVE]]) {
+    ok(`${tName} × ${sName} is allowed, whether or not that pair was intended`,
+       decBool(await c.read(v3, "sessionAllows(address,address,bytes4)", [agent, tAddr, sel])));
+  }
+}
+console.log("      a holder who wants one pair and not the other uses two keys;");
+console.log("      sessionAllows answers for any combination before you grant it");
+
 head("the holder takes it back");
 await c.exec(v3, GRANT, [agent, evm.GENESIS_TIME + 86400n, WAD, [GOLD], [SEL_TRANSFER]]);
 await c.exec(v3, "revokeSession(address)", [agent], { label: "revokeSession" });

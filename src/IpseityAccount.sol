@@ -436,6 +436,22 @@ contract IpseityAccount {
     event SessionRevoked(address indexed key);
     event SessionActed(address indexed key, address indexed to, uint256 value, bytes4 selector);
 
+    /*  Two lists, not a list of pairs — and that is a wider grant than it
+        looks. `targets` and `selectors` are checked independently, so a key
+        granted [venueA, venueB] × [deposit, withdraw] may withdraw from A
+        even if the intent was "deposit to A, withdraw from B". Every
+        combination is authorised.
+
+        It is left this way on purpose. Storing explicit pairs would mean
+        writing up to sixteen-by-sixteen entries in one grant — two hundred
+        and fifty-six SSTOREs, about five million gas — to express something
+        the holder can already express exactly: **one key per pair.** Keys
+        are free; storage is not.
+
+        So this is documented rather than fixed, and pinned by a test, which
+        is the difference between a design decision and a surprise. Before
+        granting, `sessionAllows(key, target, selector)` answers for any
+        combination you care to ask about.                                 */
     /// @notice Hand a bounded key to something that is not you.
     /// @dev    Re-granting an existing key overwrites its terms and resets
     ///         what it has spent, which is the only sane reading of

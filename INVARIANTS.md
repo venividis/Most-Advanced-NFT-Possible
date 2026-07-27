@@ -533,6 +533,41 @@ every function anyone could imagine).
 
 ---
 
+**63. Two markets on one token never claim more than the pool holds.**
+The pool keeps every market's reserves at a single address and tracks each
+market's entitlement per id. Nothing in the contract ties the sum of those
+entitlements to what it actually holds, and no suite had ever opened two
+markets on one token — so nothing had ever looked. `tools/agents.mjs` now runs
+two live markets sharing a balance and re-checks the sum after every action.
+
+Deliberately a monitor and not a guard: a running total on the swap path is gas
+on the hot path for a number any observer can compute. The real defence against
+a token whose balance moves out of band is `bless`, which is a centralisation
+trade-off stated rather than hidden.
+→ `tools/agents.mjs` · *"two markets never claim more than the pool holds"*
+
+**64. Two allowlists are a cross-product, and that is written down.**
+`targets` and `selectors` are checked independently, so a key granted
+`[venueA, venueB] × [deposit, withdraw]` may withdraw from A even if the intent
+was "deposit to A, withdraw from B". Explicit pairs would be up to 256 SSTOREs
+in one grant — roughly five million gas — to express something a holder can
+already express exactly: **one key per pair**. Pinned by a test rather than left
+to be discovered, because an undocumented decision is a surprise with a
+rationale attached.
+→ `tools/verify-vault.mjs` · *"two allowlists are a cross-product, and this is what that means"*
+
+**65. `market()` names the output caps as output caps.**
+The last two size fields were `maxBaseIn`/`maxQuoteIn` and had always been
+`rBase * MAX_OUT_BPS / BPS` — the guard in `swap` bounds what *leaves*, never
+what arrives. A front end taking them as "the most you may send" would build
+trades the contract refuses for an unrelated reason, which is exactly what the
+artwork was doing: it compared the input against the *near* side's cap when the
+constraint is on the *far* side's output. Both renamed and both corrected; the
+instrument now checks the quote against the outgoing reserve.
+→ `tools/verify-pool.mjs`, `engine/ipseity.html` · the Market instrument
+
+---
+
 ## Known and not fixed
 
 These are true, they are not tested, and they are not defended against. They are
