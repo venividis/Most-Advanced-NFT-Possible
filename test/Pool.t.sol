@@ -86,7 +86,7 @@ contract PoolTest is Test {
     ///      conserves — and a round trip could extract the difference. The
     ///      offsets are anchored now; this reads what was anchored.
     function _k() internal view returns (uint256) {
-        (, , uint112 rb, uint112 rq, , , , , uint112 vb, uint112 vq) = pool.marketOf(1);
+        (, , uint112 rb, uint112 rq, , , , , uint128 vb, uint128 vq) = pool.marketOf(1);
         return (uint256(rb) + vb) * (uint256(rq) + vq);
     }
 

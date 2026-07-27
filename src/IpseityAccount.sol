@@ -117,7 +117,9 @@ contract IpseityAccount {
     error RatchetOnly();
     error SealTooLong();
     error IsSealed();
-    error ApprovalWhileSealed();
+    /// @dev A sealed call to a promised asset, carrying a word that is not
+    ///      on the short allowlist. Named rather than enumerated.
+    error NotSafeWhileSealed(bytes4 selector);
     error ValueWhileSealed();
     error Shrank(address asset, uint256 before_, uint256 after_);
     error ManifestFull();
@@ -240,8 +242,33 @@ contract IpseityAccount {
     ///         The seal is what makes the promise, and the seal is untouched:
     ///         while `isSealed()`, this reverts for everyone.
     function unguard(address asset) external onlySigner {
-        if (isSealed()) revert IsSealed();
         if (!onManifest[asset]) revert NotListed();
+
+        /*  The escape hatch, and the reason it does not weaken the seal.
+
+            The account refuses any call that ends with a manifest asset
+            unreadable, which is correct — going blind is a state change the
+            seal cannot attest to. But that rule is a door a manifest asset
+            can shut on the account at will: a token whose balanceOf reverts
+            on a condition it controls makes EVERY sealed call revert, and a
+            reverted call never persists, so the trap re-arms itself. An
+            adversarial review shut an account for the full length of its
+            seal with no way out — unguard refused, the ratchet refused,
+            sessions dead on the same path.
+
+            So an asset the account cannot currently read may be removed
+            even while sealed. This gives nothing away: the seal was already
+            unable to promise anything about an asset it cannot measure, and
+            `unmeasurable()` has been saying so publicly the whole time. What
+            it removes is a stranger's ability to freeze somebody else's
+            account by breaking a token.
+
+            The event is emitted either way, so a buyer reading the log sees
+            exactly when the promise narrowed and which asset left it.      */
+        if (isSealed()) {
+            (, bool ok) = _measure(asset);
+            if (ok) revert IsSealed();
+        }
 
         uint256 n = _manifest.length;
         for (uint256 i; i < n; ++i) {
@@ -253,6 +280,64 @@ contract IpseityAccount {
         }
         onManifest[asset] = false;
         emit ManifestRemoved(asset);
+    }
+
+    /*═══ the other manifest: NFTs, by identity ═══
+
+      A count cannot express "this vault holds THAT one". So a guarded NFT
+      is named by (collection, tokenId) and measured with `ownerOf`, which
+      is exact. Bounded at eight because every entry is a call on every
+      sealed action, and unlike balances there is no way to batch them.     */
+
+    struct Piece { address collection; uint256 tokenId; }
+
+    uint256 public constant MAX_PIECES = 8;
+    Piece[] internal _pieces;
+
+    event PieceGuarded(address indexed collection, uint256 indexed tokenId);
+    event PieceReleased(address indexed collection, uint256 indexed tokenId);
+
+    error PiecesFull();
+    error NotHeld();
+    error PieceLeft(address collection, uint256 tokenId);
+
+    function guardNFT(address collection, uint256 tokenId) external onlySigner {
+        if (_pieces.length >= MAX_PIECES) revert PiecesFull();
+        if (_ownerOfPiece(collection, tokenId) != address(this)) revert NotHeld();
+        _pieces.push(Piece(collection, tokenId));
+        emit PieceGuarded(collection, tokenId);
+    }
+
+    /// @dev Same rule as `unguard`: free while unsealed, and while sealed
+    ///      only for a piece the account can no longer see.
+    function unguardNFT(uint256 index) external onlySigner {
+        Piece memory pc = _pieces[index];
+        if (isSealed() && _ownerOfPiece(pc.collection, pc.tokenId) == address(this)) {
+            revert IsSealed();
+        }
+        _pieces[index] = _pieces[_pieces.length - 1];
+        _pieces.pop();
+        emit PieceReleased(pc.collection, pc.tokenId);
+    }
+
+    function pieces() external view returns (Piece[] memory) { return _pieces; }
+
+    function _ownerOfPiece(address collection, uint256 tokenId) internal view returns (address) {
+        (bool ok, bytes memory outv) =
+            collection.staticcall(abi.encodeWithSignature("ownerOf(uint256)", tokenId));
+        if (!ok || outv.length < 32) return address(0);
+        return abi.decode(outv, (address));
+    }
+
+    /// @dev Every guarded piece must still be here. No amount involved, no
+    ///      before-and-after: the question is only whether it is still ours.
+    function _verifyPieces() internal view {
+        uint256 n = _pieces.length;
+        for (uint256 i; i < n; ++i) {
+            if (_ownerOfPiece(_pieces[i].collection, _pieces[i].tokenId) != address(this)) {
+                revert PieceLeft(_pieces[i].collection, _pieces[i].tokenId);
+            }
+        }
     }
 
     function manifest() external view returns (address[] memory) {
@@ -322,8 +407,30 @@ contract IpseityAccount {
     uint64 public constant MAX_SESSION = 365 days;
 
     mapping(address => Session) public sessionOf;
-    mapping(address => mapping(address => bool)) public sessionTarget;
-    mapping(address => mapping(bytes4 => bool))  public sessionSelector;
+
+    /*  Keyed by epoch as well as by address, and the epoch is the fix.
+
+        `revokeSession` used to be `delete sessionOf[key]` — which clears the
+        struct and leaves `sessionTarget` and `sessionSelector` standing,
+        because Solidity cannot delete a mapping. Revocation looked total,
+        since `active` gates every path. Then re-granting the same key wrote
+        its new allowlists on top of the old ones, and every permission that
+        key had EVER held came back. Grant [poolA], revoke, re-grant [poolB],
+        and it can still reach poolA. An adversarial review reproduced it.
+
+        Bumping an epoch on both grant and revoke retires the old entries
+        without needing to enumerate them, which is the only way to clear a
+        mapping in constant gas.                                            */
+    mapping(address => uint256) public sessionEpoch;
+    mapping(address => mapping(uint256 => mapping(address => bool))) internal _sessionTarget;
+    mapping(address => mapping(uint256 => mapping(bytes4 => bool)))  internal _sessionSelector;
+
+    function sessionTarget(address key, address target) public view returns (bool) {
+        return _sessionTarget[key][sessionEpoch[key]][target];
+    }
+    function sessionSelector(address key, bytes4 sel) public view returns (bool) {
+        return _sessionSelector[key][sessionEpoch[key]][sel];
+    }
 
     event SessionGranted(address indexed key, uint64 expires, uint128 spendCap);
     event SessionRevoked(address indexed key);
@@ -344,6 +451,11 @@ contract IpseityAccount {
         if (targets.length > MAX_LIST || selectors.length > MAX_LIST) revert ListTooLong();
         if (expires > block.timestamp + MAX_SESSION) revert SessionTooLong();
 
+        // every grant is a fresh epoch: nothing a previous grant allowed
+        // survives into this one, whether or not it was revoked first
+        unchecked { sessionEpoch[key] += 1; }
+        uint256 e = sessionEpoch[key];
+
         Session storage s = sessionOf[key];
         s.expires = expires;
         s.spendCap = spendCap;
@@ -353,9 +465,9 @@ contract IpseityAccount {
         for (uint256 i; i < targets.length; ++i) {
             // an allowlist entry pointing back here is the escalation again
             if (targets[i] == address(this)) revert NoPrivilegeEscalation();
-            sessionTarget[key][targets[i]] = true;
+            _sessionTarget[key][e][targets[i]] = true;
         }
-        for (uint256 i; i < selectors.length; ++i) sessionSelector[key][selectors[i]] = true;
+        for (uint256 i; i < selectors.length; ++i) _sessionSelector[key][e][selectors[i]] = true;
 
         emit SessionGranted(key, expires, spendCap);
     }
@@ -363,6 +475,8 @@ contract IpseityAccount {
     /// @notice Immediate and unilateral. No delay, no notice, no appeal.
     function revokeSession(address key) external onlySigner {
         delete sessionOf[key];
+        // and retire the allowlists, which a delete cannot reach
+        unchecked { sessionEpoch[key] += 1; }
         emit SessionRevoked(key);
     }
 
@@ -371,7 +485,7 @@ contract IpseityAccount {
     {
         Session memory s = sessionOf[key];
         return s.active && s.expires >= block.timestamp
-            && sessionTarget[key][to] && sessionSelector[key][selector];
+            && sessionTarget(key, to) && sessionSelector(key, selector);
     }
 
     /// @notice Act under a session key rather than as the holder.
@@ -397,10 +511,10 @@ contract IpseityAccount {
         if (!s.active) revert NoSession();
         if (s.expires < block.timestamp) revert SessionExpired();
         if (to == address(this)) revert NoPrivilegeEscalation();
-        if (!sessionTarget[msg.sender][to]) revert TargetNotAllowed(to);
+        if (!sessionTarget(msg.sender, to)) revert TargetNotAllowed(to);
 
         bytes4 sel = data.length >= 4 ? bytes4(data[0:4]) : bytes4(0);
-        if (!sessionSelector[msg.sender][sel]) revert SelectorNotAllowed(sel);
+        if (!sessionSelector(msg.sender, sel)) revert SelectorNotAllowed(sel);
 
         // an approval is a standing authority, so the party being trusted
         // has to be one the holder named, not merely the contract it is
@@ -408,11 +522,11 @@ contract IpseityAccount {
         if (sel == 0x095ea7b3 || sel == 0x39509351) {
             if (data.length < 68) revert SpenderNotAllowed(address(0));
             (address spender,) = abi.decode(data[4:], (address, uint256));
-            if (!sessionTarget[msg.sender][spender]) revert SpenderNotAllowed(spender);
+            if (!sessionTarget(msg.sender, spender)) revert SpenderNotAllowed(spender);
         } else if (sel == 0xa22cb465) {
             if (data.length < 68) revert SpenderNotAllowed(address(0));
             (address operator, bool okFlag) = abi.decode(data[4:], (address, bool));
-            if (okFlag && !sessionTarget[msg.sender][operator]) revert SpenderNotAllowed(operator);
+            if (okFlag && !sessionTarget(msg.sender, operator)) revert SpenderNotAllowed(operator);
         }
 
         if (value != 0) {
@@ -470,7 +584,7 @@ contract IpseityAccount {
         for (uint256 i; i < n; ++i) {
             if (locked) {
                 if (calls[i].value != 0) revert ValueWhileSealed();
-                _refuseApprovals(calls[i].data);
+                _refuseUnlessSafe(calls[i].to, calls[i].data);
                 _refuseBlindTarget(calls[i].to, seen);
             }
             unchecked { state++; }
@@ -511,7 +625,7 @@ contract IpseityAccount {
             // fact against a payable call, so it is simply refused
             if (value != 0) revert ValueWhileSealed();
             if (msg.value != 0) revert ValueWhileSealed();
-            _refuseApprovals(data);
+            _refuseUnlessSafe(to, data);
             (pre, seen, preEth) = _snapshot();
             _refuseBlindTarget(to, seen);
         }
@@ -538,17 +652,46 @@ contract IpseityAccount {
     ///      loss lands in a later block, outside any window this call can
     ///      see. There is no venue registry here to make exceptions for, so
     ///      there are no exceptions.
-    function _refuseApprovals(bytes calldata data) internal pure {
-        if (data.length < 4) return;
+    /*═══ what a sealed account may say to an asset it has promised ═══
+
+      This used to be a list of six approval selectors, refused by name. The
+      file's own comment three screens up says an enumeration cannot be
+      completed — that is the entire argument for measuring balances instead
+      of listing transfer words — and then the approval defence was an
+      enumeration anyway, because measurement is structurally blind to an
+      authority that moves nothing yet.
+
+      An adversarial review walked straight through it with Permit2's
+      `approve(address,address,uint160,uint48)`. Same standing custody,
+      different word, not on the list. It never would be: the list can only
+      contain approval shapes somebody had already thought of.
+
+      So the polarity is inverted, at the one boundary where it can be.
+      While sealed, a call to an asset ON THE MANIFEST must carry a selector
+      from a short allowlist. Everything else is refused — approvals in every
+      shape, permits in every shape, delegations, and words nobody has
+      invented yet, all by the same rule and without naming any of them.
+
+      The allowlist is exactly the two words whose damage measurement can
+      see, because those are the only ones that need to be allowed:
+
+          transfer(address,uint256)                 0xa9059cbb
+          transferFrom(address,address,uint256)     0x23b872dd
+
+      A call to anything NOT on the manifest is unrestricted. An approval on
+      an asset the seal never promised is an approval over something nobody
+      was promised, and refusing it would be theatre.
+
+      The cost is real and worth stating: a holder who wants to `claim()` on
+      a manifest asset while sealed cannot. They can unguard it before
+      sealing, or not guard it. Deny-by-default means some legitimate things
+      are denied; that is what the word default is doing.                  */
+    function _refuseUnlessSafe(address to, bytes calldata data) internal view {
+        if (!onManifest[to]) return;                 // not promised, not policed
+        if (data.length < 4) revert NotSafeWhileSealed(bytes4(0));
+
         bytes4 sel = bytes4(data[0:4]);
-        if (
-            sel == 0x095ea7b3 ||   // approve(address,uint256)
-            sel == 0xa22cb465 ||   // setApprovalForAll(address,bool)
-            sel == 0x39509351 ||   // increaseAllowance(address,uint256)
-            sel == 0x87b4f6a4 ||   // approveAndCall variants seen in the wild
-            sel == 0xd505accf ||   // permit(address,address,uint256,uint256,uint8,bytes32,bytes32)
-            sel == 0x8fcbaf0c      // permit (DAI-style)
-        ) revert ApprovalWhileSealed();
+        if (sel != 0xa9059cbb && sel != 0x23b872dd) revert NotSafeWhileSealed(sel);
     }
 
     function _snapshot()
@@ -586,6 +729,7 @@ contract IpseityAccount {
             if (now_ < pre[i]) revert Shrank(_manifest[i], pre[i], now_);
         }
         if (address(this).balance < preEth) revert Shrank(address(0), preEth, address(this).balance);
+        _verifyPieces();
     }
 
     /*  The other half of the blindness rule, and the half that was missing.
@@ -611,8 +755,12 @@ contract IpseityAccount {
         }
     }
 
-    /// @dev balanceOf(address) is the same word for ERC-20 and ERC-721, so
-    ///      one manifest covers both.
+    /// @dev balanceOf(address) is the same WORD for ERC-20 and ERC-721 and
+    ///      not the same FACT: for a token it is an amount, for an NFT it is
+    ///      a count. The manifest used to claim it covered both, and an
+    ///      adversarial review swapped a valuable NFT out of a sealed vault
+    ///      for a worthless one — one out, one in, count unmoved, nothing to
+    ///      measure. Identity needs its own list; see `guardNFT`.
     ///
     ///      `ok` is returned separately, and the distinction is load-bearing.
     ///      An asset that ANSWERS zero and an asset that DOES NOT ANSWER are
@@ -734,8 +882,24 @@ contract IpseityAccount {
 
     bytes32 private constant _DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    /*  A nonce and a deadline, because the first version had neither and a
+        signature therefore authenticated the same statement to everyone,
+        forever, with no way to retire it short of the seal lapsing. An
+        attestation is how a sealed account says who it is; "who I am" is
+        still a claim that should be able to go stale.                     */
     bytes32 private constant _ATTESTATION_TYPEHASH =
-        keccak256("Attestation(string purpose,bytes32 payload)");
+        keccak256("Attestation(string purpose,bytes32 payload,uint256 nonce,uint64 deadline)");
+
+    /// @notice Bumped by the holder to retire every attestation at once.
+    uint256 public attestationNonce;
+
+    event AttestationsRetired(uint256 nonce);
+
+    /// @notice Invalidate every signature this account has ever given.
+    function retireAttestations() external onlySigner {
+        unchecked { attestationNonce += 1; }
+        emit AttestationsRetired(attestationNonce);
+    }
     bytes32 private constant _NAME_HASH = keccak256("IPSEITY_ATTESTATION");
     bytes32 private constant _VERSION_HASH = keccak256("1");
 
@@ -745,13 +909,14 @@ contract IpseityAccount {
     }
 
     /// @notice The only digest a sealed account will ever put its name to.
-    function attestationDigest(string memory purpose, bytes32 payload)
+    function attestationDigest(string memory purpose, bytes32 payload, uint64 deadline)
         public view returns (bytes32)
     {
         return keccak256(abi.encodePacked(
             "\x19\x01",
             domainSeparator(),
-            keccak256(abi.encode(_ATTESTATION_TYPEHASH, keccak256(bytes(purpose)), payload))
+            keccak256(abi.encode(_ATTESTATION_TYPEHASH, keccak256(bytes(purpose)), payload,
+                                 attestationNonce, deadline))
         ));
     }
 
@@ -760,9 +925,10 @@ contract IpseityAccount {
     ///         `abi.decode` without a malformed blob reverting the caller.
     /// @dev    ERC-1271 owes its callers a plain no, not a revert.
     function decodeAttestation(bytes calldata blob)
-        external pure returns (string memory purpose, bytes32 payload, bytes memory inner)
+        external pure
+        returns (string memory purpose, bytes32 payload, uint64 deadline, bytes memory inner)
     {
-        return abi.decode(blob, (string, bytes32, bytes));
+        return abi.decode(blob, (string, bytes32, uint64, bytes));
     }
 
     /// @notice ERC-1271.
@@ -779,9 +945,10 @@ contract IpseityAccount {
 
         // sealed: the hash has to be one this account could have built
         try this.decodeAttestation(signature)
-            returns (string memory purpose, bytes32 payload, bytes memory inner)
+            returns (string memory purpose, bytes32 payload, uint64 deadline, bytes memory inner)
         {
-            if (hash != attestationDigest(purpose, payload)) return bytes4(0);
+            if (deadline < block.timestamp) return bytes4(0);
+            if (hash != attestationDigest(purpose, payload, deadline)) return bytes4(0);
             return _signedByHolder(hash, inner) ? bytes4(0x1626ba7e) : bytes4(0);
         } catch {
             return bytes4(0);

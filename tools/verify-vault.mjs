@@ -170,13 +170,28 @@ eq("not one satoshi of gold moved", decUint(await c.read(GOLD, "balanceOf(addres
 head("but the vault still works");
 /* The reason for measuring instead of freezing: a vault that cannot act is
    a safe, not a vault. Anything that leaves it no poorer goes through. */
+/*  "A sealed vault can still act" now has an edge, and the edge is where
+    the promise is. A call to an asset ON THE MANIFEST must carry `transfer`
+    or `transferFrom` and nothing else — deny-by-default, because the
+    approval defence could not be an enumeration and stay honest. A call to
+    anything else is unrestricted, which is what acting actually looks like:
+    voting, claiming and compounding are calls to protocols, not to the
+    token being promised. */
 let acted = false;
 try {
+  // the collection itself: never promised, so never policed
   await c.exec(vault, "execute(address,uint256,bytes,uint8)",
-    [GOLD, 0, enc("balanceOf(address)", [vault]), 0]);
+    [nft, 0, enc("totalSupply()", []), 0]);
   acted = true;
-} catch { /* ignore */ }
-ok("a call that takes nothing still executes", acted);
+} catch (e) { console.log("      " + String(e.message).slice(0, 90)); }
+ok("a call to something it never promised still executes", acted);
+
+await refuses("but an unlisted word said to a promised asset does not", () =>
+  c.exec(vault, "execute(address,uint256,bytes,uint8)",
+    [GOLD, 0, enc("balanceOf(address)", [vault]), 0]),
+  "the manifest boundary is not deny-by-default after all");
+console.log("      this is the cost, stated: a holder who wants to claim() on a");
+console.log("      promised asset must unguard it first, or not promise it");
 
 let received = false;
 try { await c.exec(GOLD, "mint(address,uint256)", [vault, 50n * WAD]); received = true; } catch {}
@@ -477,14 +492,16 @@ const signHash = (h) => {
   const sig = secp256k1.sign(hexToBytes(h), c.key);
   return "0x" + sig.toCompactHex() + (27 + sig.recovery).toString(16).padStart(2, "0");
 };
-/* abi.encode(string, bytes32, bytes) — the preimage a sealed account needs
-   so it can rebuild the digest instead of taking a hash on trust */
-const encodeAttestation = (purpose, payload, sig) => {
+/* abi.encode(string, bytes32, uint64, bytes) — the preimage a sealed
+   account needs so it can rebuild the digest instead of taking a hash on
+   trust. The deadline is inside it, so it is signed rather than asserted. */
+const encodeAttestation = (purpose, payload, deadline, sig) => {
   const pb = Buffer.from(purpose, "utf8");
   const sb = sig.replace(/^0x/, "");
-  const head = (96).toString(16).padStart(64, "0") +
+  const head = (128).toString(16).padStart(64, "0") +
                payload.replace(/^0x/, "") +
-               (96 + 32 + Math.ceil(pb.length / 32) * 32).toString(16).padStart(64, "0");
+               BigInt(deadline).toString(16).padStart(64, "0") +
+               (128 + 32 + Math.ceil(pb.length / 32) * 32).toString(16).padStart(64, "0");
   return "0x" + head +
     pb.length.toString(16).padStart(64, "0") +
     pb.toString("hex").padEnd(Math.ceil(pb.length / 32) * 64, "0") +
@@ -517,11 +534,13 @@ await c.exec(bVault, "seal(uint64)", [evm.GENESIS_TIME + 10n * 86400n]);
 let stillWorks = false;
 try {
   await c.exec(bVault, "execute(address,uint256,bytes,uint8)",
-    [GOLD, 0, enc("balanceOf(address)", [bVault]), 0]);
+    [SILVER, 0, enc("balanceOf(address)", [bVault]), 0]);
   stillWorks = true;
 } catch (e) { console.log("      " + String(e.message).slice(0, 100)); }
 ok("the sealed account still acts with a blind asset on the manifest", stillWorks,
    "one broken token bricked the whole account — this is Dave's C1 failure");
+
+
 
 await refuses("and the assets it can still see are still held", () =>
   c.exec(bVault, "execute(address,uint256,bytes,uint8)",
@@ -534,6 +553,23 @@ await refuses("a call that ends with an asset unreadable", () =>
   c.exec(bVault, "execute(address,uint256,bytes,uint8)",
     [BRK, 0, enc("setBreakBalance(bool)", [true]), 0]),
   "an account could be walked into blindness inside a sealed call");
+
+/*  And a blind asset is no longer a life sentence. A manifest asset that
+    stops answering can be taken off the list even while sealed, because the
+    seal was never able to promise about an asset it cannot read — and
+    leaving it stuck there was a door a stranger could shut on somebody
+    else's account for a year, by breaking a token they controlled.       */
+head("a blind asset can be let go of; a visible one cannot");
+await c.exec(BRK, "setBreakBalance(bool)", [true]);
+let released = false;
+try { await c.exec(bVault, "unguard(address)", [BRK]); released = true; }
+catch (e) { console.log("      " + String(e.message).slice(0, 90)); }
+ok("a token that stopped answering can be released mid-seal", released,
+   "the account is trapped with an asset it can neither see nor remove");
+await refuses("while the ones it CAN see stay exactly where they are", () =>
+  c.exec(bVault, "unguard(address)", [GOLD]),
+  "the manifest could be emptied instead of the vault — the whole promise");
+await c.exec(BRK, "setBreakBalance(bool)", [false]);
 
 head("the manifest is no longer append-only forever");
 await c.exec(nft, "mint()", [], { value: 10n ** 16n });
@@ -617,8 +653,10 @@ console.log("      domain, so it can never be the output of attestationDigest");
 
 const PURPOSE = "i am the token that holds this";
 const PAYLOAD = "0x" + "ab".repeat(32);
-const digest = await c.read(btV, "attestationDigest(string,bytes32)", [PURPOSE, PAYLOAD]);
-const envelope = encodeAttestation(PURPOSE, PAYLOAD, signHash(digest));
+const DEADLINE = evm.GENESIS_TIME + 3600n;
+const digest = await c.read(btV, "attestationDigest(string,bytes32,uint64)",
+  [PURPOSE, PAYLOAD, DEADLINE]);
+const envelope = encodeAttestation(PURPOSE, PAYLOAD, DEADLINE, signHash(digest));
 eq("but it validates the one digest it can rebuild",
    (await c.read(btV, "isValidSignature(bytes32,bytes)", [digest, envelope])).slice(0, 10),
    "0x1626ba7e");
@@ -626,6 +664,29 @@ eq("a well-formed envelope over a different hash is refused",
    decUint(await c.read(btV, "isValidSignature(bytes32,bytes)", [rawHash, envelope])), 0);
 eq("garbage is a plain no rather than a revert",
    decUint(await c.read(btV, "isValidSignature(bytes32,bytes)", [rawHash, "0xdeadbeef"])), 0);
+
+/*  A statement that cannot be retired is a statement nobody should make.
+    The first version of this had no nonce and no deadline, so one signature
+    authenticated the same claim to everybody, forever, and the only way out
+    was waiting for the seal to lapse. */
+head("and it can take it back");
+const past = await c.read(btV, "attestationDigest(string,bytes32,uint64)",
+  [PURPOSE, PAYLOAD, evm.GENESIS_TIME - 1n]);
+eq("an expired attestation is refused",
+   decUint(await c.read(btV, "isValidSignature(bytes32,bytes)",
+     [past, encodeAttestation(PURPOSE, PAYLOAD, evm.GENESIS_TIME - 1n, signHash(past))])), 0);
+
+await c.exec(btV, "retireAttestations()", [], { label: "retireAttestations" });
+eq("and one bump retires every signature the account ever gave",
+   decUint(await c.read(btV, "isValidSignature(bytes32,bytes)", [digest, envelope])), 0);
+
+const fresh = await c.read(btV, "attestationDigest(string,bytes32,uint64)",
+  [PURPOSE, PAYLOAD, DEADLINE]);
+ok("the same statement re-signed after the bump is a different digest", fresh !== digest);
+eq("and that one is honoured",
+   (await c.read(btV, "isValidSignature(bytes32,bytes)",
+     [fresh, encodeAttestation(PURPOSE, PAYLOAD, DEADLINE, signHash(fresh))])).slice(0, 10),
+   "0x1626ba7e");
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

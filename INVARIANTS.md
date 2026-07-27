@@ -463,6 +463,64 @@ refused. `_reanchor` is now a no-op under a live bond: deposits still land, the
 curve does not follow them.
 → `tools/verify-findings.mjs` · *claim 1*
 
+**57b. Revocation clears the authority, not just the record.**
+`revokeSession` used to be `delete sessionOf[key]`, which cannot reach a
+mapping — so `sessionTarget` and `sessionSelector` survived, and re-granting
+that key resurrected **every permission it had ever held**. Grant `[poolA]`,
+revoke, re-grant `[poolB]`, and it could still reach poolA. Both grant and
+revoke now bump a per-key epoch, which retires the old entries in constant gas.
+→ `tools/verify-findings.mjs` · *claim 7*
+
+**58. A sealed account will not say an unknown word to an asset it promised.**
+The approval defence was a six-selector enumeration — the exact shape this
+file's own argument says cannot be completed — and Permit2's
+`approve(address,address,uint160,uint48)` walked through it with identical
+standing custody. The polarity is inverted at the one boundary where it can be:
+while sealed, a call to a **manifest** asset must carry `transfer` or
+`transferFrom` and nothing else. Approvals in every shape, permits in every
+shape, and words nobody has invented yet are all refused by the same rule
+without naming any of them. Calls to anything **not** promised are unrestricted.
+
+The cost is real and is the point of the word *default*: a holder who wants to
+`claim()` on a promised asset while sealed cannot. They unguard it first, or
+do not promise it.
+→ `tools/verify-findings.mjs` · *claim 10* · `tools/verify-vault.mjs` · *"an unlisted word said to a promised asset"*
+
+**59. A guarded NFT is measured by identity, not by count.**
+`balanceOf` is the same *word* for ERC-20 and ERC-721 and not the same *fact*:
+for a token it is an amount, for an NFT it is a count. A sealed vault could
+swap a valuable NFT for a worthless one through a venue — one out, one in,
+count unmoved. `guardNFT(collection, tokenId)` names a piece and `ownerOf`
+answers exactly. The suite proves *which* mechanism catches it: a control vault
+guarding only the collection swaps freely, and one guarding the piece cannot.
+→ `tools/verify-findings.mjs` · *claim 8*
+
+**60. A blind asset can be released; a visible one cannot.**
+Refusing any call that ends with a manifest asset unreadable is correct, and it
+was a door a manifest asset could shut on the account at will — a token whose
+`balanceOf` reverts on its own condition made **every** sealed call revert, and
+a reverted call never persists, so the trap re-armed itself for the seal's full
+length. An asset the account cannot currently read may now be unguarded even
+while sealed. That gives nothing away: the seal was already unable to promise
+about an asset it cannot measure, and `unmeasurable()` had been saying so
+publicly the whole time.
+→ `tools/verify-findings.mjs` · *claim 11* · `tools/verify-vault.mjs` · *"a blind asset can be let go of"*
+
+**61. An attestation expires, and can be retired.**
+The digest carried no nonce and no deadline, so one signature authenticated the
+same statement to everyone forever with no way to take it back short of the
+seal lapsing. Both are in the signed struct now, and `retireAttestations()`
+invalidates every signature the account has ever given in one call.
+→ `tools/verify-findings.mjs` · *claim 12* · `tools/verify-vault.mjs` · *"and it can take it back"*
+
+**62. The deposit cap bounds the side being deposited into.**
+`swap` never consults `maxDeposit` — it guards only `MAX_RESERVE` — so ordinary
+trading can push a reserve above the cap. `deposit` then re-checked **both**
+sides, so a one-wei quote-only top-up was refused on account of a base reserve
+it had not touched, and under a live bond the holder was left with no operable
+function at all. Each side is now capped only when something is added to it.
+→ `tools/verify-findings.mjs` · *claim 13*
+
 **57. A crowd cannot break what a caller cannot.**
 `tools/agents.mjs` runs seven agents with conflicting motives — holder,
 arbitrageur, whale, shrimp, sandwicher, griefer, ERC-4907 renter — against the real

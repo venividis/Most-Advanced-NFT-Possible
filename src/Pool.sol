@@ -150,8 +150,16 @@ contract Pool {
         ///      trade and a round trip could extract the difference. Held
         ///      here instead, the curve stays where the holder put it. See
         ///      Curve.anchor.
-        uint112 vBase;
-        uint112 vQuote;
+        /*  uint128, not uint112. An offset is up to eight times a reserve,
+            and a reserve is already a uint112 — so `uint112(rBase * 8)`
+            truncates silently for any reserve above MAX_RESERVE/8, and
+            Solidity does not revert on an explicit downcast. I could not
+            drive a reserve that high through the shipped caps, so this is a
+            latent hazard rather than a reproduced bug; a cast that can
+            quietly produce a different curve than the one committed is
+            worth four bytes to remove rather than an argument to have.    */
+        uint128 vBase;
+        uint128 vQuote;
     }
     mapping(uint256 => Market) public marketOf;
 
@@ -381,7 +389,22 @@ contract Pool {
 
         uint256 nb = uint256(m.rBase) + gotBase;
         uint256 nq = uint256(m.rQuote) + gotQuote;
-        if (nb > maxDeposit || nq > maxDeposit) revert DepositCap();
+
+        /*  Only the side being added to is capped.
+
+            `swap` never consults `maxDeposit` — it only guards MAX_RESERVE —
+            so ordinary trading can push a reserve above the cap. This then
+            re-checked BOTH sides, so once that happened even a one-wei
+            quote-only top-up was refused on account of the base reserve it
+            had not touched. An adversarial review locked a holder out of
+            their own market that way, and under a live bond it left them
+            with no operable function at all.
+
+            The cap is there to bound how much a holder may PUT IN while this
+            is unaudited. Refusing a deposit because of a number the deposit
+            does not move was never that.                                   */
+        if (gotBase != 0 && nb > maxDeposit) revert DepositCap();
+        if (gotQuote != 0 && nq > maxDeposit) revert DepositCap();
         if (nb > Curve.MAX_RESERVE || nq > Curve.MAX_RESERVE) revert ReserveOverflow();
 
         m.rBase = uint112(nb);
@@ -436,8 +459,8 @@ contract Pool {
         if (m.bondUntil > block.timestamp) return;
 
         (uint256 vb, uint256 vq) = Curve.anchor(m.curveWord, m.rBase, m.rQuote);
-        m.vBase = uint112(vb);
-        m.vQuote = uint112(vq);
+        m.vBase = uint128(vb);
+        m.vQuote = uint128(vq);
         emit CurveAnchored(vb, vq);
     }
 
