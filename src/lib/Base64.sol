@@ -45,10 +45,16 @@ library Base64 {
                 o := shl(8, o)
                 o := add(o, and(mload(add(table, and(chunk, 0x3F))), 0xFF))
 
-                mstore8(out, shr(24, o)) out := add(out, 1)
-                mstore8(out, shr(16, o)) out := add(out, 1)
-                mstore8(out, shr(8, o))  out := add(out, 1)
-                mstore8(out, o)          out := add(out, 1)
+                /*  Four characters, one write. mstore8 four times is four
+                    memory operations and three cursor bumps to place four
+                    bytes; shifting the group to the top of a word and
+                    storing it once places the same four and scribbles
+                    twenty-eight bytes of zero after them, which the next
+                    iteration overwrites and the +32 slack absorbs on the
+                    last. This loop runs once per three bytes of a document
+                    measured in tens of kilobytes.                        */
+                mstore(out, shl(224, o))
+                out := add(out, 4)
             }
 
             // pad the tail

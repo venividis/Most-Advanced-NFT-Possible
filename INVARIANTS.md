@@ -566,6 +566,28 @@ constraint is on the *far* side's output. Both renamed and both corrected; the
 instrument now checks the quote against the outgoing reserve.
 → `tools/verify-pool.mjs`, `engine/ipseity.html` · the Market instrument
 
+**66. Every read fits inside the cap the network will actually run.**
+`eth_call` is executed by a node for free, so every node caps it — geth, erigon
+and reth at 50M by default, nethermind at 100M, hosted providers lower and
+without saying so. A view function past that ceiling does not fail politely; the
+node answers "out of gas", which a marketplace cannot distinguish from a broken
+token. `tokenURIs()` was over it, at 55.19M, and had been since the quartet face
+was added: the ERC-7160 call that returns every face was not callable on a
+correctly configured node, and nothing said so because nothing had measured it.
+The ceiling is now asserted rather than assumed, and the build fails on the
+commit that crosses it rather than on the wallet that hits it.
+→ `tools/gas.mjs`
+
+**67. The rotation is orthonormal, so the solid does not resize as it turns.**
+Six Givens rotations carry every vertex, and if `sin²+cos²` drifts from one the
+composition is no longer a rotation — the projected solid grows or shrinks with
+its own orientation, which is not a thing a viewer can attribute to anything.
+The series had four Taylor terms and drifted about 7 parts per million; it has
+six and drifts 7 parts per billion, which is below the truncation of the SVG
+coordinates it feeds. The property is checked at fixed points and fuzzed across
+a hundred turns of the circle.
+→ `test/Ipseity.t.sol` · `test_trig`, `testFuzz_pythagorean`, via `tools/forge.mjs`
+
 ---
 
 ## Known and not fixed
@@ -668,15 +690,35 @@ demonstrate what that was. Pin it.
 per-market deposit cap exists for that reason and should be raised only after a
 review.
 
-**D. `forge test` has never been executed.**
+**D. `forge test` itself has still never been executed.**
 Foundry's installer host is unreachable from the environment this was built in,
 and so are GitHub, codeload and the crates.io API, so there is no route to it
-from here. The Solidity suites type-check against the compiler but have not run.
+from here.
 
-The nine `testFuzz_` properties they state are no longer only stated: they are
-run by `tools/fuzz.mjs`, against the same contracts compiled by the same solc,
-on the same EVM as the rest of `tools/`. That suite found the bug behind
-invariant 15 on its first serious run, which is the argument for it. What is
-still missing relative to Foundry is stateful/invariant campaigns, a
-coverage-guided corpus, and cheatcodes — so this is a smaller net, not a
-replacement. Run the Foundry suite before deploying anywhere real.
+The 73 Solidity tests are no longer only type-checked, though. `tools/forge.mjs`
+runs them: a cheatcode precompile at the address `forge-std` points `vm` at, a
+`beforeMessage` hook so `prank` can rewrite the caller of the next call, an
+`afterMessage` hook so `expectRevert` can turn a revert into a success at the
+call boundary, and an unfrozen block header so `warp` can move the clock inside
+a call already executing. All 73 pass.
+
+Three of them did not, the first time they ran, and one was a real defect:
+`Trig.sin(pi/2)` read 1.000003543 against a test asserting 1e9 ± 200 — four
+Taylor terms where the projection needed six, drifting the sin²+cos² identity
+by about 7 ppm. A rotation that is not orthonormal resizes the solid as it
+turns. Nothing said so, because the file had never been executed.
+
+Neither had the runner, in a sense worth recording. Its first version reported
+72 passing tests while running no EVM code at all: funding the test contract
+with a fresh `Account` erased its `codeHash`, so every call landed on an empty
+account and returned success having executed nothing. A negative control — an
+assertion written to fail — is what caught it. The runner now refuses to report
+on the suite at all unless a probe whose entire runtime is a `REVERT` is seen to
+revert *having burned gas*, since an empty account also does not revert and only
+the gas counter separates the two, and unless every state-writing cheatcode is
+confirmed by reading the state back.
+
+What is still missing relative to Foundry is stateful/invariant campaigns, a
+coverage-guided corpus, traces on failure, and every cheatcode the suite does
+not use — so this is a smaller net, not a replacement. Run the Foundry suite
+before deploying anywhere real.

@@ -133,7 +133,7 @@ no flash loans.
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists sixty-six such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists sixty-seven such
 statements and names the test for each, plus twelve known limitations that are
 documented rather than defended.
 
@@ -144,6 +144,19 @@ here instead, against the real contracts on a real EVM with a seeded generator
 and a shrinker — and the first serious run found a leak in the pricing that
 both existing suites had passed over. The details are under *The market* above,
 and the fix is in `Curve.anchor`.
+
+Nor had the other sixty-four Solidity tests. `tools/forge.mjs` now runs all 73
+of them by supplying the pieces Foundry would: a cheatcode precompile at the
+address `forge-std` points `vm` at, VM hooks for `prank` and `expectRevert`,
+and a block header that is not frozen so `warp` can move the clock mid-call.
+Running them found a four-term Taylor series where the projection needed six.
+
+The lesson from building it is the one worth keeping. Its first version
+reported 72 passing tests while executing no EVM code whatsoever — funding the
+test contract erased its code, so every call succeeded having done nothing. A
+deliberately-failing control is what caught it, and the runner now refuses to
+report on the suite at all unless it can watch a contract made only of `REVERT`
+revert *while burning gas*, because an empty account also does not revert.
 
 **A seven-day timelock.** `src/lib/Timelock.sol` is meant to own every
 privileged path. Not because a delay makes a bad change good, but because it
@@ -316,9 +329,10 @@ is exactly the omission the audit criticises. See *the voice* above.
 no hostname in this bytecode, no `fetch`, and no `new Function` over remote
 bytes. One sub-point does land: the audit is right that serial on-chain
 assembly grows quadratically and eventually exceeds the `eth_call` cap. This
-collection's `tokenURI` read is **23.99M gas against a 30M ceiling** and it has
-grown this cycle. That margin is measured on every run and it is the number to
-watch.
+collection's `tokenURI` read is **19.98M gas against geth's 50M default `eth_call`
+cap**, and `tokenURIs()` had already crossed it at 55.19M before this cycle brought
+it back to 37.05M. That margin is measured on every run by `tools/gas.mjs`, which
+fails the build rather than reporting it, and it is the number to watch.
 
 ### What was deliberately not taken from it
 
@@ -569,21 +583,73 @@ total to launch                       21.65M gas
 
 mint                                   0.19M gas
 commit a new orientation               0.05M gas
-tokenURI() read                       25.14M gas    ← 4.86M under the ceiling
-tokenURI() response                     ~74 KB
 ```
 
 Storing the document as plain text instead costs **23.58M gas** to load and makes the
-`tokenURI` read **36.31M**. Both modes are implemented and both are verified; packed
+`tokenURI` read far heavier. Both modes are implemented and both are verified; packed
 is the default because it is what makes the document deployable without fighting the
-per-transaction gas cap — and because a 36M read is past what several public nodes
-will serve.
+per-transaction gas cap.
 
-**The `tokenURI` read is the budget that binds.** It is asserted under 30M on every
-run, because that is where several public nodes cap `eth_call`. It has gone
-23.99M → 25.14M this cycle as the instrument grew. Roughly 4.8M of headroom is
-left, and every feature added to `engine/ipseity.html` spends some of it. When it
-runs out the answer is not a bigger cap, it is a smaller document.
+### What a read costs, and who will run it
+
+A view function costs nobody any ether, which is exactly why it is easy to write one
+nobody can call. `eth_call` is executed by a node, and every node caps how much work
+it will do for a call it is not paid for — geth, erigon and reth default to a 50M
+`--rpc.gascap`, nethermind to 100M, and hosted providers vary and are often lower.
+Past that ceiling the node answers "out of gas", which a marketplace cannot tell
+apart from a broken token.
+
+`node tools/gas.mjs` measures every read against those ceilings and fails the build
+if any of them goes over 50M. It runs in `npm run check`.
+
+```
+tokenURI()                   19.98M gas   103,744 B    the pinned face
+tokenURIAt(id, 0)            19.93M gas   103,744 B    the instrument: the whole GUI
+tokenURIAt(id, 1)             2.55M gas     8,096 B    the still: one sigil
+tokenURIAt(id, 2)            13.72M gas    17,056 B    the quartet: four sigils
+tokenURIs()                  37.05M gas   129,024 B    ERC-7160: every face at once
+contractURI()                 0.28M gas     2,720 B
+viewOf()                      0.01M gas       544 B
+
+Premises /token/1/live        4.49M gas    54,400 B    the same page, over ERC-5219
+```
+
+Two things in that table are worth saying plainly.
+
+**`tokenURIs()` was broken and nobody knew.** It cost 55.19M — above the 50M that
+geth, erigon and reth all use by default, which means the ERC-7160 function that
+returns every face was not callable on a correctly configured archive node, let
+alone a hosted one. It is 37.05M now. The fix was not a smaller document; it was
+three pieces of arithmetic that were being redone for no reason, described below.
+
+**The cheapest route to the artwork is not `tokenURI`.** `Premises` serves the
+identical page over ERC-5219 for 4.49M — under a fifth of the `tokenURI` cost, and
+under every cap in the table including the cautious 10M one, because it hands over
+the document itself instead of a base64 data URI nested inside a base64 JSON
+envelope. A `web3://` gateway or a 5219-aware wallet takes that route already.
+`tokenURI` remains what every marketplace calls, so it still has to fit — but if you
+are building a viewer, ask `Premises`.
+
+Where the 18M went, all of it verified byte-for-byte identical output across 144
+drawings before and after:
+
+```
+_turn rebuilt a nested memory array literal on every call     -6.6M
+  once per point drawn, 800 times for a quartet — allocating
+  the index table cost more than the twelve multiplications
+  it was there to index
+
+the swept forms recomputed the same 25 sin/cos pairs on         -4.8M
+  each of 8 rings: 400 series evaluations for 50 numbers
+
+Base64 wrote four characters with four mstore8                  -6.6M
+  where one shifted mstore places the same four
+```
+
+**The `tokenURI` read is still the budget that binds.** 19.98M leaves 30M of headroom
+against the default cap, and every feature added to `engine/ipseity.html` spends
+some of it. When it runs out the answer is not a bigger cap, it is a smaller
+document.
 
 Deployed bytecode, against the 24,576-byte EIP-170 ceiling:
 
@@ -695,17 +761,29 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 
 ## What was and was not run here
 
-`glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `verify.mjs` in
-both storage modes (122 packed / 121 raw), `verify-pool.mjs` (62), `verify-vault.mjs`
-(97), `verify-kernel.mjs` (36), `verify-premises.mjs` (29), `verify-timelock.mjs` (24)
-and `fuzz.mjs` (14
-properties) were executed in this environment — 425 assertions, 14 properties, 15 refuted claims and a 220-tick agent run —
-and every number in this document comes from those runs.
+`glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `forge.mjs`
+(73 Solidity tests), `gas.mjs`, `verify.mjs` in both storage modes (122 packed / 121
+raw), `verify-pool.mjs` (62), `verify-vault.mjs` (97), `verify-kernel.mjs` (36),
+`verify-premises.mjs` (29), `verify-timelock.mjs` (24) and `fuzz.mjs` (14 properties)
+were executed in this environment — 498 assertions and tests, 14 properties, 15
+refuted claims and a 220-tick agent run — and every number in this document comes
+from those runs.
 
-`forge test` was **not** executed: Foundry's installer is unreachable from this
-session, and so are GitHub, codeload and the crates.io API, so there is no route to it.
-The Foundry suite and the deploy script were type-checked against the compiler with a
-`forge-std` stub, so they compile, but they have not been run.
+`forge test` itself was **not** executed: Foundry's installer is unreachable from
+this session, and so are GitHub, codeload and the crates.io API, so there is no
+route to it. The 73 Solidity tests are run instead by `tools/forge.mjs`, which
+supplies a cheatcode precompile at the address `forge-std` points `vm` at and the
+VM hooks that `prank`, `expectRevert` and `warp` need. That is strictly less than
+forge — no invariant campaigns, no coverage guidance, no traces — but the
+assertions are real and they execute.
+
+They had not executed before, and the first version of that runner reported 72
+passing tests while running no EVM code at all: funding the test contract erased
+its code, so every call returned success having done nothing. A negative control —
+an assertion that must fail — is what caught it. The runner now refuses to report
+on the suite unless a probe whose entire runtime is a REVERT is observed to revert
+having burned gas, and unless every state-writing cheatcode is confirmed by reading
+the state back.
 
 The nine `testFuzz_` properties they state **are** run, by `tools/fuzz.mjs`, against
 the same contracts compiled by the same solc on the same EVM as everything else in
@@ -747,9 +825,14 @@ field never needed a network.
 supply is capped at 4096 and other contracts do read it. On an unbounded collection
 it would be the wrong call.
 
-**`tokenURI()` reads at 20.68M gas.** Comfortably inside go-ethereum's 50M `eth_call`
-cap and the 30M engineering target, but not free. `tokenURIAt(id, index)` exists so
-a client that wants one face does not pull all three.
+**`tokenURI()` reads at 19.98M gas, and `tokenURIs()` at 37.05M.** Both are inside
+the 50M `eth_call` cap that geth, erigon and reth use by default, and both are
+outside the 10M some hosted providers impose — so on a cautious provider the token
+renders nothing, and the caller is told "out of gas" rather than "ask elsewhere".
+`tokenURIAt(id, index)` exists so a client that wants one face does not pull all
+three, and `Premises` serves the identical page over ERC-5219 for 4.49M, which is
+under every cap. `tools/gas.mjs` measures all of it on every run and fails the build
+before a regression can ship.
 
 **ERC-5192 and ERC-6454 both being registered is a known smell** — two ways of asking
 whether a token can move. They are wired to one flag here, and `isTransferable()` is

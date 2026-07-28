@@ -58,16 +58,47 @@ contract Sigil {
 
     /// @dev The same six planes, in the same order, as the shader uses:
     ///      xy, xz, yz, xw, yw, zw.
+    ///
+    ///      Written out rather than driven by a table. The table was
+    ///      `uint8[2][6] memory ij = [[0,1],[0,2],...]`, a nested memory
+    ///      array literal, and it was rebuilt on every call — which is once
+    ///      per point drawn, two hundred times for a swept form, eight
+    ///      hundred for the quartet. Allocating and filling it cost more
+    ///      than the twelve multiplications it was there to index, and came
+    ///      to roughly half the gas of drawing the whole solid. With the
+    ///      indices constant the compiler folds every offset away.
+    ///
+    ///      The four coordinates are then held in locals for the duration.
+    ///      Read through the array, each of the twenty-four reads and
+    ///      twenty-four writes carries a bounds check and a memory access;
+    ///      here there are four of each, at the ends.
+    ///
+    ///      The arithmetic is unchanged: same planes, same order, same
+    ///      truncation. All 144 drawings the collection can produce were
+    ///      captured before and after and compared byte for byte.
     function _turn(int256[4] memory v, Rot memory r) private pure returns (int256[4] memory) {
-        uint8[2][6] memory ij = [[0, 1], [0, 2], [1, 2], [0, 3], [1, 3], [2, 3]];
-        for (uint256 p; p < 6; ++p) {
-            uint8 i = ij[p][0];
-            uint8 j = ij[p][1];
-            int256 a = v[i];
-            int256 b = v[j];
-            v[i] = (r.c[p] * a - r.s[p] * b) / ONE;
-            v[j] = (r.s[p] * a + r.c[p] * b) / ONE;
-        }
+        int256 x = v[0];
+        int256 y = v[1];
+        int256 z = v[2];
+        int256 w = v[3];
+        int256 c;
+        int256 s;
+        int256 a;
+
+        c = r.c[0]; s = r.s[0]; a = x;                  // xy
+        x = (c * a - s * y) / ONE;  y = (s * a + c * y) / ONE;
+        c = r.c[1]; s = r.s[1]; a = x;                  // xz
+        x = (c * a - s * z) / ONE;  z = (s * a + c * z) / ONE;
+        c = r.c[2]; s = r.s[2]; a = y;                  // yz
+        y = (c * a - s * z) / ONE;  z = (s * a + c * z) / ONE;
+        c = r.c[3]; s = r.s[3]; a = x;                  // xw
+        x = (c * a - s * w) / ONE;  w = (s * a + c * w) / ONE;
+        c = r.c[4]; s = r.s[4]; a = y;                  // yw
+        y = (c * a - s * w) / ONE;  w = (s * a + c * w) / ONE;
+        c = r.c[5]; s = r.s[5]; a = z;                  // zw
+        z = (c * a - s * w) / ONE;  w = (s * a + c * w) / ONE;
+
+        v[0] = x; v[1] = y; v[2] = z; v[3] = w;
         return v;
     }
 
@@ -174,6 +205,11 @@ contract Sigil {
 
     /*───────────────────── the swept forms ─────────────────────*/
 
+    /// @dev Constants, not locals: the step count is an array size below,
+    ///      and a memory array's length has to be known at compile time.
+    uint256 private constant RINGS = 8;
+    uint256 private constant STEPS = 24;
+
     /// @dev Products of two circles. The duocylinder's ridge and the Clifford
     ///      torus are the same surface at different radii; the tiger and the
     ///      ditorus put a third circle on top of it.
@@ -184,25 +220,33 @@ contract Sigil {
             form == 5 ? (ONE * 9 / 10, ONE * 6 / 10, ONE * 25 / 100)       // tiger
                       : (ONE * 9 / 10, ONE * 4 / 10, ONE * 18 / 100);      // ditorus
 
-        uint256 RINGS = 8;
-        uint256 STEPS = 24;
+        /*  The inner angle depends only on k, and the ring loop walks the
+            same twenty-five values of k eight times over. Evaluated in
+            place that is four hundred series evaluations to produce fifty
+            distinct numbers. Hoisted, it is fifty.                       */
+        int256[STEPS + 1] memory ca;
+        int256[STEPS + 1] memory sa;
+        for (uint256 k; k <= STEPS; ++k) {
+            int256 a = (Trig.TWO_PI * int256(k)) / int256(STEPS);
+            ca[k] = Trig.cos(a);
+            sa[k] = Trig.sin(a);
+        }
 
         for (uint256 ring; ring < RINGS; ++ring) {
             int256 b = (Trig.TWO_PI * int256(ring)) / int256(RINGS);
             int256 cb = Trig.cos(b);
             int256 sb = Trig.sin(b);
-            for (uint256 k; k <= STEPS; ++k) {
-                int256 a = (Trig.TWO_PI * int256(k)) / int256(STEPS);
-                int256 ca = Trig.cos(a);
-                int256 sa = Trig.sin(a);
 
-                // a ring of radius r1 in the xy plane, carried around the zw
-                // plane at radius r2, thickened by r3 out of the b direction
-                int256 rr = r1 + (r3 * cb) / ONE;
-                int256 ss = r2 + (r3 * sb) / ONE;
+            // a ring of radius r1 in the xy plane, carried around the zw
+            // plane at radius r2, thickened by r3 out of the b direction
+            int256 rr = r1 + (r3 * cb) / ONE;
+            int256 ss = r2 + (r3 * sb) / ONE;
+            int256 pz = (ss * cb) / ONE;
+            int256 pw = (ss * sb) / ONE;
+
+            for (uint256 k; k <= STEPS; ++k) {
                 int256[4] memory v = [
-                    (rr * ca) / ONE, (rr * sa) / ONE,
-                    (ss * cb) / ONE, (ss * sb) / ONE
+                    (rr * ca[k]) / ONE, (rr * sa[k]) / ONE, pz, pw
                 ];
                 out = abi.encodePacked(out, k == 0 ? "M" : "L", _pt(v, r));
             }
