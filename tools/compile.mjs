@@ -40,7 +40,21 @@ export function compile({ quiet = false, dirs = ["src"] } = {}) {
     }
   };
 
+  /* remappings.txt, honoured the same way forge honours it, so a path that
+     resolves for `forge build` resolves here too */
+  const remaps = fs.existsSync(path.join(ROOT, "remappings.txt"))
+    ? fs.readFileSync(path.join(ROOT, "remappings.txt"), "utf8")
+        .split("\n").map((l) => l.trim()).filter((l) => l.includes("="))
+        .map((l) => { const i = l.indexOf("="); return [l.slice(0, i), l.slice(i + 1)]; })
+    : [];
+
   const findImport = (p) => {
+    for (const [from, to] of remaps) {
+      if (p.startsWith(from)) {
+        const full = path.join(ROOT, to + p.slice(from.length));
+        if (fs.existsSync(full)) return { contents: fs.readFileSync(full, "utf8") };
+      }
+    }
     for (const base of ["", "src/", "src/lib/", "src/interfaces/"]) {
       const full = path.join(ROOT, base, p);
       if (fs.existsSync(full)) return { contents: fs.readFileSync(full, "utf8") };

@@ -40,18 +40,34 @@ library Trig {
         if (x > PI) { x -= PI; neg = true; }        // sin(π+t) = −sin(t)
         if (x > HALF_PI) x = PI - x;                // sin(π−t) =  sin(t)
 
-        // Taylor, folding by ONE at each step so nothing overflows
+        /*  Taylor, folding by ONE at each step so nothing overflows.
+
+            Six terms, not four. Four left sin(π/2) reading 1.000003543 —
+            3.5 ppm high, and high in the worst possible place, since the
+            argument closest to π/2 after folding is where the truncated
+            series overshoots most. The test asserting 1e9 ± 200 had never
+            been executed, so the drift sat there unmeasured. Two more
+            terms cost two multiply-divide pairs and bring the worst error
+            anywhere on the circle to 3 parts in 1e9.
+
+            The identity that matters downstream is sin²+cos²=1: at four
+            terms it drifted by ~7 ppm, which is a rotation that quietly
+            resizes the solid as it turns.                                */
         int256 x2 = (x * x) / ONE;
         int256 term = x;                 // x
         int256 acc = term;
 
         term = (term * x2) / ONE / 6;                    // x³/3!
         acc -= term;
-        term = (term * x2) / ONE / 20;                   // x⁵/5!  (÷6·20 = ÷120)
+        term = (term * x2) / ONE / 20;                   // x⁵/5!   (÷6·20 = ÷120)
         acc += term;
-        term = (term * x2) / ONE / 42;                   // x⁷/7!  (÷120·42 = ÷5040)
+        term = (term * x2) / ONE / 42;                   // x⁷/7!   (÷120·42 = ÷5040)
         acc -= term;
-        term = (term * x2) / ONE / 72;                   // x⁹/9!  (÷5040·72 = ÷362880)
+        term = (term * x2) / ONE / 72;                   // x⁹/9!   (÷5040·72 = ÷362880)
+        acc += term;
+        term = (term * x2) / ONE / 110;                  // x¹¹/11! (·110 = ÷39916800)
+        acc -= term;
+        term = (term * x2) / ONE / 156;                  // x¹³/13! (·156 = ÷6227020800)
         acc += term;
 
         return neg ? -acc : acc;

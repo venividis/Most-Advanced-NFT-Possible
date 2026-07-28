@@ -410,8 +410,16 @@ contract IpseityTest is Test {
 
         vm.prank(alice);
         token.sealKernel(id, hashes, bytes32(uint256(1)));
+        // cloning is minting, and it is priced like minting. It was free
+        // once, which made the supply cap decorative: a holder could clone
+        // their own token without limit and pay nothing for any of them.
         vm.prank(alice);
-        uint256 child = token.cloneWithKernel(bob, id, abi.encodePacked(h1, h1, bytes32(uint256(3))));
+        vm.expectRevert(Ipseity.Underpaid.selector);
+        token.cloneWithKernel(bob, id, abi.encodePacked(h1, h1, bytes32(uint256(3))));
+
+        vm.prank(alice);
+        uint256 child = token.cloneWithKernel{value: 0.01 ether}(
+            bob, id, abi.encodePacked(h1, h1, bytes32(uint256(3))));
 
         assertEq(token.ownerOf(child), bob);
         assertEq(token.parentOf(child), id);
@@ -478,15 +486,21 @@ contract SigilTest is Test {
 
     /*── the trigonometry the projection stands on ──*/
 
+    /// @dev Tolerances are 10 parts in 1e9, not the 200-2000 they were. The
+    ///      loose ones were never satisfied: at four Taylor terms sin(pi/2)
+    ///      read 1.000003543, and because this file had never been executed
+    ///      nothing said so. Six terms hold every point on the circle to
+    ///      within 3, so 10 is a real ceiling with margin rather than a
+    ///      number chosen to accommodate an error nobody had measured.
     function test_trig() public pure {
-        assertApproxEqAbs(Trig.sin(0), 0, 10);
-        assertApproxEqAbs(Trig.sin(Trig.HALF_PI), 1e9, 200);
-        assertApproxEqAbs(Trig.sin(Trig.PI), 0, 200);
-        assertApproxEqAbs(Trig.sin(-Trig.HALF_PI), -1e9, 200);
-        assertApproxEqAbs(Trig.cos(0), 1e9, 200);
-        assertApproxEqAbs(Trig.cos(Trig.PI), -1e9, 200);
+        assertApproxEqAbs(Trig.sin(0), 0, 10, "sin0");
+        assertApproxEqAbs(Trig.sin(Trig.HALF_PI), 1e9, 10, "sinHalfPi");
+        assertApproxEqAbs(Trig.sin(Trig.PI), 0, 10, "sinPi");
+        assertApproxEqAbs(Trig.sin(-Trig.HALF_PI), -1e9, 10, "sinNegHalfPi");
+        assertApproxEqAbs(Trig.cos(0), 1e9, 10, "cos0");
+        assertApproxEqAbs(Trig.cos(Trig.PI), -1e9, 10, "cosPi");
         // 30 degrees
-        assertApproxEqAbs(Trig.sin(523598776), 5e8, 2000);
+        assertApproxEqAbs(Trig.sin(523598776), 5e8, 10, "sin30");
     }
 
     /// @dev The identity the whole projection depends on. If sin²+cos² drifts
@@ -497,6 +511,6 @@ contract SigilTest is Test {
         int256 s = Trig.sin(x);
         int256 c = Trig.cos(x);
         int256 sum = (s * s + c * c) / 1e9;
-        assertApproxEqAbs(sum, 1e9, 2e6, "the rotation is not orthonormal");
+        assertApproxEqAbs(sum, 1e9, 100, "the rotation is not orthonormal");
     }
 }

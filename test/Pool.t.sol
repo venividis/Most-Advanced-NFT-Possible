@@ -245,7 +245,13 @@ contract PoolTest is Test {
         pool.setFee(1, 501);
     }
 
+    /// @dev The holder must be able to AFFORD the deposit, or the refusal
+    ///      comes from the token's transferFrom and the cap is never
+    ///      reached — the test then passes for a reason it does not name.
+    ///      setUp already spent 100 WAD of the holder's 1e24, so topping
+    ///      the balance up is what makes the cap the thing under test.
     function test_depositCap() public {
+        weth.mint(holder, 1e24);
         vm.prank(holder);
         vm.expectRevert(Pool.DepositCap.selector);
         pool.deposit(1, CAP, 0);
