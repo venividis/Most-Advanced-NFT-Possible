@@ -85,6 +85,8 @@ interface IPoolRead {
     function paused() external view returns (bool);
     function pendingCurve(uint256 id)
         external view returns (bool pending, uint256 atCurve, uint256 atArtwork);
+    function openCount() external view returns (uint256);
+    function openIds(uint256 from, uint256 count) external view returns (uint256[] memory);
 }
 
 interface ILeaseRead {

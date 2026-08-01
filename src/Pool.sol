@@ -299,6 +299,58 @@ contract Pool {
         pendingAdmin = address(0);
     }
 
+    /*═══════════════════ which markets exist ═══════════════════*/
+
+    /*  Membership is exactly `marketOf[id].open`, and it changes in exactly
+        two places, so it can be enumerated for the cost of one push and one
+        swap-and-pop.
+
+        Without this the only way to find markets is to walk token ids, and
+        a collection capped at 4096 with three markets on it — on tokens
+        3000, 3500 and 4000 — is a directory that shows nothing for its
+        first hundred and twenty pages. A reader concludes there is no
+        market anywhere. That is not a slow answer, it is a wrong one.
+
+        Order is not stable: closing a market moves the last entry into its
+        place, so a reader paging through while someone closes one can miss
+        an entry. That is the standard cost of swap-and-pop against a linked
+        list, it is worth it here, and it is written down rather than
+        discovered.                                                        */
+    uint256[] private _openMarkets;
+    /// @dev index + 1; zero means absent
+    mapping(uint256 => uint256) private _openAt;
+
+    function openCount() external view returns (uint256) {
+        return _openMarkets.length;
+    }
+
+    /// @notice A window of the ids that have an open market, in no
+    ///         particular order.
+    function openIds(uint256 from, uint256 count)
+        external view returns (uint256[] memory ids)
+    {
+        uint256 len = _openMarkets.length;
+        if (from >= len) return new uint256[](0);
+        if (from + count > len) count = len - from;
+        ids = new uint256[](count);
+        for (uint256 i; i < count; ++i) ids[i] = _openMarkets[from + i];
+    }
+
+    function _remember(uint256 id) private {
+        _openMarkets.push(id);
+        _openAt[id] = _openMarkets.length;
+    }
+
+    function _forget(uint256 id) private {
+        uint256 at = _openAt[id];
+        if (at == 0) return;
+        uint256 last = _openMarkets[_openMarkets.length - 1];
+        _openMarkets[at - 1] = last;
+        _openAt[last] = at;
+        _openMarkets.pop();
+        delete _openAt[id];
+    }
+
     /*═══════════════════ the market ═══════════════════*/
 
     function openMarket(uint256 id, address base, address quote, uint16 feeBps)
@@ -320,6 +372,7 @@ contract Pool {
         m.open = true;
         m.curveWord = collection.sectionOf(id);
         _reanchor(m);
+        _remember(id);
         emit MarketOpened(id, base, quote, feeBps);
         emit CurveSynced(id, m.curveWord, Curve.concentration(m.curveWord));
     }
@@ -334,6 +387,7 @@ contract Pool {
         _unbonded(m);
         if (m.rBase != 0 || m.rQuote != 0) revert MarketNotEmpty();
         delete marketOf[id];
+        _forget(id);
         emit MarketClosed(id);
     }
 

@@ -80,6 +80,25 @@ await c.exec(pool, "openMarket(uint256,address,address,uint16)", [1, weth, usdc,
 await c.exec(pool, "deposit(uint256,uint256,uint256)",
   [1, 40n * 10n ** 18n, 120_000n * 10n ** 6n]);
 
+/*  A second and third market, so the picker has something to pick. They
+    are on later tokens on purpose: the directory walks the pool's own list
+    now, and a reader should be able to see that it finds them.          */
+const dai = await mk20("Dai Stablecoin", "DAI", 18);
+const wbtc = await mk20("Wrapped Bitcoin", "WBTC", 8);
+for (const t of [2, 3]) {
+  await c.exec(weth, "mint(address,uint256)", [c.from.toString(), 10n ** 22n]);
+}
+await c.exec(dai, "mint(address,uint256)", [c.from.toString(), 10n ** 24n]);
+await c.exec(wbtc, "mint(address,uint256)", [c.from.toString(), 10n ** 12n]);
+await c.exec(dai, "approve(address,uint256)", [pool, 1n << 255n]);
+await c.exec(wbtc, "approve(address,uint256)", [pool, 1n << 255n]);
+await c.exec(pool, "openMarket(uint256,address,address,uint16)", [2, weth, dai, 5]);
+await c.exec(pool, "deposit(uint256,uint256,uint256)",
+  [2, 12n * 10n ** 18n, 36_000n * 10n ** 18n]);
+await c.exec(pool, "openMarket(uint256,address,address,uint16)", [3, wbtc, usdc, 100]);
+await c.exec(pool, "deposit(uint256,uint256,uint256)",
+  [3, 3n * 10n ** 8n, 200_000n * 10n ** 6n]);
+
 await c.exec(nft, "setLeaseAgent(uint256,address)", [1, lease]);
 await c.exec(lease, "list(uint256,uint128,uint32,uint32)", [1, 10n ** 16n, 1, 30]);
 
@@ -94,6 +113,7 @@ const pages = [
   [["token", "1", "vault"], "token-1-vault.html", "the two hands"],
   [["token", "1", "sigil.svg"], "token-1-sigil.svg", "the still"],
   [["open"], "open.html", "open markets"],
+  [["assets"], "assets.html", "what is traded here"],
   [["token", "1", "services.json"], "token-1-services.json", "machine-readable"],
   [["services.json"], "services.json", "the directory, machine-readable"]
 ];
@@ -109,6 +129,7 @@ for (const [route, file, what] of pages) {
     body = body
       .replace(/href="\/"/g, 'href="index.html"')
       .replace(/href="\/open"/g, 'href="open.html"')
+      .replace(/href="\/assets"/g, 'href="assets.html"')
       .replace(/href="\/services\.json"/g, 'href="services.json"')
       .replace(/(href|src)="\/token\/(\d+)\/services\.json"/g, '$1="token-$2-services.json"')
       .replace(/(href|src)="\/token\/(\d+)\/sigil\.svg"/g, '$1="token-$2-sigil.svg"')

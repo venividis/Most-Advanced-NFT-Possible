@@ -66,6 +66,10 @@ contract Chrome {
         "td{padding:.4rem .6rem .4rem 0;border-top:1px solid #141a28}"
         "input{background:#0c0f16;border:1px solid #232c42;border-radius:.35rem;color:#dbe4f5;"
         "font:13px ui-monospace,monospace;padding:.45rem .6rem;width:100%;max-width:22rem}"
+        "select{background:#0e131d;border:1px solid #24304a;border-radius:.5rem;"
+        "color:#eaf1ff;font:15px ui-sans-serif,system-ui,sans-serif;padding:.55rem .7rem;"
+        "width:100%;margin-top:.15rem}"
+        "select:focus{outline:none;border-color:#2f3f61}"
         "label{display:block;color:#6c7689;font-size:.78rem;letter-spacing:.08em;"
         "text-transform:uppercase;margin:.7rem 0 .25rem}"
         "button{background:#16203a;border:1px solid #2a3550;border-radius:.4rem;color:#cfe3ff;"
@@ -162,7 +166,8 @@ contract Chrome {
         return string.concat(
             "<nav>",
             _tab("/", "index", here == 0),
-            _tab("/open", "open markets", here == 7),
+            _tab("/open", "markets", here == 7),
+            _tab("/assets", "assets", here == 8),
             _tab("/services.json", "json", here == 6),
             "</nav>"
         );

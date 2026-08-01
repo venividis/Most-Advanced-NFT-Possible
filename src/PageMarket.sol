@@ -40,6 +40,11 @@ contract PageMarket {
     /// @dev Twenty-four rows, three reads each, roughly 1M gas of `eth_call`.
     uint256 public constant PAGE = 24;
 
+    /// @dev How many markets the picker offers before pointing at the
+    ///      directory. A `<select>` with four thousand entries is not a
+    ///      choice, it is a wall.
+    uint256 public constant PICK = 40;
+
     constructor(IHub hub, IChrome chrome, IPoolRead pool, IDesk desk) {
         HUB = hub;
         CHROME = chrome;
@@ -66,11 +71,60 @@ contract PageMarket {
             CHROME.nav(id, 3),
             CHROME.tabs(t, 0),
             DESK.config(id),
+            _picker(id),
             m.open ? _card(m) : _shut(t),
             m.open ? _facts(id, m) : "",
             DESK.core(),
             m.open ? DESK.swap() : "",
             CHROME.foot(msg.sender, block.chainid)
+        );
+    }
+
+    /*  The nearest honest thing to Uniswap's token dropdown.
+
+        Uniswap's is a token *list* — a JSON file fetched from tokenlists.org
+        over HTTP or IPFS — sitting in front of a router that finds a path
+        across thousands of pools. Neither exists here and neither should:
+        fetching a hosted list breaks the one property this whole collection
+        is built on, and a dropdown offering ten thousand tokens of which
+        four are tradeable is not a convenience, it is a lie told four
+        thousand nine hundred and ninety-six times.
+
+        What a market here has is one pair, fixed by its holder when they
+        opened it. So the choice a person actually has is not "which token"
+        but "which market", and that is a list the chain can answer
+        completely: every id with an open market, enumerated by the pool
+        itself. Everything offered here can be traded, because it was read
+        from the thing that would execute the trade.                      */
+    function _picker(uint256 id) private view returns (string memory) {
+        uint256 total = POOL.openCount();
+        if (total == 0) return "";
+        uint256[] memory ids = POOL.openIds(0, PICK);
+        string memory opts;
+        for (uint256 i; i < ids.length; ++i) {
+            (address b, address q,,,,,,,,,,) = POOL.market(ids[i]);
+            opts = string.concat(
+                opts, "<option value=\"", ids[i].str(), "\"",
+                ids[i] == id ? " selected" : "", ">#", ids[i].str(), " \xc2\xb7 ",
+                Web.symbolOf(b), " / ", Web.symbolOf(q), "</option>"
+            );
+        }
+        return string.concat(
+            "<div class=app style=\"margin-bottom:.6rem;padding:.75rem 1rem\">"
+            "<div class=lbl><span>market</span><span>", total.str(),
+            total == 1 ? " open" : " open", "</span></div>"
+            "<select id=mkt>", opts, "</select>",
+            total > PICK
+                ? string.concat("<p class=e style=\"margin:.5rem 0 0\">Showing ",
+                    PICK.str(), " of ", total.str(),
+                    ". <a href=\"/open\">The directory has all of them</a> &mdash; and "
+                    "unlike a hosted token list, everything in it can actually be "
+                    "traded, because it was read from the pool that would execute "
+                    "the trade.</p>")
+                : "<p class=e style=\"margin:.5rem 0 0\">Every market this collection "
+                  "has, read from the pool itself. One pair each, chosen by the token's "
+                  "holder. <a href=\"/assets\">Which assets are traded &rarr;</a></p>",
+            "</div>"
         );
     }
 
@@ -181,27 +235,23 @@ contract PageMarket {
     /*═══════════════════ /open ═══════════════════*/
 
     function open(uint256 page) external view returns (string memory) {
-        uint256 supply = HUB.totalSupply();
-        uint256 from = page * PAGE + 1;
-        uint256 to = from + PAGE - 1;
-        if (to > supply) to = supply;
+        uint256 total = POOL.openCount();
+        uint256[] memory ids = POOL.openIds(page * PAGE, PAGE);
 
         string memory rows;
-        uint256 found;
-        for (uint256 id = from; id <= to && id <= supply; ++id) {
-            (address b, address q, uint112 rb, uint112 rq, uint16 fee, bool isOpen,,,,, uint256 n,)
-                = POOL.market(id);
-            if (!isOpen) continue;
-            ++found;
+        for (uint256 i; i < ids.length; ++i) {
+            (address b, address q, uint112 rb, uint112 rq, uint16 fee,,,,,, uint256 n,)
+                = POOL.market(ids[i]);
+            string memory t = ids[i].str();
             rows = string.concat(
                 rows,
-                "<tr><td><a href=\"/token/", id.str(), "/market\">#", id.str(), "</a></td>",
+                "<tr><td><a href=\"/token/", t, "/market\">#", t, "</a></td>",
                 "<td>", Web.symbolOf(b), " / ", Web.symbolOf(q), "</td>",
                 "<td>", Web.amount(rb, Web.decimalsOf(b), 3), " / ",
                         Web.amount(rq, Web.decimalsOf(q), 3), "</td>",
                 "<td>", Web.amount(uint256(fee), 2, 2), "%</td>",
                 "<td>", n.str(), "</td>",
-                "<td><a href=\"/token/", id.str(), "/market\">trade &rarr;</a></td></tr>"
+                "<td><a href=\"/token/", t, "/market\">trade &rarr;</a></td></tr>"
             );
         }
 
@@ -209,34 +259,106 @@ contract PageMarket {
             CHROME.head("IPSEITY \xc2\xb7 open markets"),
             CHROME.navTop(7),
             "<h1>open for business</h1>"
-            "<p class=e>Tokens whose holders have opened a market and put inventory "
-            "behind it. Anyone may trade against any of these; the fee goes to the "
-            "token.</p>",
-            found == 0
-                ? "<p class=e>No market is open in this range.</p>"
+            "<p class=e>Every token whose holder has opened a market, read from the "
+            "pool's own list rather than by walking token ids &mdash; which is the "
+            "difference between a directory and a guess. Anyone may trade against any "
+            "of these; the fee goes to the token.</p>"
+            "<p><a class=g href=\"/assets\">which assets are traded &rarr;</a></p>",
+            total == 0
+                ? "<p class=e>No market is open anywhere in the collection yet.</p>"
                 : string.concat(
                     "<table><tr><th>token</th><th>pair</th><th>inventory</th>"
                     "<th>fee</th><th>trades</th><th></th></tr>", rows, "</table>"),
-            _pager(page, from, to, supply, found),
+            _pager(page, ids.length, total),
             CHROME.foot(msg.sender, block.chainid)
+        );
+    }
+
+    /*═══════════════════ /assets ═══════════════════*/
+
+    /*  The token list, derived rather than fetched.
+
+        An asset is on it because a market here trades it. That is a
+        stronger property than any hosted list can offer: nothing appears
+        that cannot be traded, nothing is curated by anybody, and there is
+        no file on a server whose disappearance empties the dropdown.    */
+    function assets(uint256 page) external view returns (string memory) {
+        uint256 total = POOL.openCount();
+        uint256[] memory ids = POOL.openIds(page * PAGE, PAGE);
+
+        address[] memory seen = new address[](ids.length * 2);
+        uint256 n;
+        string memory rows;
+        for (uint256 i; i < ids.length; ++i) {
+            (address b, address q,,,,,,,,,,) = POOL.market(ids[i]);
+            for (uint256 k; k < 2; ++k) {
+                address a = k == 0 ? b : q;
+                bool dup;
+                for (uint256 j; j < n; ++j) if (seen[j] == a) { dup = true; break; }
+                if (dup) continue;
+                seen[n++] = a;
+                rows = string.concat(rows, _assetRow(a, ids));
+            }
+        }
+
+        return string.concat(
+            CHROME.head("IPSEITY \xc2\xb7 assets"),
+            CHROME.navTop(8),
+            "<h1>what is traded here</h1>"
+            "<p class=e>Every ERC-20 that some token's market actually trades. This is "
+            "not a curated list and it is not fetched from anywhere &mdash; an asset is "
+            "on it because a market here holds it, which is a stronger claim than any "
+            "hosted token list can make. Nothing appears that cannot be traded.</p>",
+            n == 0 ? "<p class=e>Nothing is traded yet.</p>"
+                   : string.concat("<table><tr><th>asset</th><th>address</th>"
+                                   "<th>decimals</th><th>markets</th></tr>", rows,
+                                   "</table>"),
+            _pager(page, ids.length, total),
+            CHROME.foot(msg.sender, block.chainid)
+        );
+    }
+
+    function _assetRow(address a, uint256[] memory ids) private view returns (string memory) {
+        string memory where;
+        uint256 count;
+        for (uint256 i; i < ids.length; ++i) {
+            (address b, address q,,,,,,,,,,) = POOL.market(ids[i]);
+            if (b != a && q != a) continue;
+            ++count;
+            if (count <= 6) {
+                where = string.concat(where, count == 1 ? "" : " ",
+                    "<a href=\"/token/", ids[i].str(), "/market\">#", ids[i].str(),
+                    "</a>");
+            }
+        }
+        if (count > 6) where = string.concat(where, " <span class=m>and ",
+            (count - 6).str(), " more</span>");
+        return string.concat(
+            "<tr><td>", Web.symbolOf(a), "</td>",
+            "<td><code>", LibNum.hexAddr(a), "</code></td>",
+            "<td>", uint256(Web.decimalsOf(a)).str(), "</td>",
+            "<td>", where, "</td></tr>"
         );
     }
 
     /// @dev Says what it looked at. A directory that quietly stops at
     ///      twenty-four reads like a directory of everything there is.
-    function _pager(uint256 page, uint256 from, uint256 to, uint256 supply, uint256 found)
+    function _pager(uint256 page, uint256 shown, uint256 total)
         private pure returns (string memory)
     {
+        uint256 from = page * PAGE;
         return string.concat(
-            "<p class=e>Looked at tokens ", from.str(), " to ", to.str(), " of ",
-            supply.str(), " issued, and found ", found.str(), " open. This page reads ",
-            PAGE.str(), " markets at a time because reading every one of them in a "
-            "single <code>eth_call</code> is a call no node will finish.</p><p>",
+            "<p class=e>Showing ", shown.str(), " of ", total.str(),
+            total == 1 ? " open market" : " open markets", ", starting at ", from.str(),
+            ". This page reads ", PAGE.str(), " at a time because reading every one of "
+            "them in a single <code>eth_call</code> is a call no node will finish. "
+            "Closing a market moves the last entry into its place, so an entry can be "
+            "missed by a reader paging through while that happens.</p><p>",
             page > 0
                 ? string.concat("<a class=g href=\"/open/", (page - 1).str(),
                                 "\">&larr; earlier</a>")
                 : "",
-            to < supply
+            from + shown < total
                 ? string.concat("<a class=g href=\"/open/", (page + 1).str(),
                                 "\">later &rarr;</a>")
                 : "",

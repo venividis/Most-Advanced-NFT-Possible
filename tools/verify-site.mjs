@@ -235,7 +235,11 @@ const dir = await GET(["open"]);
 eq("200", dir.status, 200);
 ok("it renders", dir.body.includes("open for business"));
 ok("no raw script", !dir.body.includes("<script>alert"));
-ok("it says what window it looked at", /Looked at tokens \d+ to \d+/.test(dir.body));
+ok("it says how much of the real list it showed",
+   /Showing \d+ of \d+ open market/.test(dir.body),
+   "the directory no longer states its window");
+ok("and warns that swap-and-pop can move an entry under a reader",
+   /Closing a market moves the last entry/.test(dir.body));
 console.log(`      ${dir.body.length} bytes`);
 
 /*════════════════ 3 · every route answers ════════════════*/
@@ -250,6 +254,8 @@ const routes = [
   [["token", "1", "faces"], "text/html", "/token/1/faces"],
   [["token", "1", "market"], "text/html", "/token/1/market"],
   [["token", "1", "pool"], "text/html", "/token/1/pool"],
+  [["assets"], "text/html", "/assets"],
+  [["assets", "0"], "text/html", "/assets/0"],
   [["token", "1", "rent"], "text/html", "/token/1/rent"],
   [["token", "1", "vault"], "text/html", "/token/1/vault"],
   [["token", "1", "services.json"], "application/json", "/token/1/services.json"],
@@ -424,6 +430,64 @@ const pl = await GET(["token", "1", "pool"]);
     would be invisible to every assertion above — the page would render,
     the bytes would be right, and nothing on it would work. So the script
     blocks are parsed.                                                    */
+/*════════════ the picker: which markets can actually be traded ════════════*/
+head("the market picker, and the token list that is not fetched");
+{
+  const total = Number(decUint(await c.read(pool, "openCount()")));
+  ok("the pool enumerates its own open markets", total > 0, `openCount() = ${total}`);
+
+  /*  The defect this replaced: /open walked token IDS, so a collection with
+      markets only on high ids showed an empty first page and a reader
+      concluded there were none. Prove the directory finds one that a scan
+      of the first window would have missed.                              */
+  while (Number(decUint(await c.read(nft, "totalSupply()"))) < 40) {
+    await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+  }
+  const far = Number(decUint(await c.read(nft, "totalSupply()")));
+  const dai = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
+    w(0xa0) + w(0xe0) + w(18) + w(0) + w(0) + encS("Dai") + encS("DAI"), "DAI");
+  await c.exec(pool, "openMarket(uint256,address,address,uint16)", [far, weth, dai, 30]);
+
+  const dir = await GET(["open"]);
+  ok(`a market on token #${far} appears on the first page of the directory`,
+     dir.body.includes(`/token/${far}/market`),
+     "walking token ids would have needed a page for every 24 of them");
+
+  const swapPage = await GET(["token", "1", "market"]);
+  ok("the swap card carries a market picker", swapPage.body.includes("id=mkt"));
+  const opts = [...swapPage.body.matchAll(/<option value="(\d+)"/g)].map((m) => m[1]);
+  ok("listing markets the pool says exist", opts.length > 0, "no options rendered");
+  ok("including the far one", opts.includes(String(far)), opts.join(","));
+  ok("and marking the one you are on", swapPage.body.includes("selected"));
+
+  /*  The property a hosted token list cannot offer: everything offered is
+      tradeable, because it was read from the thing that would trade it.  */
+  let allOpen = true;
+  for (const o of opts) {
+    const mkt = await c.read(pool, "market(uint256)", [Number(o)]);
+    if (decUint(mkt, 5) !== 1n) { allOpen = false; break; }
+  }
+  ok("every market it offers is genuinely open", allOpen,
+     "the picker listed a market the pool says is closed");
+
+  const as = await GET(["assets"]);
+  eq("the asset index answers", as.status, 200);
+  ok("naming what is actually traded", as.body.includes("WETH") && as.body.includes("DAI"));
+  ok("with the address, so nothing has to be trusted", as.body.includes(weth.slice(2, 12)));
+  ok("and it is derived, not fetched",
+     !/tokenlist|ipfs|https?:\/\//i.test(as.body.replace(/www\.w3\.org/g, "")));
+
+  /*  Closing a market has to remove it, or the picker offers a market that
+      cannot be traded — which is the exact failure a fetched list has.   */
+  await c.exec(pool, "closeMarket(uint256)", [far]);
+  eq("closing one drops it from the count",
+     Number(decUint(await c.read(pool, "openCount()"))), total + 1 - 1);
+  const dir2 = await GET(["open"]);
+  ok("and from the directory",
+     !dir2.body.includes(`href="/token/${far}/market"`),
+     "a closed market is still being offered");
+}
+
 head("the app parses as JavaScript");
 const scriptsOf = (body) =>
   [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);

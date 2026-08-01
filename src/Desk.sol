@@ -243,6 +243,11 @@ contract Desk {
         "const chainOk=async()=>{const p=pv();if(!p)return false;"
         "try{return BigInt(await p.request({method:'eth_chainId'}))===BigInt(D.chain)}catch(e){return false}};"
         // the plain buttons the vault and index pages still use
+        // the market picker: choosing one goes there. A <select> that needs
+        // an ABI coder to change which pair you are looking at would be an
+        // odd thing to build when the pair is part of the URL.
+        "const M=$('mkt');if(M)M.addEventListener('change',()=>{"
+        "location.href='/token/'+M.value+'/market'});"
         "document.querySelectorAll('[data-call]').forEach(el=>el.addEventListener('click',async()=>{"
         "try{say('\\u2026');let d=el.dataset.call;"
         "for(const f of (el.dataset.args||'').split(',').filter(Boolean)){"

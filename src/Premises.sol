@@ -13,6 +13,7 @@ interface IPageToken {
 interface IPageMarket {
     function market(uint256 id) external view returns (string memory);
     function open(uint256 page) external view returns (string memory);
+    function assets(uint256 page) external view returns (string memory);
 }
 
 interface IPagePool {
@@ -69,7 +70,8 @@ interface IPageManifest {
   ERC-4804 / ERC-6860 client reaches it over `web3://` with no DNS:
 
       /                          the collection, and what it offers
-      /open  /open/<n>           every token currently open for business
+      /open  /open/<n>           every market that exists, from the pool's own list
+      /assets  /assets/<n>        every asset any of those markets trades
       /services.json  /services.json/<n>    the same, for a program
       /token/<id>                one token's counter
       /token/<id>/live           the instrument, on a real origin
@@ -182,6 +184,17 @@ contract Premises {
                 page = v;
             }
             return (200, P_MARKET.open(page), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "assets")) {
+            if (n > 2) return _notFound();
+            uint256 page;
+            if (n == 2) {
+                (bool ok, uint256 v) = _toUint(resource[1]);
+                if (!ok) return _notFound();
+                page = v;
+            }
+            return (200, P_MARKET.assets(page), _headers(HTML));
         }
 
         if (_eq(resource[0], "services.json")) {

@@ -689,6 +689,26 @@ liquidity field and asserting exactly 1500000000000000000 base units arrived
 at the pool.
 → `tools/verify-site.mjs` · driving the holder's side
 
+**77. Everything the picker offers can be traded.**
+A token dropdown fetched from a hosted list offers tokens whose presence says
+nothing about whether a market exists — the list and the pool are two sources
+of truth and they disagree by construction. Here there is one: the pool
+enumerates the ids with an open market, the picker renders that, and `/assets`
+derives the token list from what those markets actually hold. The suite opens
+a market, checks every option the picker offers is open according to the pool,
+then closes one and checks it disappears from both the count and the
+directory.
+→ `tools/verify-site.mjs` · the market picker
+
+**78. The directory finds a market wherever it is.**
+It used to walk token ids, so a collection with markets only on high ids
+showed an empty first page and a reader concluded there were none — a hundred
+and twenty pages of nothing before the first entry. `Pool` keeps an
+enumerable set now, maintained in `openMarket` and `closeMarket`, which are
+the only two places membership changes. The suite opens a market on a token
+far past the first window and asserts it appears on page one.
+→ `src/Pool.sol` · `openCount` / `openIds` · `tools/verify-site.mjs`
+
 ---
 
 ## Known and not fixed
