@@ -156,6 +156,24 @@ export class Chain {
     await this.vm.stateManager.putAccount(a, acct);
   }
 
+  /// @notice A second actor on the same chain: same VM, same state, a
+  ///         different key.
+  /// @dev    Worth the four lines. "A renter cannot sell it" is only a
+  ///         claim about the contract when the address attempting it
+  ///         genuinely is not the holder — tested with one key and a flag,
+  ///         it is a claim about the test.
+  async as(keyHex, wei = 10n ** 22n) {
+    const other = new Chain(this.vm, hexToBytes(keyHex));
+    other.gas = this.gas;
+    await this.fund(other.from.toString(), wei);
+    return other;
+  }
+
+  async balanceOf(addrHex) {
+    const acct = await this.vm.stateManager.getAccount(createAddressFromString(addrHex));
+    return acct ? acct.balance : 0n;
+  }
+
   async send({ to = null, data = "0x", value = 0n, label = "", gasLimit = 400_000_000n }) {
     // read the nonce back from state rather than tracking it: a tx that
     // reverts still consumes one, and a tx rejected at validation does not

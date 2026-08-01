@@ -534,6 +534,58 @@ contract Ipseity is
         emit UpdateUser(id, user, expires);
     }
 
+    /*───────────────────────────────────────────────────────────────────
+      A holder who wants a *market* to rent their token out has to give
+      that market the power to set the user. ERC-721 approval can express
+      that, and it is the obvious thing to reach for, and it is wrong: an
+      approval carries `transferFrom` with it. Handing a rental contract
+      the right to sell the token in order to let it lend the token is a
+      capability an order of magnitude wider than the thing it authorises,
+      and this collection has spent its whole design arguing against
+      exactly that — the Grip has no spend function, the seal denies by
+      default, the manifest is measured rather than enumerated.
+
+      So the narrow power gets its own name. A lease agent may set the
+      user. It may not transfer, approve, commit, lock, seal, or read a
+      balance. There is no blessed singleton and no curator involvement:
+      each holder names the contract they want on their own token, and
+      naming a different one tomorrow is one transaction.
+
+      The holder keeps the last word. `setUser` is still theirs, so they
+      can end any lease an agent started at any moment — and a lease
+      market worth using will make that cost them, which is what
+      `Lease._settle` does.
+
+      Cleared on transfer, alongside the user, for the same reason: a
+      buyer inherits a token, not the seller's arrangements about it.
+    ───────────────────────────────────────────────────────────────────*/
+    mapping(uint256 => address) public leaseAgentOf;
+
+    event LeaseAgentSet(uint256 indexed id, address indexed agent);
+    error NotLeaseAgent();
+
+    /// @dev The owner, not an operator. `onlyHolder` admits ERC-721
+    ///      approvees, and an approval is revocable in one transaction
+    ///      while a lease agent named under it is not — revoking the
+    ///      approval would leave the agent standing, which is a permission
+    ///      outliving the permission that granted it. Naming who may lend
+    ///      your token is an act of ownership.
+    function setLeaseAgent(uint256 id, address agent) external {
+        address o = _ownerOf[id];
+        if (o == address(0)) revert Nonexistent();
+        if (msg.sender != o) revert NotHolder();
+        leaseAgentOf[id] = agent;
+        emit LeaseAgentSet(id, agent);
+    }
+
+    function setUserVia(uint256 id, address user, uint64 expires) external {
+        if (leaseAgentOf[id] == address(0) || msg.sender != leaseAgentOf[id]) {
+            revert NotLeaseAgent();
+        }
+        _users[id] = UserInfo(user, expires);
+        emit UpdateUser(id, user, expires);
+    }
+
     function userOf(uint256 id) public view returns (address) {
         UserInfo memory u = _users[id];
         return u.expires >= block.timestamp ? u.user : address(0);
@@ -820,6 +872,11 @@ contract Ipseity is
         if (_users[id].user != address(0)) {
             delete _users[id];
             emit UpdateUser(id, address(0), 0);
+        }
+        // nor does the standing permission to grant one
+        if (leaseAgentOf[id] != address(0)) {
+            delete leaseAgentOf[id];
+            emit LeaseAgentSet(id, address(0));
         }
 
         Stats storage s = _stats[id];

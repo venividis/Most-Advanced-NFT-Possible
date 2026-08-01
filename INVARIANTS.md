@@ -588,6 +588,84 @@ coordinates it feeds. The property is checked at fixed points and fuzzed across
 a hundred turns of the circle.
 → `test/Ipseity.t.sol` · `test_trig`, `testFuzz_pythagorean`, via `tools/forge.mjs`
 
+**68. Nothing a stranger chose can become markup on a page.**
+A market's pair is two ERC-20 addresses the holder picked, and `symbol()` on
+them returns a string that holder wrote. It matters more here than on an
+ordinary site: `/token/<id>/live` serves the instrument on this same origin,
+which is the entire reason that route exists, so a script surviving into a
+market page is script execution beside a connected wallet. The escaper is a
+whitelist — printable ASCII passes, the five HTML metacharacters become
+entities, everything else is dropped — and the suite deploys a token whose
+symbol is a script tag and asserts it arrives inert on the page, in the
+directory, and inside the JSON.
+→ `tools/verify-site.mjs` · `test/mocks/Nasty.sol` · ScriptToken
+
+**69. One hostile ERC-20 cannot take a page down, or twenty-three others with
+it.** Eight ways to answer badly are put into real markets: reverting,
+answering in `bytes32`, answering with eight kilobytes, declaring a length
+longer than the payload, claiming 200 decimals, burning every drop of gas —
+and two that hand back an ABI offset pointing megabytes past the buffer. That
+last one is the one that got through. Dereferencing an attacker-chosen offset
+before validating it costs 2,151M gas of memory expansion, charged in the
+page's own frame after the staticcall has returned, so the gas stipend on the
+call protects nothing; it killed every page listing that market and the whole
+24-token directory window containing it. The assertion is a gas bound rather
+than a status code, because at a three-billion-gas ceiling the page still
+"succeeds".
+→ `tools/verify-site.mjs` · OffsetBombToken
+
+**70. A lease agent may set the ERC-4907 user and nothing else.**
+The obvious way to let a rental market lend a token is an ERC-721 approval,
+and an approval carries `transferFrom` with it. `leaseAgentOf` is the narrow
+power under its own name: per-token, holder-set, cleared on transfer, and
+settable only by the owner rather than by an approvee — a permission granted
+under a revocable approval must not outlive it. A contract that genuinely
+holds the power tries to transfer, approve, lock, call `setUser` directly and
+name itself agent elsewhere; all five fail.
+→ `tools/verify-site.mjs` · `test/Lease.t.sol` · `test/mocks/Nasty.sol` · RogueAgent
+
+**71. Rent belongs to the token, and a lease cut short refunds the rest.**
+Fees land in a market's reserves so that selling the NFT sells the exchange;
+rent accrues the same way, so selling mid-term sells the unpaid rent with it
+and the buyer collects. A transfer clears the ERC-4907 user — correct, and
+harmless while renting was free — so rent is escrowed and vests: whole if the
+term runs out, by elapsed time if it does not. Whether it was broken is read
+off the token rather than declared, from the expiry the token still carries.
+Reading it from `userOf` instead was wrong in a way that only showed up late:
+after expiry that returns zero for an intact lease and a broken one alike, so
+a lease broken on day one vested in full to the holder the moment the term
+passed, and the renter's claim on nine undelivered days expired with it.
+→ `test/Lease.t.sol` · `tools/verify-site.mjs`
+
+**72. The holder is credited for time the contract watched pass.**
+Following from 71: the contract can see that a lease broke but not when,
+because it has no hook on transfers. So elapsed time is measured to the last
+block in which the lease was observed intact, not to the block someone got
+round to settling. `settle` is free and anyone may call it, `endLease` does it
+properly in one transaction, and the bias points the only way it can — the
+party who can end a lease is the party who has to say so to be paid for it.
+→ `test/Lease.t.sol` · `test_aHolderWhoNeverSettlesIsCreditedOnlyToTheLastLook`
+
+**73. Every route the site serves fits inside every cap, and there is one URL
+per resource.** The counter page cost 21M gas of `eth_call` while every other
+page cost 0.2M, to embed a preview a visitor cannot use — a `data:` document
+gets an opaque origin and no wallet injects into one. The still is its own
+request now and the page is 0.16M. Separately: a leaf that ignored trailing
+segments and a parser that accepted leading zeros meant one document was
+reachable at unboundedly many cacheable URLs, which is a gateway cache waiting
+to be filled with copies of one page.
+→ `tools/gas.mjs` · `tools/verify-site.mjs`
+
+**74. `resolveMode()` returns "5219", or none of the above is reachable.**
+ERC-6860 resolves a contract's mode by calling it and treating a revert as
+*auto* — in which `web3://<addr>/` is an empty call to a contract with no
+fallback and `/token/1` is a call to a method named `token`. Both revert.
+Without these four bytes the site is reachable only from a gateway that
+hard-codes ERC-5219 for the address, which is a server, which is the thing
+this contract exists not to need. It fails silently and only in a conformant
+client, which is why nothing but a spec reading found it.
+→ `tools/verify-site.mjs`
+
 ---
 
 ## Known and not fixed
@@ -684,6 +762,19 @@ stub would have been permanent.
 The hashes are permanent; whatever they hash to is not. If the payload
 disappears, the token still states what it committed to and can no longer
 demonstrate what that was. Pin it.
+
+**B6. A holder can end a lease at will, and a lazy one loses income.**
+`setUser` stays the holder's, so any lease can be ended at any moment — the
+contract makes that cost them the unelapsed rent rather than preventing it,
+which is the most it can do without taking the token hostage on the renter's
+behalf. A renter who needs certainty for the full term should rent a token
+that is bound under ERC-5192, which cannot be sold at all.
+
+The mirror of that: because breakage can be seen but not timed, a holder who
+breaks a lease and never settles is credited only to the last block anyone
+observed it running. For a long term with no interactions that can be most of
+the rent. `endLease` exists so the correct action is one transaction, and the
+rent page says so, but nothing forces it.
 
 **C. Nothing here has been audited.**
 `Pool.sol` holds other people's money and has never been reviewed by anyone. The

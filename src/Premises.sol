@@ -1,27 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {LibNum} from "./lib/LibNum.sol";
-import {Section, TokenView} from "./lib/Types.sol";
+import {IHub, IRendererDoc, ISigilDraw, IChrome} from "./interfaces/Site.sol";
+import {TokenView} from "./lib/Types.sol";
 
-interface IRendererDoc {
-    /// @dev The document before it is base64'd into a data: URI — the same
-    ///      bytes, one step earlier.
-    function document(TokenView memory v) external view returns (bytes memory);
+interface IPageToken {
+    function index() external view returns (string memory);
+    function token(uint256 id) external view returns (string memory);
+    function faces(uint256 id) external view returns (string memory);
 }
 
-interface IIpseityIndex {
-    function totalSupply() external view returns (uint256);
-    function MAX_SUPPLY() external view returns (uint256);
-    function ownerOf(uint256 id) external view returns (address);
-    function tokenURI(uint256 id) external view returns (string memory);
-    function sectionOf(uint256 id) external view returns (uint256);
-    function kernelStatus(uint256 id) external view returns (uint8);
-    function locked(uint256 id) external view returns (bool);
-    function account(uint256 id) external view returns (address);
-    function grip(uint256 id) external view returns (address);
-    function viewOf(uint256 id) external view returns (TokenView memory);
-    function renderer() external view returns (address);
+interface IPageMarket {
+    function market(uint256 id) external view returns (string memory);
+    function open(uint256 page) external view returns (string memory);
+}
+
+interface IPageServices {
+    function rent(uint256 id) external view returns (string memory);
+    function vault(uint256 id) external view returns (string memory);
+}
+
+interface IPageManifest {
+    function token(uint256 id) external view returns (string memory);
+    function index(uint256 page) external view returns (string memory);
 }
 
 /*═══════════════════════════════════════════════════════════════════════════
@@ -33,139 +34,273 @@ interface IIpseityIndex {
   client inside it, held in contract code and handed back as a `data:` URI.
   Nothing is fetched. That part was never the problem.
 
-  What was missing is somewhere to send a person who does not own one yet.
-  A front door. This is that, and it is deliberately a different kind of
-  thing from the artwork.
+  What was missing is a place a stranger can stand. Not to look at the
+  artwork — the artwork can be looked at without help — but to see that each
+  of these objects runs an exchange, rents itself out, holds a vault nobody
+  can empty, and draws any four-dimensional form it is handed, and then to
+  actually use one of those without asking anybody's permission.
 
   ── the line this contract will not cross ──
 
-  **Premises never serves the artwork.** It serves a document that *names*
-  the artwork, by emitting the token's own `data:` URI, produced on chain by
-  the same renderer the token uses. The bytes a viewer executes still come
-  out of `tokenURI`, exactly as they would if this contract had never been
-  deployed.
+  **Premises never serves the artwork through a page contract.** `/raw` and
+  `/live` are handled here, in this file, from the hub and the renderer
+  directly. Every other route delegates to a page contract, and every page
+  contract is an immutable constructor argument.
 
-  That is the whole design constraint, and it is what makes the front door
-  safe to have. If this contract is never deployed, every token renders. If
-  it is deployed and then abandoned, every token renders. If it is deployed
-  and then compromised, an attacker controls a page that links to the
-  artwork — and cannot change one byte of the artwork, because they do not
-  hold the bytes.
+  That split is the whole safety argument. The pages are the mutable-ish
+  part of the system in the only sense that matters — replacing them means
+  deploying a new Premises and pointing a name at it — and they are exactly
+  the routes where being wrong is cosmetic. The two routes where being wrong
+  would mean serving someone else's bytes as the artwork do not touch them.
 
-  Compare the arrangement this replaces in most collections: a hostname
-  compiled into immutable bytecode, one DNS record for the whole supply,
-  fetched bytes going straight into `new Function`. That is a supply-chain
-  attack with a single target, and it is fatal to a claim of permanence. The
-  answer is not a better server. The answer is that the work does not need
-  one, and the index is allowed to be ordinary because nothing depends on
-  it.
+  Even so, the honest claim is narrow: a compromised front door controls
+  pages that link to and frame the artwork, and cannot alter one byte of the
+  artwork itself, because it does not hold those bytes. If this contract is
+  never deployed, every token renders. If it is abandoned, every token
+  renders. If it is replaced, every token renders identically.
 
   ── ERC-5219: the contract is the origin ──
 
-  `request(resource, params)` is an HTTP handler written in Solidity. It
-  returns a status code, a body and headers, and an ERC-4804 / ERC-6860
-  client reaches it over `web3://` with no DNS involved:
+  `request(resource, params)` is an HTTP handler written in Solidity. An
+  ERC-4804 / ERC-6860 client reaches it over `web3://` with no DNS:
 
-      web3://<this address>/                  the index
-      web3://<this address>/token/42          one token
-      web3://<this address>/token/42/raw      that token's tokenURI, plain
-      web3://<this address>/token/42/live     the instrument, on its own origin
+      /                          the collection, and what it offers
+      /open  /open/<n>           every token currently open for business
+      /services.json  /services.json/<n>    the same, for a program
+      /token/<id>                one token's counter
+      /token/<id>/live           the instrument, on a real origin
+      /token/<id>/raw            that token's tokenURI, plain
+      /token/<id>/face/<n>       one ERC-7160 face, plain
+      /token/<id>/sigil.svg      the still, as an image
+      /token/<id>/faces          what the three faces are
+      /token/<id>/market         quote and trade against it
+      /token/<id>/rent           lease the instrument by the day
+      /token/<id>/vault          the two hands, give, draw, verify
+      /token/<id>/services.json  everything above, machine-readable
 
-  Point an ENS `contenthash` at it and a name resolves natively in any
+  Point an ENS `contenthash` here and a name resolves natively in any
   web3://-aware client. An HTTP gateway is a convenience for everyone else,
   and a convenience is exactly what it should be: when the gateway is down
-  the tokens are unaffected, which is the property the hostname-in-bytecode
-  arrangement can never have.
-
-  ── what is deliberately not here ──
-
-  No chunked file store, no SHA-256 integrity manifest, no multi-transport
-  loader, no compression codec. Those solve the problem of shipping a large
-  application over a wire and proving it arrived intact. This contract ships
-  a few kilobytes of index and proves nothing, because it asserts nothing:
-  every number on the page is one an ERC-5219 client can re-read from the
-  hub itself, and the artwork it points at carries its own guarantee.
+  the tokens are unaffected, which is the property a hostname compiled into
+  bytecode can never have.
 
 ═══════════════════════════════════════════════════════════════════════════*/
 contract Premises {
-    using LibNum for uint256;
-    using Section for uint256;
-
-    IIpseityIndex public immutable HUB;
+    IHub          public immutable HUB;
+    IChrome       public immutable CHROME;
+    IPageToken    public immutable P_TOKEN;
+    IPageMarket   public immutable P_MARKET;
+    IPageServices public immutable P_SERVICES;
+    IPageManifest public immutable P_MANIFEST;
 
     struct KeyValue { string key; string value; }
 
-    /// @dev Long, because the answer is the same until the chain changes and
-    ///      a client that caches it is a client that is not making requests.
-    string private constant CACHE = "public, max-age=60";
+    string private constant HTML = "text/html; charset=utf-8";
+    string private constant TEXT = "text/plain; charset=utf-8";
+    string private constant JSON = "application/json";
+    string private constant SVG  = "image/svg+xml";
 
-    constructor(IIpseityIndex hub) {
+    /// @dev Short, because half of what this site reports is a live balance
+    ///      and a cached market is a market that quotes last minute's price.
+    string private constant CACHE = "public, max-age=15";
+
+    constructor(
+        IHub hub,
+        IChrome chrome,
+        IPageToken pToken,
+        IPageMarket pMarket,
+        IPageServices pServices,
+        IPageManifest pManifest
+    ) {
         HUB = hub;
+        CHROME = chrome;
+        P_TOKEN = pToken;
+        P_MARKET = pMarket;
+        P_SERVICES = pServices;
+        P_MANIFEST = pManifest;
+    }
+
+    /*═══════════════════ ERC-6860 ═══════════════════*/
+
+    /// @notice Declares that this contract answers in ERC-5219 mode.
+    /// @dev    Not optional, and its absence is silent. ERC-6860 resolves
+    ///         the mode by calling this and treating a revert as "auto" —
+    ///         and in auto mode `web3://<addr>/` is an empty call to a
+    ///         contract with no fallback, and `web3://<addr>/token/1` is a
+    ///         call to a method named `token` taking a uint256. Neither
+    ///         exists here, so both revert.
+    ///
+    ///         Without these four bytes the whole claim in the header —
+    ///         that a name pointed here resolves natively in any
+    ///         web3://-aware client — is false, and the site is reachable
+    ///         only from a gateway that happens to hard-code ERC-5219 for
+    ///         this address. Which is a server, which is the thing this
+    ///         contract exists not to need.
+    function resolveMode() external pure returns (bytes32) {
+        return "5219";
     }
 
     /*═══════════════════ ERC-5219 ═══════════════════*/
 
-    /// @notice The origin. Routing, status codes and content types, decided
-    ///         on chain.
     function request(string[] memory resource, KeyValue[] memory params)
         external view
         returns (uint16 statusCode, string memory body, KeyValue[] memory headers)
     {
         params;   // no query parameters are read; the path is the whole API
 
-        if (resource.length == 0) {
-            return (200, _index(), _headers("text/html; charset=utf-8"));
+        /*  One resource, one URL. A trailing slash arrives as an empty last
+            segment, so `/token/1/` is dropped to `/token/1` rather than
+            404ing while `/token/1` succeeds; and past that, a leaf handler
+            that ignores whatever follows it would serve the same page at
+            unboundedly many addresses. Every response carries a
+            Cache-Control, so "the same page at any URL you like" is an
+            invitation to fill a gateway's cache with distinct entries for
+            one document until the real ones are evicted.                 */
+        uint256 n = resource.length;
+        if (n > 0 && bytes(resource[n - 1]).length == 0) --n;
+
+        if (n == 0) {
+            return (200, P_TOKEN.index(), _headers(HTML));
         }
 
-        if (_eq(resource[0], "token")) {
-            if (resource.length < 2) return _notFound();
+        /*───── collection-wide ─────*/
 
-            (bool ok, uint256 id) = _toUint(resource[1]);
-            if (!ok) return _notFound();
-            if (!_exists(id)) return _notFound();
-
-            // /token/<id>/raw — the token's own URI, unwrapped, for a client
-            // that would rather have the artifact than a page about it
-            if (resource.length >= 3 && _eq(resource[2], "raw")) {
-                return (200, HUB.tokenURI(id), _headers("text/plain; charset=utf-8"));
+        if (_eq(resource[0], "open")) {
+            if (n > 2) return _notFound();
+            uint256 page;
+            if (n == 2) {
+                (bool ok, uint256 v) = _toUint(resource[1]);
+                if (!ok) return _notFound();
+                page = v;
             }
-
-            // /token/<id>/live — the instrument itself, as a first-class HTML
-            // response rather than a data: URI inside a frame.
-            //
-            // This exists for one specific reason and it is not aesthetics. A
-            // `data:` document gets an opaque origin, and wallet extensions do
-            // not inject into one — so the instrument embedded on the page
-            // below renders perfectly and cannot connect to anything. It can
-            // be looked at and not used. Served here it has a real origin
-            // under `web3://`, EIP-6963 discovery works, and the twelve
-            // instruments do what they were built to do.
-            //
-            // The bytes are `Renderer.document(...)` — exactly what
-            // `tokenURI` base64s, one step earlier, read from the same
-            // renderer the token uses. Nothing is stored here.
-            if (resource.length >= 3 && _eq(resource[2], "live")) {
-                return (
-                    200,
-                    string(IRendererDoc(HUB.renderer()).document(HUB.viewOf(id))),
-                    _headers("text/html; charset=utf-8")
-                );
-            }
-
-            return (200, _token(id), _headers("text/html; charset=utf-8"));
+            return (200, P_MARKET.open(page), _headers(HTML));
         }
+
+        if (_eq(resource[0], "services.json")) {
+            if (n > 2) return _notFound();
+            uint256 page;
+            if (n == 2) {
+                (bool ok, uint256 v) = _toUint(resource[1]);
+                if (!ok) return _notFound();
+                page = v;
+            }
+            return (200, P_MANIFEST.index(page), _headers(JSON));
+        }
+
+        /*───── one token ─────*/
+
+        if (!_eq(resource[0], "token")) return _notFound();
+        if (n < 2) return _notFound();
+
+        (bool valid, uint256 id) = _toUint(resource[1]);
+        if (!valid || !_exists(id)) return _notFound();
+
+        if (n == 2) return (200, P_TOKEN.token(id), _headers(HTML));
+
+        string memory leaf = resource[2];
+
+        /*  `face` is the only route that takes a fourth segment, and it
+            *requires* one — the gate has to be an exact length per leaf
+            rather than "three, or four if it is face", because the latter
+            lets `/token/1/face` through to read `resource[3]` and panic.
+            A 404 and an out-of-bounds panic look nothing alike to a
+            client: one is an answer, the other is a broken origin.     */
+        if (_eq(leaf, "face")) {
+            if (n != 4) return _notFound();
+        } else if (n != 3) {
+            return _notFound();
+        }
+
+        /*  The two routes that hand over the artwork itself. Answered here,
+            from the hub and the renderer, so that no page contract sits on
+            the path between a viewer and the bytes they came for.       */
+
+        if (_eq(leaf, "raw")) {
+            return (200, HUB.tokenURI(id), _headers(TEXT));
+        }
+
+        /*  /live exists for one specific reason and it is not aesthetics. A
+            `data:` document gets an opaque origin, and wallet extensions do
+            not inject into one — so an instrument embedded in a frame
+            renders perfectly and cannot connect to anything. It can be
+            looked at and not used. Served here it has a real origin under
+            `web3://`, EIP-6963 discovery works, and the instruments do what
+            they were built to do.
+
+            The bytes are `Renderer.document(...)` — exactly what `tokenURI`
+            base64s, one step earlier, read from the same renderer the token
+            itself uses. Nothing is stored here.                          */
+        if (_eq(leaf, "live")) {
+            return (
+                200,
+                string(IRendererDoc(HUB.renderer()).document(HUB.viewOf(id))),
+                _headers(HTML)
+            );
+        }
+
+        /*  The still, as an image rather than as a page.
+
+            The counter page used to embed the whole instrument in an
+            iframe, and measuring it said what prose had not: 21M gas of
+            `eth_call` for the shopfront, against 0.2M for every other
+            service page — to show a preview that a viewer cannot use,
+            because a `data:` frame has an opaque origin and no wallet will
+            inject into it. Strictly worse on both axes than the link
+            beside it.
+
+            An asset is its own request. The page costs what a page costs,
+            the picture costs what a picture costs, and a browser that
+            wants both makes two calls instead of one that no cautious node
+            will run.                                                     */
+        if (_eq(leaf, "sigil.svg")) {
+            address sig = IRendererDoc(HUB.renderer()).sigil();
+            if (sig == address(0)) return _notFound();
+            TokenView memory v = HUB.viewOf(id);
+            return (
+                200,
+                string(ISigilDraw(sig).svg(v.id, v.word, v.seed, v.strata)),
+                _headers(SVG)
+            );
+        }
+
+        /*  One ERC-7160 face, unwrapped. Also answered here: a face is the
+            artwork too, just a different one.                            */
+        if (_eq(leaf, "face")) {
+            (bool okf, uint256 face) = _toUint(resource[3]);
+            if (!okf) return _notFound();
+            /*  `tokenURIAt` reverts BadIndex past the last face, and a
+                revert is not an answer. Asking for face 9 of 3 is the same
+                kind of mistake as asking for token 9999, and deserves the
+                same reply.                                              */
+            if (face >= IRendererDoc(HUB.renderer()).facetCount()) return _notFound();
+            return (200, HUB.tokenURIAt(id, face), _headers(TEXT));
+        }
+
+        /*───── the counter ─────*/
+
+        if (_eq(leaf, "faces"))         return (200, P_TOKEN.faces(id),      _headers(HTML));
+        if (_eq(leaf, "market"))        return (200, P_MARKET.market(id),    _headers(HTML));
+        if (_eq(leaf, "rent"))          return (200, P_SERVICES.rent(id),    _headers(HTML));
+        if (_eq(leaf, "vault"))         return (200, P_SERVICES.vault(id),   _headers(HTML));
+        if (_eq(leaf, "services.json")) return (200, P_MANIFEST.token(id),   _headers(JSON));
 
         return _notFound();
     }
 
+    /*═══════════════════ answers that are not pages ═══════════════════*/
+
+    /// @dev A 404 rather than a revert. A client asking for nonsense
+    ///      deserves an answer, and the path is never echoed back — the one
+    ///      thing on this page an attacker could have chosen is the one
+    ///      thing that would be rendered.
     function _notFound() private pure returns (uint16, string memory, KeyValue[] memory) {
         return (
             404,
             "<!doctype html><meta charset=utf-8><title>no such section</title>"
             "<body style=\"background:#07080c;color:#8b95ad;font:14px ui-monospace,monospace;padding:3rem\">"
-            "<p>There is no token at that address of the collection.</p>"
+            "<p>There is nothing at that address of the collection.</p>"
             "<p><a style=\"color:#7fd4ff\" href=\"/\">back to the index</a></p>",
-            _headers("text/html; charset=utf-8")
+            _headers(HTML)
         );
     }
 
@@ -175,154 +310,11 @@ contract Premises {
         h[1] = KeyValue("Cache-Control", CACHE);
     }
 
-    /*═══════════════════ the pages ═══════════════════*/
-
-    function _index() private view returns (string memory) {
-        uint256 supply = HUB.totalSupply();
-        uint256 ceiling = HUB.MAX_SUPPLY();
-
-        return string.concat(
-            _head("IPSEITY"),
-            "<h1>IPSEITY</h1>"
-            "<p class=e>ipseity, n. &mdash; the property of being oneself; selfhood as "
-            "distinct from any of its appearances.</p>"
-            "<p>A four-dimensional solid, and the instrument for turning it, are the same "
-            "token. What a holder sees is a three-dimensional section of a 4-polytope: the "
-            "solid is never on screen, only the 3-space that currently cuts through it.</p>"
-            "<p>Every token below returns its own control surface from <code>tokenURI</code> "
-            "&mdash; a WebGL2 engine, a keccak-256, an ABI coder and a wallet client, held in "
-            "this chain's state as contract bytecode. Nothing is fetched, including by this "
-            "page: what it hands you is the token's own bytes.</p>",
-            "<dl><dt>issued</dt><dd>", supply.str(), " of ", ceiling.str(), "</dd>",
-            "<dt>collection</dt><dd><code>", LibNum.hexAddr(address(HUB)), "</code></dd>",
-            "<dt>this index</dt><dd><code>", LibNum.hexAddr(address(this)), "</code></dd></dl>",
-            _roll(supply),
-            _foot()
-        );
-    }
-
-    /// @dev The most recent twelve. An index that tries to list four thousand
-    ///      tokens in one `eth_call` is an index that stops answering — the
-    ///      same quadratic wall that eventually breaks any contract which
-    ///      assembles its whole output on every request.
-    function _roll(uint256 supply) private view returns (string memory out) {
-        if (supply == 0) return "<p class=e>None issued yet.</p>";
-        uint256 from = supply > 12 ? supply - 11 : 1;
-        out = "<h2>most recent</h2><ul class=r>";
-        for (uint256 id = supply; id >= from; --id) {
-            uint256 w = HUB.sectionOf(id);
-            out = string.concat(
-                out,
-                "<li><a href=\"/token/", id.str(), "\">#", id.str(), "</a> ",
-                "<span class=m>", _form(w.form()), "</span></li>"
-            );
-            if (id == 1) break;
-        }
-        return string.concat(out, "</ul>");
-    }
-
-    function _token(uint256 id) private view returns (string memory) {
-        uint256 w = HUB.sectionOf(id);
-        return string.concat(
-            _head(string.concat("IPSEITY #", id.str())),
-            "<p><a class=b href=\"/\">&larr; index</a></p>",
-            "<h1>IPSEITY #", id.str(), "</h1>",
-            "<dl><dt>solid</dt><dd>", _form(w.form()), "</dd>",
-            "<dt>held by</dt><dd><code>", LibNum.hexAddr(HUB.ownerOf(id)), "</code></dd>",
-            "<dt>bound</dt><dd>", HUB.locked(id) ? "yes" : "no", "</dd>",
-            "<dt>kernel</dt><dd>", _kernel(HUB.kernelStatus(id)), "</dd>",
-            "<dt>reach</dt><dd><code>", LibNum.hexAddr(HUB.account(id)), "</code></dd>",
-            "<dt>grip</dt><dd><code>", LibNum.hexAddr(HUB.grip(id)), "</code></dd>",
-            "<dt>section word</dt><dd><code>", w.str(), "</code></dd></dl>",
-            _frame(id),
-            _foot()
-        );
-    }
-
-    /// @dev The one line that matters. The `src` is the token's own data URI,
-    ///      read from the hub at request time — so the bytes a viewer runs
-    ///      come from `tokenURI` and not from this contract's opinion of it.
-    ///      Nothing is fetched over a network to fill this frame.
-    function _frame(uint256 id) private view returns (string memory) {
-        return string.concat(
-            "<h2>the instrument</h2>"
-            "<p><a class=g href=\"/token/", id.str(), "/live\">open it properly &rarr;</a></p>"
-            "<iframe title=\"IPSEITY #", id.str(), "\" src=\"", HUB.tokenURI(id), "\"></iframe>",
-            "<p class=e>Those bytes came out of <code>tokenURI(", id.str(), ")</code>, embedded "
-            "here rather than fetched from anywhere. A <code>data:</code> document gets an opaque "
-            "origin and wallet extensions do not inject into one, so the frame above can be "
-            "looked at and not used &mdash; <a href=\"/token/", id.str(), "/live\">open it on "
-            "its own</a> to connect a wallet. Or "
-            "<a href=\"/token/", id.str(), "/raw\">read the URI itself</a> and check it against "
-            "<code>tokenURI</code>.</p>"
-        );
-    }
-
-    /*═══════════════════ chrome ═══════════════════*/
-
-    function _head(string memory title) private pure returns (string memory) {
-        return string.concat(
-            "<!doctype html><meta charset=utf-8>"
-            "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-            "<title>", title, "</title><style>"
-            ":root{color-scheme:dark}"
-            "body{background:#07080c;color:#c9d3e6;font:15px/1.65 ui-sans-serif,system-ui,sans-serif;"
-            "max-width:60rem;margin:0 auto;padding:3rem 1.5rem 6rem}"
-            "h1{font-weight:500;letter-spacing:.22em;font-size:1.5rem;margin:0 0 .3rem}"
-            "h2{font-weight:500;letter-spacing:.14em;font-size:.8rem;text-transform:uppercase;"
-            "color:#8b95ad;margin:2.6rem 0 .8rem}"
-            "a{color:#7fd4ff}.b{text-decoration:none;color:#8b95ad}"
-            ".g{display:inline-block;border:1px solid #2a3550;border-radius:.4rem;"
-            "padding:.5rem .9rem;text-decoration:none;margin-bottom:.8rem}"
-            ".e{color:#8b95ad;font-size:.92rem}"
-            "code{font:12.5px ui-monospace,monospace;color:#9fb0cc;overflow-wrap:anywhere}"
-            "dl{display:grid;grid-template-columns:8.5rem 1fr;gap:.35rem 1rem;margin:1.6rem 0}"
-            "dt{color:#6c7689;font-size:.82rem;letter-spacing:.1em;text-transform:uppercase}"
-            "dd{margin:0}"
-            "ul.r{list-style:none;padding:0;display:grid;"
-            "grid-template-columns:repeat(auto-fill,minmax(11rem,1fr));gap:.5rem}"
-            "ul.r li{border:1px solid #1a2030;border-radius:.4rem;padding:.6rem .8rem}"
-            ".m{color:#6c7689;font-size:.8rem;display:block}"
-            "iframe{width:100%;aspect-ratio:16/10;border:1px solid #1a2030;border-radius:.5rem;"
-            "background:#000}"
-            "</style>"
-        );
-    }
-
-    function _foot() private view returns (string memory) {
-        return string.concat(
-            "<h2>about this page</h2>"
-            "<p class=e>This index is an ERC-5219 contract at <code>",
-            LibNum.hexAddr(address(this)),
-            "</code>, reached over <code>web3://</code> with no DNS and no server. It is "
-            "convenience, not infrastructure: it holds none of the artwork, and every token "
-            "renders identically whether this contract exists, is abandoned, or is replaced. "
-            "The bytes are in the collection.</p>"
-        );
-    }
-
     /*═══════════════════ small things ═══════════════════*/
-
-    function _form(uint8 f) private pure returns (string memory) {
-        if (f == 0) return "Tesseract";
-        if (f == 1) return "Hexadecachoron";
-        if (f == 2) return "Icositetrachoron";
-        if (f == 3) return "Duocylinder";
-        if (f == 4) return "Clifford torus";
-        if (f == 5) return "Tiger";
-        if (f == 6) return "Ditorus";
-        return "Quaternion Julia";
-    }
-
-    function _kernel(uint8 k) private pure returns (string memory) {
-        if (k == 0) return "none";
-        if (k == 1) return "current";
-        return "stale &mdash; sealed to a previous holder";
-    }
 
     function _exists(uint256 id) private view returns (bool) {
         (bool ok, bytes memory out) =
-            address(HUB).staticcall(abi.encodeWithSelector(IIpseityIndex.ownerOf.selector, id));
+            address(HUB).staticcall(abi.encodeWithSelector(IHub.ownerOf.selector, id));
         return ok && out.length >= 32 && abi.decode(out, (address)) != address(0);
     }
 
@@ -331,11 +323,18 @@ contract Premises {
     }
 
     /// @dev A path segment is text. Anything that is not a plain decimal
-    ///      number is not a token id, and saying so is a 404 rather than a
-    ///      revert — a client asking for nonsense deserves an answer.
+    ///      number is not an index, and saying so is a 404 rather than a
+    ///      revert.
+    ///
+    ///      A leading zero is refused, so `/token/0000000001` is not a
+    ///      second address for token 1. The pager links and the manifest's
+    ///      `next` both assume there is one canonical URL per resource,
+    ///      and a caching layer in front of this contract assumes it much
+    ///      more strongly than they do.
     function _toUint(string memory s) private pure returns (bool ok, uint256 v) {
         bytes memory b = bytes(s);
         if (b.length == 0 || b.length > 10) return (false, 0);
+        if (b.length > 1 && b[0] == "0") return (false, 0);
         for (uint256 i; i < b.length; ++i) {
             uint8 ch = uint8(b[i]);
             if (ch < 0x30 || ch > 0x39) return (false, 0);

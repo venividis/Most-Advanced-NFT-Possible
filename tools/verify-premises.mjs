@@ -34,6 +34,7 @@
 ───────────────────────────────────────────────────────────────────────────*/
 import { compile, artifact } from "./compile.mjs";
 import { Chain, decUint, encodeAddressArg } from "./evm.mjs";
+import { deploySite, getter } from "./site.mjs";
 import { createAddressFromString } from "@ethereumjs/util";
 
 let pass = 0, fail = 0;
@@ -47,54 +48,12 @@ const head = (s) => console.log(`\n  \x1b[1m${s}\x1b[0m`);
 const REGISTRY = "0x000000006551c19487814612e58FE06813775758";
 
 const evm = await import("./evm.mjs");
+const w = (n) => BigInt(n).toString(16).padStart(64, "0");
 const out = compile({ quiet: true, dirs: ["src", "test/mocks"] });
 const A = (f, n) => artifact(out, f, n);
 const c = await Chain.open();
 
-/*──────────────── encoding a request ────────────────*/
-const w = (n) => BigInt(n).toString(16).padStart(64, "0");
-const encStr = (s) => {
-  const b = Buffer.from(s, "utf8");
-  return w(b.length) + b.toString("hex").padEnd(Math.ceil(b.length / 32) * 64, "0");
-};
-const encStrArray = (arr) => {
-  const bodies = arr.map(encStr);
-  let off = arr.length * 32;
-  const heads = bodies.map((b) => { const h = w(off); off += b.length / 2; return h; });
-  return w(arr.length) + heads.join("") + bodies.join("");
-};
-/* request(string[],(string,string)[]) — two dynamic arrays in the head */
-const SEL = evm.sel("request(string[],(string,string)[])");
-const encRequest = (resource) => {
-  const res = encStrArray(resource);
-  const params = w(0);                       // no query parameters are read
-  return SEL + w(0x40) + w(0x40 + res.length / 2) + res + params;
-};
-
-/*──────────────── decoding the response ────────────────*/
-const decResponse = (hex) => {
-  const h = hex.replace(/^0x/, "");
-  const status = Number(BigInt("0x" + h.substr(0, 64)));
-  const bodyOff = Number(BigInt("0x" + h.substr(64, 64))) * 2;
-  const hdrOff = Number(BigInt("0x" + h.substr(128, 64))) * 2;
-
-  const bodyLen = Number(BigInt("0x" + h.substr(bodyOff, 64)));
-  const body = Buffer.from(h.substr(bodyOff + 64, bodyLen * 2), "hex").toString("utf8");
-
-  const n = Number(BigInt("0x" + h.substr(hdrOff, 64)));
-  const headers = [];
-  for (let i = 0; i < n; i++) {
-    const t = hdrOff + 64 + Number(BigInt("0x" + h.substr(hdrOff + 64 + i * 64, 64))) * 2;
-    const readAt = (at) => {
-      const o = t + Number(BigInt("0x" + h.substr(at, 64))) * 2;
-      const len = Number(BigInt("0x" + h.substr(o, 64)));
-      return Buffer.from(h.substr(o + 64, len * 2), "hex").toString("utf8");
-    };
-    headers.push([readAt(t), readAt(t + 64)]);
-  }
-  return { status, body, headers };
-};
-const GET = async (path) => decResponse(await c.call(premises, encRequest(path)));
+const GET = (path) => getter(c, premises)(path);
 
 /*──────────────── deploy ────────────────*/
 head("deploy");
@@ -120,10 +79,17 @@ await c.send({ to: engine, data: evm.sel("loadHead(bytes)") + loadArg(packed) })
 await c.send({ to: engine, data: evm.sel("loadBody(bytes)") + loadArg(packed) });
 await c.exec(engine, "setInflatedSize(uint32)", [doc.length]);
 
-const premises = await c.deploy(A("src/Premises.sol", "Premises").bytecode,
-  encodeAddressArg(nft), "Premises");
+const pool = await c.deploy(A("src/Pool.sol", "Pool").bytecode,
+  encodeAddressArg(nft) + w(10n ** 30n) + encodeAddressArg(c.from.toString()) + w(0), "Pool");
+await c.exec(nft, "setPool(address)", [pool]);
+const lease = await c.deploy(A("src/Lease.sol", "Lease").bytecode, encodeAddressArg(nft), "Lease");
+
+const site = await deploySite(c, A, { hub: nft, pool, lease });
+const premises = site.premises;
 ok("deployed", (await c.codeSize(premises)) > 0);
-console.log(`      ${premises}`);
+console.log(`      router   ${premises}`);
+console.log(`      pages    token ${site.pToken.slice(0, 10)}  market ${site.pMarket.slice(0, 10)}` +
+            `  services ${site.pServices.slice(0, 10)}  manifest ${site.pManifest.slice(0, 10)}`);
 
 await c.exec(nft, "mint()", [], { value: 10n ** 16n });
 await c.exec(nft, "mint()", [], { value: 10n ** 16n });
@@ -158,11 +124,20 @@ const tokenUri = (() => {
   return Buffer.from(h.substr(off + 64, len * 2), "hex").toString("utf8");
 })();
 
-const m = one.body.match(/<iframe[^>]*src="([^"]*)"/);
-ok("the page embeds a src", m !== null);
-eq("and it is tokenURI(1), byte for byte", m && m[1] === tokenUri, true);
-console.log("      this deployment emits the token's own URI. A compromised one");
-console.log("      could not — but the artwork is in the collection either way");
+/*  The page used to inline the whole instrument as a data: URI, and the
+    assertion here was that the embedded src equalled tokenURI(1) byte for
+    byte. It no longer inlines it, for a reason measurement settled: the
+    counter page cost 21M gas of eth_call to show a preview a viewer cannot
+    use, because a data: document gets an opaque origin and no wallet
+    injects into one. It links instead, and the link is the usable one.
+
+    So the claim moves rather than disappears. What has to be true is that
+    the routes handing over the artwork hand over the token's own bytes,
+    and those are /raw and /live — both checked below, both answered by
+    Premises itself without touching a page contract.                    */
+ok("the page does not inline the artwork", !one.body.includes("data:application/json;base64,"));
+ok("it links to the instrument on a real origin", one.body.includes('href="/token/1/live"'));
+ok("and to the URI itself, to check", one.body.includes('href="/token/1/raw"'));
 
 const raw = await GET(["token", "1", "raw"]);
 eq("/raw returns the URI itself", raw.body, tokenUri);

@@ -31,6 +31,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile, artifact } from "./compile.mjs";
 import { Chain, enc, sel, encodeAddressArg } from "./evm.mjs";
+import { deploySite, encRequest } from "./site.mjs";
 import { createAddressFromString, hexToBytes, bytesToHex } from "@ethereumjs/util";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -130,46 +131,55 @@ for (const [sig, args, note] of READS) {
   rows.push({ label, sig, note, ...r });
 }
 
-/*──────────────────── the ERC-5219 path, for comparison ────────────────────*/
-/*  Premises serves the same page over ERC-5219 without the base64 data:
-    URI wrapper. It is worth measuring beside tokenURI because it is the
-    cheaper route to an identical document, and the one a web3:// gateway
-    or a 5219-aware wallet will take.                                     */
-let premises = null;
+/*──────────────────── the site, route by route ────────────────────*/
+/*  Premises serves the same document over ERC-5219 without the base64
+    data: URI wrapper, and it serves a shopfront besides. Both belong in
+    this table: a service page nobody's node will run is a shop with the
+    lights off, and it fails the same silent way tokenURI does.         */
+const routes = [];
 {
-  const P = artifact(out, "src/Premises.sol", "Premises");
-  const addr = await c.deploy(P.bytecode, encodeAddressArg(nft), "Premises");
-  /*  Two dynamic arrays in the head; the shared encoder in evm.mjs does
-      not do string[], so the calldata is laid out here.                */
-  const w = (n) => BigInt(n).toString(16).padStart(64, "0");
-  const encStr = (str) => {
-    const h = Buffer.from(str, "utf8").toString("hex");
-    return w(str.length) + h.padEnd(Math.ceil(h.length / 64) * 64, "0");
+  const poolAddr = await c.deploy(artifact(out, "src/Pool.sol", "Pool").bytecode,
+    encodeAddressArg(nft) + "0".repeat(63) + "1" +
+    encodeAddressArg(c.from.toString()) + "0".repeat(64), "Pool");
+  await c.exec(nft, "setPool(address)", [poolAddr]);
+  const leaseAddr = await c.deploy(artifact(out, "src/Lease.sol", "Lease").bytecode,
+    encodeAddressArg(nft), "Lease");
+  const site = await deploySite(c, (f, n) => artifact(out, f, n),
+    { hub: nft, pool: poolAddr, lease: leaseAddr });
+
+  const { BLOCK } = await import("./evm.mjs");
+  const hit = async (path) => {
+    const r = await c.vm.evm.runCall({
+      to: createAddressFromString(site.premises),
+      caller: createAddressFromString(c.from.toString()),
+      origin: createAddressFromString(c.from.toString()),
+      data: hexToBytes(encRequest(path)), gasLimit: 3_000_000_000n, value: 0n, block: BLOCK
+    });
+    if (r.execResult.exceptionError) return { gas: null, bytes: 0, err: r.execResult.exceptionError.error };
+    return { gas: r.execResult.executionGasUsed, bytes: r.execResult.returnValue.length };
   };
-  const parts = ["token", "1", "live"].map(encStr);
-  let off = parts.length * 32, heads = "";
-  for (const b of parts) { heads += w(off); off += b.length / 2; }
-  const res = w(parts.length) + heads + parts.join("");
-  const data = sel("request(string[],(string,string)[])") +
-               w(0x40) + w(0x40 + res.length / 2) + res + w(0);
-  const rr = await c.vm.evm.runCall({
-    to: createAddressFromString(addr), caller: createAddressFromString(c.from.toString()),
-    origin: createAddressFromString(c.from.toString()),
-    data: hexToBytes(data), gasLimit: 3_000_000_000n, value: 0n,
-    block: (await import("./evm.mjs")).BLOCK
-  });
-  premises = rr.execResult.exceptionError
-    ? { err: rr.execResult.exceptionError.error }
-    : { gas: rr.execResult.executionGasUsed, bytes: rr.execResult.returnValue.length };
+  for (const [path, label, note] of [
+    [[], "/", "the collection, and what it offers"],
+    [["token", "1"], "/token/1", "one token's counter, with live service status"],
+    [["token", "1", "live"], "/token/1/live", "the instrument, on a real origin"],
+    [["token", "1", "market"], "/token/1/market", "quote and trade against it"],
+    [["token", "1", "rent"], "/token/1/rent", "lease the instrument by the day"],
+    [["token", "1", "vault"], "/token/1/vault", "the two hands, give, draw, verify"],
+    [["token", "1", "services.json"], "/token/1/services.json", "the same, machine-readable"],
+    [["open"], "/open", "every token open for business (24 at a time)"],
+    [["services.json"], "/services.json", "the directory, machine-readable"]
+  ]) {
+    routes.push({ label, note, ...(await hit(path)) });
+  }
 }
 
 /*──────────────────── report ────────────────────*/
-const over = rows.filter((r) => r.gas !== null && r.gas > FLOOR);
+const over = rows.concat(routes).filter((r) => r.gas !== null && r.gas > FLOOR);
 
 if (JSON_OUT) {
   console.log(JSON.stringify({
     floor: String(FLOOR),
-    rows: rows.map((r) => ({ ...r, gas: r.gas === null ? null : String(r.gas) })),
+    rows: rows.concat(routes).map((r) => ({ ...r, gas: r.gas === null ? null : String(r.gas) })),
     overFloor: over.map((r) => r.label)
   }, null, 2));
 } else {
@@ -191,14 +201,19 @@ if (JSON_OUT) {
     console.log(`      \x1b[2m${" ".repeat(24)}${r.note}\x1b[0m`);
   }
 
-  if (premises && premises.gas) {
-    head("the same document, through the ERC-5219 front door");
-    console.log(`      Premises /token/1/live  ${M(premises.gas).padStart(9)}` +
-                `  ${premises.bytes.toLocaleString()} B`);
-    console.log(`      \x1b[2mno base64, no data: URI wrapper — a web3:// gateway or an` +
-                `\n      ERC-5219 aware wallet reads this instead, and it is the` +
-                `\n      cheaper path to the identical page.\x1b[0m`);
+  head("the site, over ERC-5219");
+  for (const r of routes) {
+    if (r.gas === null) { console.log(`      ${r.label.padEnd(24)}${"reverted".padStart(9)}  ${r.err}`); continue; }
+    const runs = CAPS.filter((k) => r.gas <= k.at);
+    const colour = r.gas > FLOOR ? "\x1b[31m" : r.gas > CAPS[0].at ? "\x1b[33m" : "\x1b[32m";
+    console.log(`      ${r.label.padEnd(24)}${colour}${M(r.gas).padStart(9)}\x1b[0m` +
+                `  ${(r.bytes.toLocaleString() + " B").padStart(9)}   \x1b[2m` +
+                `${runs.length === CAPS.length ? "everywhere" : "nodes at " + M(runs[0].at) + " and above"}\x1b[0m`);
+    console.log(`      \x1b[2m${" ".repeat(24)}${r.note}\x1b[0m`);
   }
+  console.log(`      \x1b[2m/live is the same document tokenURI base64s, one step earlier —` +
+              `\n      no data: URI wrapper, so it is the cheaper route to the identical` +
+              `\n      page and the one a web3:// gateway takes.\x1b[0m`);
 
   head("verdict");
   if (over.length === 0) {
