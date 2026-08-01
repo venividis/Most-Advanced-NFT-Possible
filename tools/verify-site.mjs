@@ -127,9 +127,16 @@ const mk = await GET(["token", "1", "market"]);
 eq("the market page still answers 200", mk.status, 200);
 ok("the raw script tag is gone", !mk.body.includes("<script>alert"));
 ok("it survives as inert text", mk.body.includes("&lt;script&gt;alert"));
-ok("and the page carries no unexpected opening script tag",
-   (mk.body.match(/<script>/g) || []).length === 1,
-   `found ${(mk.body.match(/<script>/g) || []).length} <script> tags; only Chrome's client is expected`);
+/*  The app ships a JSON config block and two script blocks, so counting
+    tags proves nothing on its own. What has to be true is that every
+    <script> the page opens is one the contract wrote: tags balance, and
+    nothing attacker-supplied contributed a bracket.                     */
+ok("every script tag the page opens is closed by one it wrote",
+   (mk.body.match(/<script/g) || []).length === (mk.body.match(/<\/script>/g) || []).length,
+   `${(mk.body.match(/<script/g) || []).length} open, ` +
+   `${(mk.body.match(/<\/script>/g) || []).length} closed`);
+ok("the hostile symbol contributed no bracket to the document",
+   !mk.body.includes("<script>alert") && !mk.body.includes("</script>alert"));
 
 /* the attribute context: name() is `" onerror="alert(1)` */
 ok("a quote-breaking name cannot escape an attribute",
@@ -242,6 +249,7 @@ const routes = [
   [["token", "1"], "text/html", "/token/1"],
   [["token", "1", "faces"], "text/html", "/token/1/faces"],
   [["token", "1", "market"], "text/html", "/token/1/market"],
+  [["token", "1", "pool"], "text/html", "/token/1/pool"],
   [["token", "1", "rent"], "text/html", "/token/1/rent"],
   [["token", "1", "vault"], "text/html", "/token/1/vault"],
   [["token", "1", "services.json"], "application/json", "/token/1/services.json"],
@@ -330,36 +338,154 @@ ok("rent says who is paid",
 ok("draw says nobody is paid",
    m1.services.find((s) => s.id === "draw").paidTo === null);
 
-/*════════════════ 5 · the calldata a page hands the browser ════════════════*/
-head("the buttons carry calldata a contract built");
-const rentPage = await GET(["token", "1", "rent"]);
-const calls = [...rentPage.body.matchAll(/data-call="(0x[0-9a-f]+)"/g)].map((x) => x[1]);
-ok("the rent page emits calldata", calls.length > 0);
-const wantSettle = sel4("settle(uint256)");
-ok("settle(uint256) is there with its argument already packed",
-   calls.some((d) => d.startsWith(wantSettle) && d.length === 10 + 64),
-   calls.join(" "));
-const marketCalls = [...mk.body.matchAll(/data-call="(0x[0-9a-f]+)"/g)].map((x) => x[1]);
-ok("the market page pre-packs quote(uint256,bool,uint256)",
-   marketCalls.some((d) => d.startsWith(sel4("quote(uint256,bool,uint256)"))));
-ok("and swap(...), with id and direction already fixed",
-   marketCalls.some((d) => d.startsWith(sel4("swap(uint256,bool,uint256,uint256,address,uint256)"))
-                           && d.length === 10 + 128));
-ok("every emitted prefix is a whole number of words after the selector",
-   marketCalls.concat(calls).every((d) => d === "0x" || (d.length - 10) % 64 === 0),
-   marketCalls.concat(calls).filter((d) => d !== "0x" && (d.length - 10) % 64 !== 0).join(" "));
+/*════════════ 5 · the calldata, and where the browser gets it ════════════*/
+head("the app is handed selectors a contract computed");
+
+const cfgOf = (body) => {
+  const m = body.match(/<script type="application\/json" id="D">([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+};
+
+const cfg = cfgOf(mk.body);
+ok("the swap page carries a config block", cfg !== null);
+if (cfg) {
+  ok("naming the pool, the market and the chain",
+     cfg.pool && cfg.id === 1 && typeof cfg.chain === "number");
+  ok("with both sides' decimals, so the browser never guesses",
+     typeof cfg.base.d === "number" && typeof cfg.quote.d === "number");
+
+  const want = {
+    quote: "quote(uint256,bool,uint256)",
+    swap: "swap(uint256,bool,uint256,uint256,address,uint256)",
+    approve: "approve(address,uint256)",
+    allowance: "allowance(address,address)",
+    balanceOf: "balanceOf(address)",
+    deposit: "deposit(uint256,uint256,uint256)",
+    withdraw: "withdraw(uint256,uint256,uint256,address)",
+    setFee: "setFee(uint256,uint16)",
+    bond: "bond(uint256,uint64)",
+    syncCurve: "syncCurve(uint256)",
+    openMarket: "openMarket(uint256,address,address,uint16)",
+    closeMarket: "closeMarket(uint256)"
+  };
+  const bad = [];
+  for (const [k, sig] of Object.entries(want)) {
+    if (cfg.sel[k] !== sel4(sig)) bad.push(`${k}: ${cfg.sel[k]} != ${sel4(sig)} (${sig})`);
+  }
+  ok(`every pool selector matches keccak of its signature (${Object.keys(want).length})`,
+     bad.length === 0, bad.join("\n      "));
+
+  const lwant = {
+    rent: "rent(uint256,uint32,uint128)",
+    list: "list(uint256,uint128,uint32,uint32)",
+    delist: "delist(uint256)",
+    collect: "collect(uint256,address)",
+    endLease: "endLease(uint256)",
+    settle: "settle(uint256)",
+    claim: "claim()",
+    agent: "setLeaseAgent(uint256,address)"
+  };
+  const lbad = [];
+  for (const [k, sig] of Object.entries(lwant)) {
+    if (cfg.lease.sel[k] !== sel4(sig)) lbad.push(`${k}: ${cfg.lease.sel[k]} != ${sel4(sig)}`);
+  }
+  ok(`and every lease selector too (${Object.keys(lwant).length})`,
+     lbad.length === 0, lbad.join("\n      "));
+  console.log("      the browser never computes a selector, so it needs no keccak");
+}
+
+/*  The config is JSON inside a <script> block, which is the one place a
+    symbol containing `</script>` would end the document early. That is
+    exactly why jsonEsc escapes `<` and `>` and not only the two characters
+    JSON requires.                                                        */
+ok("a symbol cannot end the config block it appears in",
+   cfg !== null && typeof cfg.base.s === "string",
+   "the block did not parse, so something in it terminated early");
+if (cfg) console.log(`      base symbol parsed back as: ${JSON.stringify(cfg.base.s)}`);
+
+head("the app itself");
+for (const [what, needle] of [
+  ["parses decimals into BigInt base units", "const parse=(s,d)=>"],
+  ["formats them back the same way", "const fmt=(v,d,p)=>"],
+  ["refuses a value that will not fit a word", "does not fit in a word"],
+  ["checks the chain before it sends", "your wallet is on chain "],
+  ["quotes live, debounced", "setTimeout(refresh,220)"],
+  ["knows whether it is approving or swapping", "al<amt?('Approve "],
+  ["computes the floor from a slippage tolerance", "BigInt(10000-slip)/10000n"]
+]) {
+  ok(what, mk.body.includes(needle), "not found in the page");
+}
+ok("and no keccak or ABI coder was shipped",
+   !/keccak|ethers|web3\.js/i.test(mk.body));
+
+const pl = await GET(["token", "1", "pool"]);
+/*  The client is contract code. A syntax error in it is permanent, and
+    would be invisible to every assertion above — the page would render,
+    the bytes would be right, and nothing on it would work. So the script
+    blocks are parsed.                                                    */
+head("the app parses as JavaScript");
+const scriptsOf = (body) =>
+  [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+for (const [label, body] of [
+  ["the swap page", mk.body],
+  ["the pool page", (await GET(["token", "1", "pool"])).body],
+  ["the rent page", (await GET(["token", "1", "rent"])).body],
+  ["the vault page", (await GET(["token", "1", "vault"])).body]
+]) {
+  const blocks = scriptsOf(body);
+  let bad = null;
+  for (const b of blocks) {
+    try { new Function(b); } catch (e) { bad = e.message; break; }
+  }
+  ok(`${label} — ${blocks.length} block(s)`, blocks.length > 0 && bad === null,
+     bad || "no script blocks found at all");
+}
+/*  And the pages that are documents ship none, which is the right answer
+    rather than an oversight: the index and the counter are links, and a
+    client that does nothing is bytes a node serves for no reason.       */
+for (const [label, path] of [["the index", []], ["the counter", ["token", "1"]]]) {
+  const b = (await GET(path)).body;
+  ok(`${label} ships no client, because it has nothing to sign`,
+     scriptsOf(b).length === 0, `${scriptsOf(b).length} script block(s)`);
+}
+
+head("the holder's side is on the site too");
+eq("200", pl.status, 200);
+for (const [what, needle] of [
+  ["add liquidity", "id=add"],
+  ["remove liquidity", "id=rm"],
+  ["set the fee", "id=fee"],
+  ["bond the market", "id=bond"],
+  ["sync the curve to the artwork", "id=sync"]
+]) ok(what, pl.body.includes(needle));
+ok("and it says whose page it is", pl.body.includes("the holder of #1"));
+
+const rp = await GET(["token", "1", "rent"]);
+head("the holder's side of the rental counter");
+for (const [what, needle] of [
+  ["names the lease agent", "id=agt"],
+  ["publishes terms", "id=ls"],
+  ["collects", "id=col"],
+  ["ends a lease properly", "id=end"],
+  ["and brings the books up to date", "id=set2"]
+]) ok(what, rp.body.includes(needle));
+ok("while an unlisted token shows no rent card, rather than a dead one",
+   !rp.body.includes("id=rg"));
 
 
 /*  The invariant Lease exists to keep. Every wei it holds is spoken for by
     exactly one of three ledgers, and the balance has to cover all of them
     at once — not at the end, at every step. Asserting it once at the close
     would pass for a contract that was briefly insolvent in the middle.   */
+const PARTIES = [];      // every address that could be owed
+const TOKENS = [1, 2, 3];  // every token that could hold rent
 const OBLIGED = async (label) => {
   let owedTotal = 0n;
-  for (const a of [c, renter, buyer])
+  for (const a of [c, renter, buyer, ...PARTIES])
     owedTotal += decUint(await c.read(lease, "owed(address)", [a.from.toString()]));
   let held = 0n;
-  for (const t of [1, 2, 3]) {
+  for (const t of TOKENS) {
     held += decUint(await c.read(lease, "earned(uint256)", [t]));
     const act = await c.read(lease, "activeOf(uint256)", [t]);
     held += decUint(act, 3);              // renter, start, until, paid, seen
@@ -369,6 +495,268 @@ const OBLIGED = async (label) => {
      `balance ${bal} < obligations ${owedTotal + held}`);
   return bal - (owedTotal + held);
 };
+
+/*  A DOM small enough to read: elements by id, two attribute selectors,
+    and events. Enough to run the contract's own client, which is the only
+    way to find out whether the calldata it assembles means what the page
+    says it means.                                                        */
+let byId = new Map();
+const mkEl = (tag, attrs) => {
+  const el = {
+    tagName: tag, value: "", textContent: "", innerHTML: "",
+    disabled: false, hidden: false, className: "", placeholder: "",
+    dataset: {}, _on: {},
+    addEventListener(k, f) { (this._on[k] = this._on[k] || []).push(f); },
+    async fire(k) { for (const f of this._on[k] || []) await f(); }
+  };
+  for (const m of (attrs || "").matchAll(/data-([\w-]+)(?:=["']?([^"'\s>]*)["']?)?/g)) {
+    el.dataset[m[1].replace(/-(\w)/g, (x, y) => y.toUpperCase())] = m[2] ?? "";
+  }
+  const v = (attrs || "").match(/\bvalue="([^"]*)"/);
+  if (v) el.value = v[1];
+  return el;
+};
+function mount(html) {
+  byId = new Map();
+  const all = [];
+  for (const m of html.matchAll(/<(\w+)([^>]*)>/g)) {
+    const el = mkEl(m[1], m[2]);
+    all.push(el);
+    const id = (m[2].match(/\bid=["']?([\w.-]+)["']?/) || [])[1];
+    if (id && !byId.has(id)) byId.set(id, el);
+  }
+  const cfg = html.match(/<script type="application\/json" id="D">([\s\S]*?)<\/script>/);
+  if (cfg && byId.get("D")) byId.get("D").textContent = cfg[1];
+  const listeners = {};
+  globalThis.addEventListener = (k, f) => { (listeners[k] = listeners[k] || []).push(f); };
+  globalThis.dispatchEvent = (e) => { for (const f of listeners[e.type] || []) f(e); };
+  globalThis.Event = class { constructor(t) { this.type = t; } };
+  globalThis.document = {
+    getElementById: (i) => byId.get(i) || null,
+    querySelectorAll: (q) => {
+      const m = q.match(/^\[data-([\w-]+)\]$/);
+      if (m) {
+        const k = m[1].replace(/-(\w)/g, (x, y) => y.toUpperCase());
+        return all.filter((e) => k in e.dataset);
+      }
+      if (q.startsWith(".")) return all.filter((e) => e.className === q.slice(1));
+      return [];
+    }
+  };
+  return byId;
+}
+const runScripts = (html) => {
+  for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Function(m[1])();
+};
+const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+const wallet = (actor) => {
+  let n = 0;
+  globalThis.window = globalThis;
+  globalThis.window.ethereum = {
+    request: async ({ method, params }) => {
+      if (method === "eth_chainId") return "0x1";
+      if (method === "eth_requestAccounts" || method === "eth_accounts")
+        return [actor.from.toString()];
+      if (method === "eth_call")
+        return c.call(params[0].to, params[0].data, actor.from.toString());
+      if (method === "eth_sendTransaction") {
+        n++;
+        const t = params[0];
+        await actor.send({ to: t.to, data: t.data,
+                           value: t.value ? BigInt(t.value) : 0n, label: "app" });
+        return "0x" + "ab".repeat(32);
+      }
+      throw new Error("unexpected method " + method);
+    }
+  };
+  return { sent: () => n };
+};
+
+/*════════════ the app, actually driven ════════════
+
+  Everything above checks that the page says the right things. This runs
+  it. The two script blocks the contract emitted are executed against a
+  DOM shim and a provider wired straight to the same in-process EVM, so a
+  swap performed by pressing the button on the page is a swap performed by
+  the contract — and the numbers the card shows are checked against what
+  `Pool.quote` says at the same block.
+
+  This is the only test here that would catch the client being wrong. A
+  page can render perfectly, carry the right selectors, parse as
+  JavaScript, and still assemble calldata that means something else.
+*/
+let DRIVEN = 0;
+head("driving the swap card");
+{
+  /*  Its own token and its own pair. Token 1's market is the hostile one
+      from the escaping tests and has no real balances behind it; a driver
+      pointed at that would be testing the mock, not the app.            */
+  await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+  const T = Number(decUint(await c.read(nft, "totalSupply()")));
+  DRIVEN = T;
+  const usdc = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
+    w(0xa0) + w(0xe0) + w(6) + w(0) + w(0) + encS("USD Coin") + encS("USDC"), "USDC");
+  await c.exec(weth, "mint(address,uint256)", [c.from.toString(), 10n ** 24n]);
+  await c.exec(usdc, "mint(address,uint256)", [c.from.toString(), 10n ** 18n]);
+  await c.exec(weth, "approve(address,uint256)", [pool, 1n << 255n]);
+  await c.exec(usdc, "approve(address,uint256)", [pool, 1n << 255n]);
+  await c.exec(pool, "openMarket(uint256,address,address,uint16)", [T, weth, usdc, 30]);
+  await c.exec(pool, "deposit(uint256,uint256,uint256)",
+    [T, 40n * 10n ** 18n, 120_000n * 10n ** 6n]);
+
+  const page = await GET(["token", String(T), "market"]);
+
+  mount(page.body);
+  const trader = await c.as("0x" + "44".repeat(32));
+  await c.exec(weth, "mint(address,uint256)", [trader.from.toString(), 10n ** 21n]);
+  const W1 = wallet(trader);
+  const sent = () => W1.sent();
+  runScripts(page.body);
+  await nap(30);
+  ok("the client loaded against the page's own config", !!globalThis.IP);
+
+  /*──── a quote appears, and it is the pool's ────*/
+  const $ = (i) => byId.get(i);
+  $("si").value = "1";
+  await $("si").fire("input");
+  await nap(400);
+
+  const IN = 10n ** 18n;
+  const expect = decUint(await c.read(pool, "quote(uint256,bool,uint256)", [T, true, IN]));
+  const shown = $("so").value.replace(/,/g, "");
+  ok("typing an amount produced a quote", shown.length > 0, "the field stayed empty");
+  const shownRaw = BigInt(Math.round(Number(shown) * 1e6));
+  ok("and it is what Pool.quote says, to the displayed precision",
+     shownRaw > expect - 2n && shownRaw < expect + 2n,
+     `card ${shown} (${shownRaw}) vs pool ${expect}`);
+  console.log(`      1 WETH in, the card says ${shown} USDC, the pool says ` +
+              `${(Number(expect) / 1e6).toFixed(6)}`);
+
+  ok("the details name a rate, a floor and the fee",
+     /rate/.test($("det").innerHTML) && /receive at least/.test($("det").innerHTML)
+     && /fee/.test($("det").innerHTML));
+  ok("and the button knows an approval is needed first",
+     /^Approve /.test($("go").textContent), $("go").textContent);
+
+  /*──── press it: approve, then swap ────*/
+  await $("go").fire("click");
+  eq("pressing it sent one transaction", sent(), 1);
+  const allowed = decUint(await c.read(weth, "allowance(address,address)",
+                                       [trader.from.toString(), pool]));
+  ok("which was the approval, and it landed", allowed > 0n);
+
+  await $("si").fire("input");
+  await nap(400);
+  ok("now the button offers the swap",
+     /^Swap /.test($("go").textContent), $("go").textContent);
+
+  const before = decUint(await c.read(usdc, "balanceOf(address)", [trader.from.toString()]));
+  await $("go").fire("click");
+  eq("pressing it again sent a second transaction", sent(), 2);
+  const after = decUint(await c.read(usdc, "balanceOf(address)", [trader.from.toString()]));
+  ok("and the trader was actually paid", after > before, `${before} -> ${after}`);
+  ok("at no worse than the floor the card promised",
+     after - before >= expect * 9950n / 10000n,
+     `received ${after - before}, floor was about ${expect * 9950n / 10000n}`);
+  console.log(`      received ${(Number(after - before) / 1e6).toFixed(6)} USDC ` +
+              `\u2014 the card, the pool and the balance all agree`);
+
+  /*──── the flip, and the guards ────*/
+  await $("flip").fire("click");
+  await nap(400);
+  eq("flipping turns the pair round", $("ts").textContent, "USDC");
+
+  $("si").value = "not a number";
+  await $("si").fire("input");
+  await nap(300);
+  ok("nonsense in the amount field is refused rather than sent",
+     $("go").disabled === true && $("so").value === "",
+     `button "${$("go").textContent}", output "${$("so").value}"`);
+
+  globalThis.window.ethereum.request = (async ({ method, params }) => {
+    if (method === "eth_chainId") return "0x2105";           // some other chain
+    if (method === "eth_requestAccounts") return [trader.from.toString()];
+    throw new Error("unexpected " + method);
+  });
+  $("si").value = "1";
+  let refused = false;
+  try { await globalThis.IP.connect(); } catch (e) { refused = /on chain/.test(e.message); }
+  ok("a wallet on the wrong chain is told so rather than used", refused);
+
+}
+
+head("driving the holder's side");
+{
+  const pg = await GET(["token", String(DRIVEN), "pool"]);
+  mount(pg.body);
+  const W = wallet(c);
+  runScripts(pg.body);
+  await nap(30);
+  const $ = (i) => byId.get(i);
+
+  const before = await c.read(pool, "market(uint256)", [DRIVEN]);
+  $("db").value = "1.5";
+  $("dq").value = "4500";
+  await $("add").fire("click");
+  ok("Add liquidity sent a transaction", W.sent() >= 1);
+  const after = await c.read(pool, "market(uint256)", [DRIVEN]);
+  ok("and the inventory actually grew",
+     decUint(after, 2) > decUint(before, 2) && decUint(after, 3) > decUint(before, 3),
+     `base ${decUint(before, 2)} -> ${decUint(after, 2)}`);
+  console.log(`      1.5 WETH typed as text became ${decUint(after, 2) - decUint(before, 2)}` +
+              ` base units \u2014 no float anywhere in that`);
+
+  $("fb").value = "1.25";
+  await $("fee").fire("click");
+  eq("setting the fee from a percentage lands as bps",
+     decUint(await c.read(pool, "market(uint256)", [DRIVEN]), 4), 125);
+
+  $("wb").value = "0.5";
+  $("wq").value = "0";
+  await $("rm").fire("click");
+  ok("Remove liquidity works too",
+     decUint(await c.read(pool, "market(uint256)", [DRIVEN]), 2) <
+     decUint(after, 2));
+}
+
+head("driving the rental counter");
+{
+  await c.exec(nft, "setLeaseAgent(uint256,address)", [DRIVEN, lease]);
+  await c.exec(lease, "list(uint256,uint128,uint32,uint32)", [DRIVEN, WAD / 100n, 1, 30]);
+
+  const pg = await GET(["token", String(DRIVEN), "rent"]);
+  mount(pg.body);
+  const hirer = await c.as("0x" + "55".repeat(32));
+  PARTIES.push(hirer);
+  if (!TOKENS.includes(DRIVEN)) TOKENS.push(DRIVEN);
+  const W = wallet(hirer);
+  runScripts(pg.body);
+  await nap(30);
+  const $ = (i) => byId.get(i);
+
+  $("rd").value = "5";
+  await $("rd").fire("input");
+  ok("choosing five days prices it exactly",
+     $("rc").textContent.startsWith("0.05 ETH for 5 days"), $("rc").textContent);
+
+  const held = await c.balanceOf(lease);
+  await $("rg").fire("click");
+  eq("renting sent one transaction", W.sent(), 1);
+  eq("carrying exactly the wei the card showed", (await c.balanceOf(lease)) - held, WAD / 20n);
+  eq("and ERC-4907 now names the renter",
+     decAddr(await c.read(nft, "userOf(uint256)", [DRIVEN])).toLowerCase(),
+     hirer.from.toString().toLowerCase());
+
+  $("rd").value = "400";
+  await $("rd").fire("input");
+  ok("a term outside the holder's range is refused before it is sent",
+     $("rg").disabled === true, $("rc").textContent);
+}
+
+for (const g of ["window", "document", "addEventListener", "dispatchEvent", "Event", "IP"]) {
+  delete globalThis[g];
+}
+
 
 /*════════════════ 6 · renting ════════════════*/
 head("renting: the narrow capability");
@@ -383,6 +771,16 @@ ok("the holder names an agent and lists", true);
 
 const listing = await c.read(lease, "listing(uint256)", [1]);
 eq("it reads back as rentable", decUint(listing, 0), 1);
+
+/*  and only now does the counter open. A card that renders whether or not
+    anything is for sale is a card that will one day take money for
+    nothing.                                                             */
+const rp2 = await GET(["token", "1", "rent"]);
+ok("the rent card appears once there are terms", rp2.body.includes("id=rg"));
+ok("with a day field", rp2.body.includes("id=rd"));
+ok("and a place for the exact wei", rp2.body.includes("id=rc"));
+ok("priced from the terms just published", rp2.body.includes("0.01 ETH / day"),
+   "the page did not show the price that was listed");
 
 await refuses("a stranger cannot list someone else's token",
   () => renter.exec(lease, "list(uint256,uint128,uint32,uint32)", [1, PER_DAY, 1, 30]));
@@ -464,7 +862,12 @@ const holderBefore = await c.balanceOf(c.from.toString());
 await c.exec(lease, "collect(uint256,address)", [1, c.from.toString()]);
 ok("the holder collected it", (await c.balanceOf(c.from.toString())) > holderBefore - WAD);
 eq("and nothing is left owing on that token", decUint(await c.read(lease, "earned(uint256)", [1])), 0);
-eq("the contract holds nothing further", await c.balanceOf(lease), 0n);
+/*  Not "the contract is empty" — by this point the app driver above has a
+    real five-day lease running on another token, and its escrow is exactly
+    where it should be. What has to be true is narrower and is the actual
+    claim: nothing is left held against THIS token.                      */
+eq("nothing is left held against token 1",
+   decUint(await c.read(lease, "activeOf(uint256)", [1]), 3), 0);
 await OBLIGED("after collection");
 
 head("a lease cut short by the sale of the token");
@@ -505,11 +908,14 @@ const renterBefore = await renter.balanceOf(renter.from.toString());
 await renter.exec(lease, "claim()", []);
 ok("and the renter reclaims the time they did not get",
    (await renter.balanceOf(renter.from.toString())) > renterBefore - WAD / 10n);
-eq("the contract is empty again", await c.balanceOf(lease), 0n);
+eq("and nothing against it a second time",
+   decUint(await c.read(lease, "activeOf(uint256)", [1]), 3) +
+   decUint(await c.read(lease, "earned(uint256)", [1])), 0);
 
 head("the invariant that matters");
 const surplus = await OBLIGED("at rest");
-eq("and nothing is stranded: the balance is exactly what is owed", surplus, 0n);
+eq("and nothing is stranded: the balance is exactly what is owed, to the wei",
+   surplus, 0n);
 console.log("      checked after every operation above, not only at the end — a");
 console.log("      contract briefly insolvent in the middle passes a closing check");
 

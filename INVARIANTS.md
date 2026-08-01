@@ -666,6 +666,29 @@ this contract exists not to need. It fails silently and only in a conformant
 client, which is why nothing but a spec reading found it.
 → `tools/verify-site.mjs`
 
+**75. The client is run, not only rendered.**
+The application is contract code, so a mistake in it is permanent, and it is
+invisible to every assertion about what a page contains: the bytes can be
+right, the selectors can be right, the JavaScript can parse, and the card can
+still be dead. So the emitted scripts are executed against a DOM shim and a
+provider wired to the same in-process EVM, and driven — type an amount, check
+the quote against `Pool.quote` at that block, press approve, press swap, and
+assert the trader's balance moved by what the card promised. The first run
+found `paint()` writing to an element the markup did not contain, which in a
+browser throws before any listener is attached and kills the whole card while
+the page around it renders perfectly.
+→ `tools/verify-site.mjs` · driving the swap card, the holder's side, the
+  rental counter
+
+**76. No float touches an amount, in either direction.**
+Decimal text is parsed to a BigInt of base units and formatted back the same
+way. Multiplying a token balance by `1e18` in a double loses the last three
+digits of an eighteen-decimal balance, and the number a person is then asked
+to sign is not the number they read. Checked by typing `1.5` into the add-
+liquidity field and asserting exactly 1500000000000000000 base units arrived
+at the pool.
+→ `tools/verify-site.mjs` · driving the holder's side
+
 ---
 
 ## Known and not fixed

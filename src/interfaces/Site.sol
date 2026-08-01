@@ -83,6 +83,8 @@ interface IPoolRead {
     function quote(uint256 id, bool baseIn, uint256 amountIn) external view returns (uint256);
     function isBonded(uint256 id) external view returns (bool);
     function paused() external view returns (bool);
+    function pendingCurve(uint256 id)
+        external view returns (bool pending, uint256 atCurve, uint256 atArtwork);
 }
 
 interface ILeaseRead {
@@ -98,8 +100,17 @@ interface ILeaseRead {
     function MAX_DAYS() external view returns (uint32);
 }
 
+interface IDesk {
+    function config(uint256 id) external view returns (string memory);
+    function core() external pure returns (string memory);
+    function swap() external pure returns (string memory);
+    function pool() external pure returns (string memory);
+    function rent() external pure returns (string memory);
+}
+
 interface IChrome {
     function head(string memory title) external pure returns (string memory);
+    function tabs(string memory t, uint8 here) external pure returns (string memory);
     function nav(uint256 id, uint8 here) external pure returns (string memory);
     function navTop(uint8 here) external pure returns (string memory);
     function foot(address premises, uint256 chainId) external pure returns (string memory);

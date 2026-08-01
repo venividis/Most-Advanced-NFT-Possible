@@ -72,6 +72,13 @@ export const getter = (c, premises) => async (path) =>
 export async function deploySite(c, A, { hub, pool, lease }) {
   const chrome = await c.deploy(A("src/Chrome.sol", "Chrome").bytecode, "", "Chrome");
 
+  /*  Desk holds the application: the config block a page emits and the
+      client that reads it. It knows the hub, the pool and the lease because
+      the config is data about all three.                                 */
+  const desk = await c.deploy(
+    A("src/Desk.sol", "Desk").bytecode,
+    encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease), "Desk");
+
   const pToken = await c.deploy(
     A("src/PageToken.sol", "PageToken").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(chrome) +
@@ -79,11 +86,18 @@ export async function deploySite(c, A, { hub, pool, lease }) {
 
   const pMarket = await c.deploy(
     A("src/PageMarket.sol", "PageMarket").bytecode,
-    encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(pool), "PageMarket");
+    encodeAddressArg(hub) + encodeAddressArg(chrome) +
+    encodeAddressArg(pool) + encodeAddressArg(desk), "PageMarket");
+
+  const pPool = await c.deploy(
+    A("src/PagePool.sol", "PagePool").bytecode,
+    encodeAddressArg(hub) + encodeAddressArg(chrome) +
+    encodeAddressArg(pool) + encodeAddressArg(desk), "PagePool");
 
   const pServices = await c.deploy(
     A("src/PageServices.sol", "PageServices").bytecode,
-    encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(lease), "PageServices");
+    encodeAddressArg(hub) + encodeAddressArg(chrome) +
+    encodeAddressArg(lease) + encodeAddressArg(desk), "PageServices");
 
   const pManifest = await c.deploy(
     A("src/PageManifest.sol", "PageManifest").bytecode,
@@ -92,8 +106,9 @@ export async function deploySite(c, A, { hub, pool, lease }) {
   const premises = await c.deploy(
     A("src/Premises.sol", "Premises").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(pToken) +
-    encodeAddressArg(pMarket) + encodeAddressArg(pServices) + encodeAddressArg(pManifest),
+    encodeAddressArg(pMarket) + encodeAddressArg(pPool) + encodeAddressArg(pServices) +
+    encodeAddressArg(pManifest),
     "Premises");
 
-  return { chrome, pToken, pMarket, pServices, pManifest, premises };
+  return { chrome, desk, pToken, pMarket, pPool, pServices, pManifest, premises };
 }

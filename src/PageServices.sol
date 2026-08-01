@@ -3,31 +3,34 @@ pragma solidity ^0.8.24;
 
 import {LibNum} from "./lib/LibNum.sol";
 import {Web} from "./lib/Web.sol";
-import {IHub, ILeaseRead, IChrome, IRendererDoc} from "./interfaces/Site.sol";
+import {IHub, ILeaseRead, IChrome, IDesk, IRendererDoc} from "./interfaces/Site.sol";
 
 /*───────────────────────────────────────────────────────────────────────────
   PageServices — renting the instrument, and the two hands
 
-  ── why the rent buttons are fixed terms ──
+  Both sides of the counter are on the page. A renter picks a number of days
+  and sees the exact wei; a holder names an agent, publishes terms, collects,
+  and ends a lease. The holder's controls render for everyone and are refused
+  by the contract for everyone else, which is the honest arrangement: hiding
+  them would mean the page never told you the instrument has an owner who
+  decides these things.
+
+  ── why the price is exact rather than approximate ──
 
   `rent` demands an exact `msg.value`, because a contract that accepts an
   overpayment has to send change, and sending change is a call to an address
-  a stranger chose in the middle of a state transition. Refusing is one
-  line; refunding safely is a re-entrancy surface and a griefing surface for
-  no benefit anyone asked for.
-
-  That leaves the page to say the exact number, which it can, because it is
-  a contract and it can multiply. So the terms on offer are buttons with the
-  day count and the wei both stamped in at render time. The browser sends
-  what it was handed. It does not compute a price, which means it cannot
-  compute one wrong.
+  a stranger chose in the middle of a state transition. Refusing is one line;
+  refunding safely is a re-entrancy surface and a griefing surface for no
+  benefit anyone asked for. So the page computes the wei, in BigInt, from a
+  price this contract read — never in a double, which would already have lost
+  the last three digits of an eighteen-decimal amount.
 
   ── the price guard ──
 
-  Each button also carries the price it was rendered against. A holder can
-  raise the rent while a transaction is in the mempool; `maxPerDay` is the
-  same defence `swap` takes with `minOut`, and here the page fills it in
-  because the page is the thing that knows what it quoted.
+  Every rent transaction carries the price the page was rendered against as
+  `maxPerDay`. A holder can raise the rent while a transaction is in the
+  mempool; this is the same defence `swap` takes with `minOut`, filled in by
+  the page because the page is the thing that knows what it quoted.
 ───────────────────────────────────────────────────────────────────────────*/
 contract PageServices {
     using LibNum for uint256;
@@ -36,12 +39,14 @@ contract PageServices {
     IChrome    public immutable CHROME;
     ILeaseRead public immutable LEASE;
     address    public immutable LEASE_ADDR;
+    IDesk      public immutable DESK;
 
-    constructor(IHub hub, IChrome chrome, ILeaseRead lease) {
+    constructor(IHub hub, IChrome chrome, ILeaseRead lease, IDesk desk) {
         HUB = hub;
         CHROME = chrome;
         LEASE = lease;
         LEASE_ADDR = address(lease);
+        DESK = desk;
     }
 
     /*═══════════════════ /token/<id>/rent ═══════════════════*/
@@ -56,16 +61,112 @@ contract PageServices {
         ) = LEASE.listing(id);
 
         return string.concat(
-            CHROME.head(string.concat("IPSEITY #", t, " \xc2\xb7 rent")),
+            CHROME.head(string.concat("Rent \xc2\xb7 IPSEITY #", t)),
             CHROME.nav(id, 4),
-            "<h1>rent #", t, "</h1>",
+            CHROME.tabs(t, 2),
+            DESK.config(id),
+            ok ? _rentCard(perDay, minD, maxD) : _closed(reason, renter, until),
+            _holderCard(id, perDay, minD, maxD, vested),
+            "<div id=s></div>",
             _whatRentingIs(),
-            _state(ok, reason, renter, until, bound),
-            ok ? _terms(id, perDay, minD, maxD) : "",
-            _standing(id, vested),
+            bound ? _bound() : "",
             _rules(),
+            DESK.core(),
+            DESK.rent(),
             CHROME.foot(msg.sender, block.chainid)
         );
+    }
+
+    /// @dev A number of days and the exact wei it costs, recomputed as the
+    ///      number changes. `rent` demands an exact `msg.value` — refunding
+    ///      an overpayment would mean calling an address a stranger chose in
+    ///      the middle of a state transition — so the page has to be the
+    ///      thing that gets the number right, and it can, because it is a
+    ///      contract and it can multiply.
+    function _rentCard(uint128 perDay, uint32 minD, uint32 maxD)
+        private pure returns (string memory)
+    {
+        return string.concat(
+            "<div class=app><div class=hd><b>Rent the instrument</b>"
+            "<span class=e>", Web.amount(perDay, 18, 9), " ETH / day</span></div>"
+            "<div class=fld><div class=lbl><span>for</span><span>",
+                uint256(minD).str(), " to ", uint256(maxD).str(), " days</span></div>"
+            "<div class=row><input id=rd inputmode=numeric value=\"",
+                uint256(minD).str(), "\"><span class=tk>days</span></div></div>"
+            "<div class=det><div><span>you pay</span><b id=rc></b></div>"
+            "<div><span>you may</span><b>turn the solid, commit orientations</b></div>"
+            "<div><span>you may not</span><b>sell, approve, lock, or reach a vault</b>"
+            "</div></div>"
+            "<button class=go id=rg>Rent it</button></div>"
+        );
+    }
+
+    function _closed(uint8 reason, address renter, uint64 until)
+        private pure returns (string memory)
+    {
+        return string.concat(
+            "<div class=app><div class=hd><b>Rent the instrument</b></div>",
+            reason == 3
+                ? string.concat(
+                    "<p class=w>Let to <code>", LibNum.hexAddr(renter),
+                    "</code> until ", uint256(until).str(),
+                    " (unix). It frees itself; nobody has to do anything.</p>")
+                : reason == 2
+                ? "<p class=e>Not on offer. The holder has not named a lease market on "
+                  "this token, so nothing here can set a user on it &mdash; which is "
+                  "the correct default, and is what makes naming one a deliberate "
+                  "act.</p>"
+                : "<p class=e>Not on offer. The holder has published no terms.</p>",
+            "</div>"
+        );
+    }
+
+    /// @dev Shown to everyone and refused by the contract for everyone else.
+    ///      Hiding it would mean the page never told you the instrument has
+    ///      an owner who decides these things.
+    function _holderCard(
+        uint256 id, uint128 perDay, uint32 minD, uint32 maxD, uint256 vested
+    ) private view returns (string memory) {
+        return string.concat(
+            "<div class=app><div class=hd><b>Let it out</b>"
+            "<span class=e>held by <code>", LibNum.hexAddr(HUB.ownerOf(id)),
+            "</code></span></div>"
+            "<div class=fld><div class=lbl><span>price</span></div>"
+            "<div class=row><input id=lp inputmode=decimal value=\"",
+                Web.amount(perDay, 18, 9),
+            "\"><span class=tk>ETH / day</span></div></div>"
+            "<div class=two>"
+            "<div class=fld><div class=lbl><span>shortest</span></div>"
+            "<div class=row><input id=ln inputmode=numeric value=\"",
+                uint256(minD).str(), "\"><span class=tk>days</span></div></div>"
+            "<div class=fld><div class=lbl><span>longest</span></div>"
+            "<div class=row><input id=lx inputmode=numeric value=\"",
+                uint256(maxD).str(), "\"><span class=tk>days</span></div></div></div>"
+            "<button class=go id=agt>Name this contract my lease agent</button>"
+            "<button class=go id=ls>Publish these terms</button>"
+            "<div class=det><div><span>vested to the token</span><b>",
+                Web.amount(vested, 18, 9), " ETH</b></div></div>"
+            "<button class=go id=col>Collect</button>"
+            "<button class=go id=end>End the lease now</button>"
+            "<button class=go id=dl2>Stop taking renters</button>"
+            "<p class=e>Naming this contract your lease agent is a separate, one-line "
+            "transaction on the token itself &mdash; it grants the power to set the "
+            "ERC-4907 user and nothing else, and an ERC-721 approval would have handed "
+            "over the right to sell. Terms cannot be published until it is named.</p>"
+            "<p class=e>Ending a lease early costs you the unelapsed rent, at exactly "
+            "the rate it was earning. <em>Settle before you sell</em>: this contract can "
+            "see that a lease broke but not when, so it credits you only to the last "
+            "block anybody looked.</p>"
+            "<button class=go id=set2>Bring the books up to date</button>"
+            "<button class=go id=clm>Reclaim rent for time I did not get</button></div>"
+        );
+    }
+
+    function _bound() private pure returns (string memory) {
+        return
+            "<p class=e>This token is bound &mdash; ERC-5192 locked, so it cannot be "
+            "sold at all. For a renter that is a feature: the one way a lease here can "
+            "be cut short is the holder moving the token, and this one cannot move.</p>";
     }
 
     function _whatRentingIs() private pure returns (string memory) {
@@ -81,88 +182,6 @@ contract PageServices {
             "That is the same rule the market runs on: fees land in the market's reserves, "
             "so selling the NFT sells the exchange. Sell mid-term and the unpaid rent goes "
             "with it, because the business was never the seller's.</p>";
-    }
-
-    function _state(bool ok, uint8 reason, address renter, uint64 until, bool bound)
-        private pure returns (string memory)
-    {
-        if (ok) {
-            return string.concat(
-                "<p class=ok>Available now.</p>",
-                bound ? "<p class=e>This token is bound &mdash; ERC-5192 locked, so it "
-                        "cannot be sold at all. For a renter that is a feature: the one "
-                        "way a lease here can be cut short is the holder moving the token, "
-                        "and this one cannot move.</p>" : ""
-            );
-        }
-        if (reason == 3) {
-            return string.concat(
-                "<p class=w>Let to <code>", LibNum.hexAddr(renter), "</code> until ",
-                uint256(until).str(), " (unix). It becomes available again on its own; "
-                "nobody has to do anything.</p>"
-            );
-        }
-        if (reason == 2) {
-            return
-                "<p class=e>Not on offer. The holder has not named this lease market on "
-                "the token, so nothing here can set a user on it &mdash; which is the "
-                "correct default, and is what makes naming one a deliberate act.</p>";
-        }
-        return "<p class=e>Not on offer. The holder has published no terms.</p>";
-    }
-
-    /// @dev Up to four terms, each an exact number of days at an exact
-    ///      number of wei. Deduplicated, and clamped into what the holder
-    ///      will actually accept.
-    function _terms(uint256 id, uint128 perDay, uint32 minD, uint32 maxD)
-        private view returns (string memory out)
-    {
-        uint32[4] memory want = [minD, uint32(7), uint32(30), maxD];
-        out = string.concat(
-            "<h2>terms</h2><p class=e>", Web.amount(perDay, 18, 9),
-            " ETH per day &middot; ", uint256(minD).str(), " to ", uint256(maxD).str(),
-            " days.</p><div class=card>"
-        );
-        uint32 last;
-        for (uint256 i; i < 4; ++i) {
-            uint32 d = want[i];
-            if (d < minD || d > maxD || d == last) continue;
-            last = d;
-            uint256 due = uint256(perDay) * uint256(d);
-            out = string.concat(
-                out,
-                "<button data-to=\"", LibNum.hexAddr(LEASE_ADDR), "\"",
-                " data-value=\"", due.str(), "\"",
-                " data-call=\"", _sel("rent(uint256,uint32,uint128)"),
-                    _w(id), _w(d), _w(perDay), "\">",
-                uint256(d).str(), " day", d == 1 ? "" : "s", " &mdash; ",
-                Web.amount(due, 18, 9), " ETH</button>"
-            );
-        }
-        return string.concat(
-            out,
-            "<p class=e>Each button sends the exact wei shown and carries ",
-            Web.amount(perDay, 18, 9), " ETH/day as the most it will pay, so a price "
-            "raised while your transaction waits makes it fail rather than cost more.</p>"
-            "</div>"
-        );
-    }
-
-    function _standing(uint256 id, uint256 vested) private view returns (string memory) {
-        return string.concat(
-            "<h2>standing accounts</h2>"
-            "<dl><dt>vested to token</dt><dd>", Web.amount(vested, 18, 9),
-            " ETH <span class=m>collectable by whoever holds #", id.str(),
-            " when they collect it</span></dd></dl>"
-            "<p class=e>A lease that ran its term vests whole. One cut short vests the "
-            "elapsed fraction and the rest becomes the renter's to reclaim &mdash; nobody "
-            "declares that a lease was broken, it is read off the token: the user is no "
-            "longer the renter and the term is not up.</p>"
-            "<button data-to=\"", LibNum.hexAddr(LEASE_ADDR), "\" data-call=\"",
-                _sel("settle(uint256)"), _w(id), "\">bring the books up to date</button>"
-            "<button data-to=\"", LibNum.hexAddr(LEASE_ADDR), "\" data-call=\"",
-                _sel("claim()"), "\">reclaim rent for time I did not get</button>"
-        );
     }
 
     function _rules() private pure returns (string memory) {
@@ -187,8 +206,9 @@ contract PageServices {
         address grip = HUB.grip(id);
 
         return string.concat(
-            CHROME.head(string.concat("IPSEITY #", t, " \xc2\xb7 vault")),
+            CHROME.head(string.concat("Vault \xc2\xb7 IPSEITY #", t)),
             CHROME.nav(id, 5),
+            CHROME.tabs(t, 3),
             "<h1>the two hands</h1>"
             "<p class=e>Every token owns two addresses, derived under ERC-6551 from the "
             "registry, the implementation, this chain and this token id. They are not "
@@ -214,6 +234,8 @@ contract PageServices {
             _give(id, grip),
             _draw(id),
             _verify(reach),
+            "<div id=s></div>",
+            DESK.core(),
             CHROME.foot(msg.sender, block.chainid)
         );
     }

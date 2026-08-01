@@ -15,6 +15,10 @@ interface IPageMarket {
     function open(uint256 page) external view returns (string memory);
 }
 
+interface IPagePool {
+    function pool(uint256 id) external view returns (string memory);
+}
+
 interface IPageServices {
     function rent(uint256 id) external view returns (string memory);
     function vault(uint256 id) external view returns (string memory);
@@ -73,7 +77,8 @@ interface IPageManifest {
       /token/<id>/face/<n>       one ERC-7160 face, plain
       /token/<id>/sigil.svg      the still, as an image
       /token/<id>/faces          what the three faces are
-      /token/<id>/market         quote and trade against it
+      /token/<id>/market         the swap card
+      /token/<id>/pool           the holder's side: inventory, fee, bond, curve
       /token/<id>/rent           lease the instrument by the day
       /token/<id>/vault          the two hands, give, draw, verify
       /token/<id>/services.json  everything above, machine-readable
@@ -90,6 +95,7 @@ contract Premises {
     IChrome       public immutable CHROME;
     IPageToken    public immutable P_TOKEN;
     IPageMarket   public immutable P_MARKET;
+    IPagePool     public immutable P_POOL;
     IPageServices public immutable P_SERVICES;
     IPageManifest public immutable P_MANIFEST;
 
@@ -109,6 +115,7 @@ contract Premises {
         IChrome chrome,
         IPageToken pToken,
         IPageMarket pMarket,
+        IPagePool pPool,
         IPageServices pServices,
         IPageManifest pManifest
     ) {
@@ -116,6 +123,7 @@ contract Premises {
         CHROME = chrome;
         P_TOKEN = pToken;
         P_MARKET = pMarket;
+        P_POOL = pPool;
         P_SERVICES = pServices;
         P_MANIFEST = pManifest;
     }
@@ -280,6 +288,7 @@ contract Premises {
 
         if (_eq(leaf, "faces"))         return (200, P_TOKEN.faces(id),      _headers(HTML));
         if (_eq(leaf, "market"))        return (200, P_MARKET.market(id),    _headers(HTML));
+        if (_eq(leaf, "pool"))          return (200, P_POOL.pool(id),        _headers(HTML));
         if (_eq(leaf, "rent"))          return (200, P_SERVICES.rent(id),    _headers(HTML));
         if (_eq(leaf, "vault"))         return (200, P_SERVICES.vault(id),   _headers(HTML));
         if (_eq(leaf, "services.json")) return (200, P_MANIFEST.token(id),   _headers(JSON));
