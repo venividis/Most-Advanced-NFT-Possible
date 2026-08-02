@@ -54,11 +54,21 @@ interface IDeskPos {
 
   ── creating a pool ──
 
-  Permissionless and one transaction. The only subtlety is that the position
-  manager does not sort the pair for you — an unsorted pair derives a pool
-  address that does not exist, and the call reverts somewhere unhelpful — so
-  the page sorts, and then tells you which way round the price it is asking
-  for actually reads.
+  Permissionless and one transaction. The subtlety is that the position
+  manager does not sort the pair for you, and the two entry points fail
+  differently when it is unsorted: `createAndInitializePoolIfNecessary`
+  refuses outright with an explicit `require(token0 < token1)`, while `mint`
+  builds its `PoolKey` from the arguments as given and CREATE2-derives an
+  address no pool was ever deployed at, so it reverts obscurely at `slot0()`.
+  Both fail; only one says why. So the page sorts before it sends.
+
+  And sorting is where the price came out backwards. The form says "second
+  token per first", meaning the two dropdowns; a pool says token1 per token0,
+  meaning address order. Those agree exactly half the time. The half where
+  they did not was a factor of nine million for WETH/USDC, the pool went live
+  at that price, and nothing reverted. The client now maps the number from the
+  form's meaning into the pool's, and echoes back the price the resulting tick
+  is actually worth before it sends anything.
 ───────────────────────────────────────────────────────────────────────────*/
 contract PagePools {
     using LibNum for uint256;
@@ -146,7 +156,10 @@ contract PagePools {
             "<h2>how it differs from a limit order, in the four ways that matter</h2>"
             "<ul class=r>"
             "<li><b>It fills gradually.</b> Across the band, not all at once at one "
-            "price. A one-tick band is as close to a single price as the pool allows.</li>"
+            "price. The narrowest band the pool accepts is one tick <em>spacing</em> "
+            "wide &mdash; one tick at the 0.01% tier and two hundred at 1% &mdash; so "
+            "how close to a single price you can get is decided by the fee tier, not "
+            "by you.</li>"
             "<li><b>It un-fills.</b> If the price comes back through your band, the pool "
             "converts it back. Nothing is final until you withdraw.</li>"
             "<li><b>It earns fees</b> the whole time it is working, which a resting limit "
@@ -232,7 +245,7 @@ contract PagePools {
         return string.concat(
             "<label>", label, "</label>"
             "<select id=", sel, ">", _options(), "</select>"
-            "<input id=", box, " placeholder=\"0x\\u2026 any ERC-20 address\" hidden>"
+            "<input id=", box, " placeholder=\"0x\xe2\x80\xa6 any ERC-20 address\" hidden>"
         );
     }
 

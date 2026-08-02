@@ -132,9 +132,11 @@ contract PageCivic {
             "<p class=e>What is left is the part that decides whether the money is "
             "safe, and it is entirely on chain. ERC-4626 makes a vault answer for "
             "itself: what asset it holds, how much of it, and what one share converts "
-            "to. This page asks all of that <em>before</em> it will show you a deposit "
-            "button, and refuses to render the form for an address that will not "
-            "answer &mdash; which is a stronger check than appearing on a list.</p>"
+            "to. This page asks all three <em>before</em> it shows you anything, and "
+            "reports each answer separately &mdash; including \"would not answer\", "
+            "which is a different fact from zero and is shown as one. The deposit form "
+            "is withheld entirely from an address that will not name an asset, because "
+            "that is the read which decides what you would be depositing.</p>"
             "<div class=app style=\"padding:.9rem 1rem\">"
             "<label>an ERC-4626 vault address</label>"
             "<input id=va placeholder=\"0x\xe2\x80\xa6\">"
@@ -154,8 +156,8 @@ contract PageCivic {
         }
         uint8 da = Web.decimalsOf(asset);
         uint8 dv = Web.decimalsOf(v);
-        uint256 total = _vaultWord(v, SEL_TOTAL_ASSETS);
-        uint256 perShare = _vaultConvert(v, 10 ** uint256(dv));
+        (bool okT, uint256 total) = _vaultWord(v, SEL_TOTAL_ASSETS);
+        (bool okS, uint256 perShare) = _vaultConvert(v, 10 ** uint256(dv));
 
         return string.concat(
             "<h2>", Web.symbolOf(v), "</h2>"
@@ -163,11 +165,16 @@ contract PageCivic {
             "<dt>holds</dt><dd>", Web.symbolOf(asset),
                 "<span class=m><code>", LibNum.hexAddr(asset), "</code> &mdash; the "
                 "vault named this itself; nothing here decided it</span></dd>",
-            "<dt>total assets</dt><dd>", Web.amount(total, da, 4), " ",
-                Web.symbolOf(asset), "</dd>",
-            "<dt>one share</dt><dd>", Web.amount(perShare, da, 8), " ",
-                Web.symbolOf(asset),
-                "<span class=m>from <code>convertToAssets</code>, at this block</span>"
+            "<dt>total assets</dt><dd>", okT
+                ? string.concat(Web.amount(total, da, 4), " ", Web.symbolOf(asset))
+                : "<span class=w>would not answer <code>totalAssets()</code></span>",
+                "</dd>",
+            "<dt>one share</dt><dd>", okS
+                ? string.concat(Web.amount(perShare, da, 8), " ", Web.symbolOf(asset),
+                    "<span class=m>from <code>convertToAssets</code>, at this block"
+                    "</span>")
+                : "<span class=w>would not answer <code>convertToAssets()</code>"
+                  "</span>",
                 "</dd>",
             "<dt>share decimals</dt><dd>", uint256(dv).str(),
                 "<span class=m>often not the same as the asset's ",
@@ -218,18 +225,33 @@ contract PageCivic {
         return a == address(0) || a.code.length == 0 ? (false, address(0)) : (true, a);
     }
 
-    function _vaultWord(address v, bytes4 s) private view returns (uint256) {
+    /*  Both of these return whether the call worked, separately from what
+        it returned, and that separation is the whole point.
+
+        They used to return a bare `uint256` and answer zero for "the call
+        reverted", "the call ran out of its stipend" and "the value really is
+        zero" alike. So a working vault whose `totalAssets` needed more gas
+        than the stipend rendered as "total assets 0" and "one share 0" —
+        beside a live deposit button, under prose promising every number was
+        read from the vault. A page that cannot tell silence from zero should
+        not print either.
+
+        The stipends are larger than they were, too: an aggregating vault's
+        `totalAssets` walks its allocations and 60k does not cover that. But
+        a bigger cap is not the fix, because any cap can be exceeded — the
+        fix is that exceeding it is visible.                              */
+    function _vaultWord(address v, bytes4 s) private view returns (bool, uint256) {
         (bool ok, bytes memory out) =
-            v.staticcall{gas: 60_000}(abi.encodeWithSelector(s));
-        if (!ok || out.length < 32) return 0;
-        return abi.decode(out, (uint256));
+            v.staticcall{gas: 400_000}(abi.encodeWithSelector(s));
+        if (!ok || out.length < 32) return (false, 0);
+        return (true, abi.decode(out, (uint256)));
     }
 
-    function _vaultConvert(address v, uint256 shares) private view returns (uint256) {
-        (bool ok, bytes memory out) = v.staticcall{gas: 80_000}(
+    function _vaultConvert(address v, uint256 shares) private view returns (bool, uint256) {
+        (bool ok, bytes memory out) = v.staticcall{gas: 400_000}(
             abi.encodeWithSelector(SEL_TO_ASSETS, shares));
-        if (!ok || out.length < 32) return 0;
-        return abi.decode(out, (uint256));
+        if (!ok || out.length < 32) return (false, 0);
+        return (true, abi.decode(out, (uint256)));
     }
 
     /*═══════════════════ /vote ═══════════════════*/
@@ -259,8 +281,8 @@ contract PageCivic {
     }
 
     function _voteBody(address g) private view returns (string memory) {
-        uint256 count = _govWord(g, abi.encodeWithSelector(SEL_PROPOSAL_COUNT));
-        uint256 quorum = _govWord(g, abi.encodeWithSelector(SEL_QUORUM));
+        (, uint256 count) = _govWord(g, abi.encodeWithSelector(SEL_PROPOSAL_COUNT));
+        (bool okQ, uint256 quorum) = _govWord(g, abi.encodeWithSelector(SEL_QUORUM));
         string memory rows;
         uint256 shown;
         for (uint256 id = count; id > 0 && shown < 8; --id) {
@@ -273,9 +295,12 @@ contract PageCivic {
             "&mdash; not an index of it, not a cache of it.</p>",
             _voteWarning(),
             "<dl><dt>proposals</dt><dd>", count.str(), "</dd>",
-            "<dt>quorum</dt><dd>", Web.amount(quorum, 18, 0),
-                " votes<span class=m>what a proposal needs in favour to pass at "
-                "all</span></dd></dl>",
+            "<dt>quorum</dt><dd>", okQ
+                ? string.concat(Web.amount(quorum, 18, 0),
+                    " votes<span class=m>what a proposal needs in favour to pass at "
+                    "all</span>")
+                : "<span class=w>would not answer <code>quorumVotes()</code></span>",
+                "</dd></dl>",
             count == 0
                 ? "<p class=e>No proposals have ever been made here.</p>"
                 : string.concat(
@@ -323,9 +348,10 @@ contract PageCivic {
             against := mload(add(out, 224))    // word 6
             abstain := mload(add(out, 256))    // word 7
         }
-        uint256 st = _govWord(g, abi.encodeWithSelector(SEL_STATE, id));
+        (bool okS, uint256 st) = _govWord(g, abi.encodeWithSelector(SEL_STATE, id));
         return string.concat(
-            "<tr><td>", id.str(), "</td><td>", _state(st), "</td>",
+            "<tr><td>", id.str(), "</td><td>",
+            okS ? _state(st) : "<span class=m>unreadable</span>", "</td>",
             "<td>", Web.amount(forV, 18, 0), "</td>",
             "<td>", Web.amount(against, 18, 0), "</td>",
             "<td>", Web.amount(abstain, 18, 0), "</td>",
@@ -376,10 +402,14 @@ contract PageCivic {
             "not offering it.</p>";
     }
 
-    function _govWord(address g, bytes memory data) private view returns (uint256) {
-        (bool ok, bytes memory out) = g.staticcall{gas: 80_000}(data);
-        if (!ok || out.length < 32) return 0;
-        return abi.decode(out, (uint256));
+    /// @dev Same separation, and here it mattered more than anywhere: the
+    ///      ProposalState enum's zero is `Pending`, so a `state()` call that
+    ///      failed rendered as a real, specific, wrong answer — a defeated
+    ///      proposal shown as one that has not opened yet.
+    function _govWord(address g, bytes memory data) private view returns (bool, uint256) {
+        (bool ok, bytes memory out) = g.staticcall{gas: 120_000}(data);
+        if (!ok || out.length < 32) return (false, 0);
+        return (true, abi.decode(out, (uint256)));
     }
 
     /*═══════════════════ shared ═══════════════════*/

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IHub, IRendererDoc, ISigilDraw, IChrome} from "./interfaces/Site.sol";
+import {LibNum} from "./lib/LibNum.sol";
 import {TokenView} from "./lib/Types.sol";
 
 interface IPageToken {
@@ -245,23 +246,46 @@ contract Premises {
             return (200, P_POOLS.pools(), _headers(HTML));
         }
 
-        /*  Three routes that take an optional contract address. With none
+        /*  Governance is about the collection's chain, not about an address
+            you name, so it takes no segment — and it is routed on its own
+            rather than folded in with the two that do.
+
+            It was folded in, and that was the exact failure the length
+            gates above exist to prevent: `vote()` ignores its argument, so
+            every one of 2^160 `/vote/<address>` URLs answered 200 with a
+            byte-identical document. Every response here carries a
+            Cache-Control, so "the same page at any address you like" is an
+            invitation to fill a gateway's cache with distinct entries for
+            one document until the real ones are evicted.                 */
+        if (_eq(resource[0], "vote")) {
+            if (n != 1) return _notFound();
+            return (200, P_CIVIC.vote(), _headers(HTML));
+        }
+
+        /*  Two routes that take an optional contract address. With none
             they are an index; with one they are a page about that address,
             rendered here rather than fetched by a script — which is why
             `/explore/<token>` works in a client with JavaScript switched
             off entirely.                                                 */
-        if (_eq(resource[0], "explore") || _eq(resource[0], "earn")
-            || _eq(resource[0], "vote")) {
+        if (_eq(resource[0], "explore") || _eq(resource[0], "earn")) {
             if (n > 2) return _notFound();
             address subject;
             if (n == 2) {
-                (bool okA, address v) = _toAddr(resource[1]);
+                (bool okA, address v, bool canon) = _toAddr(resource[1]);
                 if (!okA) return _notFound();
+                /*  One resource, one URL — so one spelling. An address
+                    pasted from a block explorer is EIP-55 mixed case and is
+                    a perfectly good address; it is just not this document's
+                    address. Sent there rather than refused.              */
+                if (!canon) {
+                    return _moved(string.concat("/", resource[0], "/", LibNum.hexAddr(v)));
+                }
                 subject = v;
             }
-            if (_eq(resource[0], "explore")) return (200, P_EXPLORE.explore(subject), _headers(HTML));
-            if (_eq(resource[0], "earn"))    return (200, P_CIVIC.earn(subject),    _headers(HTML));
-            return (200, P_CIVIC.vote(), _headers(HTML));
+            if (_eq(resource[0], "explore")) {
+                return (200, P_EXPLORE.explore(subject), _headers(HTML));
+            }
+            return (200, P_CIVIC.earn(subject), _headers(HTML));
         }
 
         if (_eq(resource[0], "limit")) {
@@ -398,6 +422,29 @@ contract Premises {
         );
     }
 
+    /// @dev A 301 to the canonical spelling. Cached hard, because where a
+    ///      resource lives does not change and a gateway that re-asked on
+    ///      every request would have turned a de-duplication into a second
+    ///      round trip.
+    function _moved(string memory to)
+        private pure returns (uint16, string memory, KeyValue[] memory)
+    {
+        KeyValue[] memory h = new KeyValue[](3);
+        h[0] = KeyValue("Content-Type", HTML);
+        h[1] = KeyValue("Cache-Control", "public, max-age=86400");
+        h[2] = KeyValue("Location", to);
+        return (
+            301,
+            string.concat(
+                "<!doctype html><meta charset=utf-8><title>moved</title>"
+                "<body style=\"background:#07080c;color:#8b95ad;"
+                "font:14px ui-monospace,monospace;padding:3rem\">"
+                "<p>That is the right address, written a different way.</p>"
+                "<p><a style=\"color:#7fd4ff\" href=\"", to, "\">", to, "</a></p>"),
+            h
+        );
+    }
+
     function _headers(string memory contentType) private pure returns (KeyValue[] memory h) {
         h = new KeyValue[](2);
         h[0] = KeyValue("Content-Type", contentType);
@@ -426,27 +473,43 @@ contract Premises {
         `0x`, one canonical spelling, and anything else is a 404 rather than
         a revert.
 
-        Mixed case is accepted and lowercased rather than being checked
-        against EIP-55. A checksum would catch a mistyped address, which is
-        worth something — but this parser is reached by a link the page
-        itself wrote, and refusing a lowercase address that a person pasted
-        from a block explorer would be refusing the common case to guard the
-        rare one. The page prints back the address it read, which is the
-        check that actually helps.                                        */
-    function _toAddr(string memory s) private pure returns (bool ok, address a) {
+        One spelling, for the same reason `_toUint` refuses a leading zero:
+        the file above argues that one resource must have one URL because
+        every response carries a Cache-Control, and `/explore/0xABC…` and
+        `/explore/0xabc…` are the same resource. Mixed case is *accepted* —
+        refusing an address pasted from a block explorer would be refusing
+        the common case — but it is not a second address: the canonical form
+        is lower case with a lower-case `0x`, and anything else is redirected
+        there rather than served in place.
+
+        A checksum is deliberately not enforced. It would catch a mistyped
+        address, which is worth something, but this parser is mostly reached
+        by links the page itself wrote, and a page that 404s a valid address
+        because its capitalisation is unfashionable is worse. The page prints
+        back the address it read, which is the check that actually helps. */
+    /// @return ok    whether it is an address at all
+    /// @return a     the address
+    /// @return canon whether it was written the one way this site writes it:
+    ///               lower-case `0x`, lower-case digits. Anything else is a
+    ///               different URL for the same document, and gets a 301.
+    function _toAddr(string memory s)
+        private pure returns (bool ok, address a, bool canon)
+    {
         bytes memory b = bytes(s);
-        if (b.length != 42 || b[0] != "0" || (b[1] != "x" && b[1] != "X")) return (false, address(0));
+        if (b.length != 42 || b[0] != "0") return (false, address(0), false);
+        if (b[1] != "x" && b[1] != "X") return (false, address(0), false);
+        canon = b[1] == "x";
         uint256 v;
         for (uint256 i = 2; i < 42; ++i) {
             uint8 ch = uint8(b[i]);
             uint256 d;
             if (ch >= 0x30 && ch <= 0x39) d = ch - 0x30;
             else if (ch >= 0x61 && ch <= 0x66) d = ch - 0x61 + 10;
-            else if (ch >= 0x41 && ch <= 0x46) d = ch - 0x41 + 10;
-            else return (false, address(0));
+            else if (ch >= 0x41 && ch <= 0x46) { d = ch - 0x41 + 10; canon = false; }
+            else return (false, address(0), false);
             v = v * 16 + d;
         }
-        return (true, address(uint160(v)));
+        return (true, address(uint160(v)), canon);
     }
 
     /// @dev A path segment is text. Anything that is not a plain decimal

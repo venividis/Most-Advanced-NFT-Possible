@@ -62,6 +62,11 @@ contract PageExplore {
     uint32 public constant WINDOW = 86_400;
     uint8  public constant BARS = 24;
 
+    /// @dev How many assets to try pricing against before giving up. Each is
+    ///      four `getPool` calls; the loop that used to be unbounded is now
+    ///      bounded here and the page says what it looked at.
+    uint256 public constant CANDIDATES = 16;
+
     constructor(
         IChrome chrome, IPoolRead pool, IDesk desk,
         IDeskUni deskU, IDeskCivic deskC, IVenue venue
@@ -188,9 +193,12 @@ contract PageExplore {
         (address[] memory list,) = Assets.derive(POOL, 0, 24);
         uint24[4] memory fees = VENUE.tiers();
         address fallbackQuote;
-        for (uint256 j; j < list.length; ++j) {
+        address wrapped = VENUE.WRAPPED();
+        uint256 tried;
+        for (uint256 j; j < list.length && tried < CANDIDATES; ++j) {
             address cand = list[j];
-            if (cand == t || cand == VENUE.WRAPPED()) continue;
+            if (cand == t || cand == wrapped) continue;
+            ++tried;
             if (fallbackQuote == address(0)) fallbackQuote = cand;
             for (uint256 i; i < 4; ++i) {
                 if (VENUE.poolAt(t, cand, fees[i]) == address(0)) continue;
@@ -271,8 +279,22 @@ contract PageExplore {
         }
         if (!best.found) return "";
 
+        /*  Ask for what the pool has, not for what would be nice.
+
+            This used to request a fixed day and take "no" for an answer, so
+            a pool remembering fifty minutes drew nothing — and the notice
+            underneath then suggested buying three hundred observations,
+            which on a busy pool is about an hour and would not have helped
+            either. Both of those were the page being wrong about its own
+            mechanism. It asks the pool how far back it can answer and draws
+            that, and says how long a span it got.                        */
+        uint32 win = WINDOW;
+        (bool okAge, uint32 age) = VENUE.oldest(best.pool);
+        if (okAge && age < win) win = age;
+        if (win < uint32(BARS)) return _noHistory(best.pool);
+
         (bool ok, int24[] memory ticks, uint32 step) =
-            VENUE.history(best.pool, WINDOW, BARS);
+            VENUE.history(best.pool, win, BARS);
         if (!ok || ticks.length == 0) return _noHistory(best.pool);
 
         int24 lo = ticks[0];
@@ -283,16 +305,30 @@ contract PageExplore {
         }
         uint256 span = uint256(int256(hi) - int256(lo));
 
+        /*  Which way is up.
+
+            A tick is token1 per token0, so it rises with the price of
+            token0 and *falls* with the price of token1. The high/low list
+            below already inverts for that — and the bars did not, so for
+            every subject token whose address sorts above its quote the
+            chart was drawn upside down against its own labels. A day the
+            token rose rendered as a day it fell.
+
+            Roughly half of all pairs sort that way, so this was not an edge
+            case; it was a coin flip on every page.                       */
+        bool baseIs0 = base < quote;
+        uint256 unit = d > 36 ? 1 : 10 ** uint256(d);
+
         string memory bars;
         for (uint256 i; i < ticks.length; ++i) {
-            uint256 h = span == 0
-                ? 50
-                : 6 + (uint256(int256(ticks[i]) - int256(lo)) * 88) / span;
+            // both differences are within [0, span], so neither can underflow
+            uint256 above = baseIs0
+                ? uint256(int256(ticks[i]) - int256(lo))
+                : uint256(int256(hi) - int256(ticks[i]));
+            uint256 h = span == 0 ? 50 : 6 + (above * 88) / span;
             bars = string.concat(bars, "<i style=\"height:", h.str(), "%\"></i>");
         }
 
-        uint256 unit = d > 36 ? 1 : 10 ** uint256(d);
-        bool baseIs0 = base < quote;
         uint8 dq = Web.decimalsOf(quote);
         return string.concat(
             "<h2>the pool's own record</h2>",
@@ -306,7 +342,11 @@ contract PageExplore {
             "<dt>each bar</dt><dd>", uint256(step).str(), " seconds</dd>",
             "<dt>read from</dt><dd><code>", LibNum.hexAddr(best.pool), "</code></dd></dl>",
             "<p class=e>Each bar is a time-weighted average tick over ",
-            uint256(step).str(), " seconds, computed by the pool and divided here. It "
+            uint256(step).str(), " seconds &mdash; ",
+            uint256(step * uint32(BARS)).str(),
+            " seconds in all, which is as far back as this pool can answer rather than "
+            "as far back as the page would like. It is computed by the pool and divided "
+            "here. It "
             "is not a candle and there is no volume behind it, because a pool records "
             "price and nothing else. What it is instead is a price history that nobody "
             "serving this page could have altered &mdash; and it was drawn by a "
@@ -325,15 +365,19 @@ contract PageExplore {
             "<p class=e>Anyone may extend it, permanently, for everyone. The button "
             "below sends <code>increaseObservationCardinalityNext</code> to the pool "
             "itself; after it confirms the pool begins keeping that many observations, "
-            "and a chart appears here once enough time has passed to fill them.</p>"
+            "and a chart appears here as soon as there are enough of them to divide "
+            "&mdash; this page draws whatever span the pool can answer for, so it does "
+            "not wait for a whole day of it.</p>"
             "<div class=app style=\"padding:.9rem 1rem\">"
             "<div class=hd><b>Lengthen this pool's memory</b></div>"
             "<label>observations to keep</label><input id=gv value=\"300\">"
             "<input id=gp value=\"", LibNum.hexAddr(p), "\" hidden>"
-            "<p class=e style=\"margin:.4rem 0 0\">300 observations at roughly one per "
-            "block is a few hours of history on a fast chain and a day or two on a slow "
-            "one. It costs gas once, in proportion to how many slots are being "
-            "reserved.</p>"
+            "<p class=e style=\"margin:.4rem 0 0\">A pool writes at most one "
+            "observation per block, and only in blocks where it traded &mdash; so how "
+            "much <em>time</em> a given number buys depends entirely on how busy the "
+            "pool is. 300 is roughly an hour on a pool that trades every block and "
+            "considerably longer on a quiet one. It costs gas once, in proportion to "
+            "how many slots are being reserved, and the ceiling is 65535.</p>"
             "<button class=go id=grow>Extend it</button><div id=s></div></div>"
         );
     }

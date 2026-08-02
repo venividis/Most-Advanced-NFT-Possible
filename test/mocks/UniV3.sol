@@ -57,6 +57,16 @@ contract MockV3Pool {
     ///      chart page that has never met a real one.
     uint32 public depth;
 
+    /*  Ticks per second, so the recorded price can actually move.
+
+        A pool whose tick never changes produces a flat chart, and a flat
+        chart cannot tell a correct renderer from one drawing it upside
+        down — which is exactly the bug that shipped. With a slope the
+        series has a direction, and a direction is a thing a test can be
+        wrong about.                                                      */
+    int56 public slope;
+    uint32 public base;
+
     constructor(
         address a, address b, uint24 f, int24 sp, uint160 sq, int24 tk, uint128 liq
     ) {
@@ -71,7 +81,14 @@ contract MockV3Pool {
 
     function setLiquidity(uint128 l) external { liquidity = l; }
     function setPrice(uint160 s, int24 t) external { sqrtPriceX96 = s; tick = t; }
-    function setHistory(uint32 d, uint16 c) external { depth = d; cardinality = c; }
+    function setHistory(uint32 d, uint16 c) external {
+        depth = d;
+        cardinality = c;
+        base = uint32(block.timestamp) - d;
+    }
+
+    /// @notice Make the tick drift, so the chart has a slope to get wrong.
+    function setSlope(int56 s) external { slope = s; }
 
     /// @dev The real slot0 returns seven values. Two are read and the rest
     ///      are ignored, but the shape has to match or a reader that decodes
@@ -96,13 +113,37 @@ contract MockV3Pool {
         for (uint256 i; i < secondsAgos.length; ++i) {
             require(secondsAgos[i] <= depth, "OLD");
             uint256 at = block.timestamp - secondsAgos[i];
-            tickCumulatives[i] = int56(tick) * int56(uint56(at));
+            /*  The integral of a tick that drifts linearly: the mean tick
+                over [a,b] comes out as tick + slope*((a-base)+(b-base))/2,
+                which rises with time when the slope is positive.        */
+            int56 e = at > base ? int56(uint56(at - base)) : int56(0);
+            tickCumulatives[i] = int56(tick) * int56(uint56(at)) + (slope * e * e) / 2;
             perLiq[i] = uint160(at);
         }
     }
 
     function increaseObservationCardinalityNext(uint16 next) external {
         if (next > cardinality) { cardinality = next; depth = uint32(next) * 12; }
+    }
+
+    /*  The ring buffer, only as far as the reader walks it. A real pool's
+        oldest observation is the slot after the newest, unless the buffer
+        has not filled — in which case that slot is uninitialised and slot
+        zero is the oldest. Both branches are reachable here: index is 0 and
+        cardinality is whatever `setHistory` said, so slot 1 is
+        uninitialised whenever the buffer is short.                       */
+    function observations(uint256 i) external view returns (
+        uint32 blockTimestamp, int56 tickCumulative,
+        uint160 secondsPerLiquidityCumulativeX128, bool initialized
+    ) {
+        if (depth == 0) return (0, 0, 0, false);
+        // slot 0 holds the oldest reading this pool still remembers
+        if (i == 0) {
+            uint256 at = block.timestamp > depth ? block.timestamp - depth : 1;
+            return (uint32(at), int56(tick) * int56(uint56(at)), uint160(at), true);
+        }
+        // and every other slot is uninitialised, so the reader must fall back
+        return (0, 0, 0, false);
     }
 }
 
@@ -357,15 +398,19 @@ contract ImpostorPool {
 /*  Records what it decoded, like the routers, and for the same reason —
     with one addition that matters more here than anywhere else on the site.
 
-    `tickLower` and `tickUpper` are int24. Every pair priced below parity has
-    a negative current tick, so a real range is routinely two negative
-    numbers, and a client that zero-pads instead of sign-extending turns
-    -201240 into 16575976. The position mints in a range nobody chose,
-    against a price the pool will never reach, and NOTHING REVERTS — the
-    value is a perfectly legal tick.
+    `tickLower` and `tickUpper` are int24, and every pair priced below parity
+    has a negative current tick, so a real range is routinely two negative
+    numbers.
+
+    A client that reinterprets the low 24 bits fails loudly: -201240 becomes
+    16575976, which is not a legal int24, and the decoder rejects it. The one
+    that does not fail loudly is a client that DROPS the sign — +201240 is a
+    perfectly legal tick about nine million times the intended price, the
+    position mints in a range nobody chose, and nothing reverts because
+    nothing is wrong with the number.
 
     Recording the ticks as signed and asserting on them is the only way that
-    failure becomes visible.                                              */
+    second failure becomes visible.                                        */
 contract MockPositions {
     struct Minted {
         bool    called;

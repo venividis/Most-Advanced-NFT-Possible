@@ -348,10 +348,21 @@ Three more traps, each of which produces a wrong answer rather than a failure:
   order gives a selector for a function that does not exist; getting the selector
   right but the words in the comment's order gives a silent quote at
   `fee = 1000000000`.
-- **Ticks are signed.** Every pair priced below parity has a negative current
-  tick, and a tick word padded with zeroes instead of sign-extended turns
-  `-201240` into `16575976` — in range, on the grid, and completely wrong. The
-  position mints somewhere nobody chose and nothing reverts.
+- **Ticks are signed**, and the way that bites is narrower than it first looks
+  — which is worth stating precisely, because the version of this paragraph
+  that shipped first was wrong. Reinterpreting `-201240` as an unsigned 24-bit
+  value gives `16575976`, and that is *not* a legal `int24` (the maximum is
+  `8388607`), so solc's decoder rejects it and the call reverts. The client
+  here would not even get that far: `I.W(-201240)` calls
+  `BigInt(-201240).toString(16)`, which is `"-31218"`, and the hex whitelist
+  refuses the minus sign and throws. Both of those are loud.
+
+  The failure that is silent is a client that **drops** the sign rather than
+  mangling it — sending `+201240`, a perfectly legal tick roughly nine million
+  times the intended price. That mints in a range nobody chose, and nothing
+  reverts, because nothing is wrong with the number. `I.S` two's-complements
+  instead, and the mock position manager records the ticks it decoded *as
+  signed* so the test reads them back and would see either mistake.
 - **`amountIn == 0` is not an empty trade on SwapRouter02.** `CONTRACT_BALANCE`
   is zero, so it means "swap this router's entire balance". It is refused in the
   client and in the mock.
@@ -364,6 +375,50 @@ half of the domain was never generated once. Every tick fuzzer was exercising th
 easy half and reporting full coverage. The generator now draws signed types
 signed, and the runner's self-check refuses to report on the suite at all if the
 fuzzer stops producing negative values.
+
+### What an adversarial review of it found
+
+The Uniswap surface was then put under six independent reviewers — one each on
+the calldata, the client as a program, the Solidity reads, the tick arithmetic,
+the factual claims in the prose, and the routing — with every finding handed to
+a separate agent whose only job was to refute it from source. Eight of the
+thirty-seven raised did not survive that. The rest were real, and they were
+mostly of one kind: **a plausible wrong answer, not a failure.**
+
+- **A pool created at the reciprocal price.** The create-pool field says "second
+  token per first", meaning the two dropdowns. A pool says token1 per token0,
+  meaning address order. Those agree exactly half the time. The half where they
+  did not was a factor of nine million for WETH/USDC — the pool goes live at
+  that price, nothing reverts, and the first person to notice empties it. The
+  test that was supposed to cover this asserted only that `sqrtPriceX96` was in
+  representable range, which is true of the reciprocal too.
+- **A chart drawn upside down** for every token that sorts after its quote,
+  contradicting the high/low figures printed directly beneath it. A day the
+  token rose rendered as a day it fell.
+- **A fee-tier control that moved a highlight and nothing else** — the trade
+  always went to the best-quoting tier — while the page said it could be
+  overridden.
+- **A failed read rendered as a zero.** `totalAssets`, `convertToAssets`,
+  `quorumVotes` and `state` all answered zero for "reverted", "ran out of
+  stipend" and "really is zero" alike. The worst was `state`: the
+  `ProposalState` enum's zero is `Pending`, so a failed read showed a defeated
+  proposal as one that had not opened yet.
+- **`/vote` served the same document at 2^160 URLs**, having been folded in with
+  the two routes that take an address — the exact failure the router's own
+  comments say its length gates exist to prevent.
+- **The last bar of every chart was scaled by a remainder** whenever the window
+  did not divide evenly by the number of bars.
+- **Four prose claims that were simply wrong**, including the headline one in
+  this README — see the tick paragraph above, which now says what actually
+  happens rather than what sounded alarming.
+
+Two of the fixes needed the *tests* fixed first. The chart-orientation test
+passed against the reintroduced bug, because whichever single token it looked
+at was token0 half the time and the broken branch never ran; it now checks both
+ends of the same pool and carries a control asserting that the token1 branch was
+actually exercised. And the DOM shim turned out to lack `classList.toggle`,
+which every browser has — a stub that is missing something is worse than one
+that is small, because the failure points at the wrong file.
 
 ### The token dropdown, and what it can honestly contain
 
@@ -467,7 +522,7 @@ client.
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists seventy-eight such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1141,7 +1196,7 @@ tools/
 test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy, load, seal
 
-INVARIANTS.md           ninety-four statements that must hold, and the test for each
+INVARIANTS.md           one hundred statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 
@@ -1152,8 +1207,8 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 `glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `forge.mjs`
 (135 Solidity tests), `gas.mjs`, `verify.mjs` in both storage modes (122 packed / 121
 raw), `verify-pool.mjs` (62), `verify-vault.mjs` (97), `verify-kernel.mjs` (36),
-`verify-premises.mjs` (30), `verify-site.mjs` (335), `verify-timelock.mjs` (24) and
-`fuzz.mjs` (14 properties) were executed in this environment — 896 assertions and
+`verify-premises.mjs` (30), `verify-site.mjs` (343), `verify-timelock.mjs` (24) and
+`fuzz.mjs` (14 properties) were executed in this environment — 904 assertions and
 tests, 14 properties, 15 refuted claims and a 220-tick agent run — and every number
 in this document comes from those runs.
 

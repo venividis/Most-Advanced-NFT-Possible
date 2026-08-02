@@ -169,6 +169,7 @@ interface IVenue {
     function state(address pool) external view returns (PoolState memory);
     function history(address pool, uint32 window, uint8 points)
         external view returns (bool ok, int24[] memory ticks, uint32 step);
+    function oldest(address pool) external view returns (bool ok, uint32 secondsAgo);
 
     function sqrtAt(int24 tick) external pure returns (uint160);
     function priceAt(int24 tick, uint256 unit, bool baseIsToken0)

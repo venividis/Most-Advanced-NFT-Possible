@@ -45,7 +45,7 @@ contract DeskTrade {
     string internal constant SWAP_JS =
         "(()=>{const I=window.IP,N=window.UNI;if(!I||!N)return;"
         "const $=I.$,U=N.U,S=N.S;"
-        "let A=null,B=null,ps=[],pick=null,q=0n,slip=50,mins=30,busy=0,tmr=0;"
+        "let A=null,B=null,ps=[],pick=null,forced=0,q=0n,slip=50,mins=30,busy=0,tmr=0;"
         "const put=(i,v)=>{const e=$(i);if(e)e.textContent=v};"
         "const paint=()=>{put('ts',A?A.s:'select');put('rs',B?B.s:'select');"
         "put('sl',(slip/100)+'%')};"
@@ -55,24 +55,28 @@ contract DeskTrade {
         "if(!r){e.textContent='';return 0n}"
         "const b=I.word(r,0);e.textContent='balance '+I.fmt(b,t.d,4);return b};"
         // which tiers exist, and how deep each is
-        "const routes=async()=>{const t=$('rt');ps=await N.pools(A,B);pick=ps[0]||null;"
+        "const routes=async()=>{const t=$('rt');ps=await N.pools(A,B);pick=ps[0]||null;forced=0;"
         "if(!t)return;if(!A||!B){t.innerHTML='';return}"
         "if(!ps.length){t.innerHTML='<div><span>pools</span><b>none for this pair</b></div>';return}"
         "t.innerHTML=ps.map(p=>'<button data-fee=\\''+p.fee+'\\'"
         "class=\\'tr'+(pick&&p.fee===pick.fee?' on':'')+'\\'>'+(p.fee/10000)+'%</button>').join('');"
         "t.querySelectorAll('[data-fee]').forEach(b=>b.addEventListener('click',()=>{"
-        "pick=ps.find(x=>String(x.fee)===b.dataset.fee)||pick;"
+        "pick=ps.find(x=>String(x.fee)===b.dataset.fee)||pick;forced=1;"
         "t.querySelectorAll('.tr').forEach(z=>z.classList.remove('on'));"
         "b.classList.add('on');refresh()}))};"
-        // one eth_call per tier, best answer wins. This is the router.
+        /*  Every tier that has a pool, unless the visitor pressed one — in
+            which case exactly that one. The page says the tier can be
+            overridden and this is what makes that true: before, the button
+            moved the highlight and the trade still went wherever the best
+            quote was, which is a control that lies about what it does.   */
         "const quoteAll=async amt=>{let best=null;"
-        "for(const p of ps){"
+        "for(const p of (forced&&pick?[pick]:ps)){"
         "const r=await I.tryCall(U.quoter,"
         "S.quote+I.AD(A.a)+I.AD(B.a)+I.W(amt)+I.W(p.fee)+I.W(0),30000000);"
         "if(!r)continue;const o=I.word(r,0);"
         "if(o>0n&&(!best||o>best.out))best={out:o,fee:p.fee,pool:p.pool}}"
         "return best};"
-        "const refresh=async()=>{if(busy)return;busy=1;try{"
+        "const refresh=async()=>{if(busy){later();return}busy=1;try{"
         "const det=$('det'),go=$('go');"
         "if(!A||!B){$('so').value='';det.innerHTML='';"
         "go.textContent='Choose two tokens';go.disabled=true;return}"
@@ -88,7 +92,9 @@ contract DeskTrade {
         "if(!b){$('so').value='';"
         "det.innerHTML='<div><span>quote</span><b>no pool could fill this</b></div>';"
         "go.textContent='No route';go.disabled=true;return}"
-        "pick=ps.find(p=>p.fee===b.fee)||pick;q=b.out;"
+        "if(!forced){pick=ps.find(p=>p.fee===b.fee)||pick;const rw=$('rt');"
+        "if(rw)rw.querySelectorAll('[data-fee]').forEach(z=>"
+        "z.classList.toggle('on',String(z.dataset.fee)===String(b.fee)))}q=b.out;"
         "$('so').value=I.fmt(q,B.d,8);"
         "const minOut=q*BigInt(10000-slip)/10000n;"
         "const rate=I.fmt(q*(10n**BigInt(A.d))/amt,B.d,6);"
@@ -300,11 +306,34 @@ contract DeskTrade {
             and the contract does not sort for you, so the price typed is
             always token1 per token0 after sorting and the page says which
             way round that came out.                                       */
+        /*  The orientation, which was wrong and would have cost somebody a
+            pool.
+
+            The form says "second token per first", meaning the two pickers.
+            A pool says token1 per token0, meaning address order. Those agree
+            exactly half the time, and the half where they do not is not a
+            small error: for WETH/USDC it is a factor of nine million, the
+            pool goes live at that price, nothing reverts, and the first
+            person to notice empties it.
+
+            So the number is mapped from the form's meaning into the pool's,
+            the same way `add2` already maps the amounts. The reciprocal is
+            taken in double precision, which is fine — it only picks a tick,
+            and the price that tick is actually worth is read back from the
+            contract and shown before anything is sent.                   */
         "on('mkpool',async()=>{const o=ord();if(!o)throw new Error('choose two tokens');"
-        "const t=tickOf(Number($('p0').value),o[0].d,o[1].d);"
-        "if(t===null)throw new Error('enter a starting price');"
-        "const r=await I.tryCall(U.venue,S.vSqrtAt+I.S(await snap(t)));"
+        "const v=Number($('p0').value);"
+        // an empty box is Number('')===0, and 1/0 is Infinity, which would
+        // sail through tickOf's own p>0 check and reach the encoder
+        "if(!(v>0)||!isFinite(v))throw new Error('enter a starting price above zero');"
+        "const t=tickOf(o[0].a===A.a?v:1/v,o[0].d,o[1].d);"
+        "if(t===null)throw new Error('that price cannot be represented');"
+        "const k=await snap(t);if(k===null)throw new Error('could not reach the venue');"
+        "const r=await I.tryCall(U.venue,S.vSqrtAt+I.S(k));"
         "if(!r)throw new Error('that price is outside what a pool can represent');"
+        // say what it is about to do, in the pool's own terms, before it does it
+        "const back=await priceOf(k,o[0].d,o[1].d);"
+        "I.say('creating at '+back+' '+o[1].s+' per '+o[0].s+' \u00b7 tick '+k);"
         "await I.send(U.positions,S.initPool+I.AD(o[0].a)+I.AD(o[1].a)+I.W(fee)"
         "+I.W(I.word(r,0)))});"
         /*  The portfolio, with no indexer. The position manager is an

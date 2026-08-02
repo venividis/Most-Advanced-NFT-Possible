@@ -714,7 +714,21 @@ const mkEl = (tag, attrs) => {
                     el.className = (el.className + " " + k).trim(); },
     remove: (k) => { el.className =
       el.className.split(/\s+/).filter((x) => x && x !== k).join(" "); },
-    contains: (k) => el.className.split(/\s+/).includes(k)
+    contains: (k) => el.className.split(/\s+/).includes(k),
+    /*  Standard, and its absence was not a bug in the page — it was the
+        shim silently lacking a method every browser has, which surfaces as
+        a TypeError inside the client and reads exactly like a real defect.
+        A stub that is missing something is worse than one that is small,
+        because the failure it produces points at the wrong file.        */
+    toggle: (k, force) => {
+      const has = el.className.split(/\s+/).includes(k);
+      const want = force === undefined ? !has : !!force;
+      if (want && !has) el.className = (el.className + " " + k).trim();
+      if (!want && has) {
+        el.className = el.className.split(/\s+/).filter((x) => x && x !== k).join(" ");
+      }
+      return want;
+    }
   };
   for (const m of (attrs || "").matchAll(/data-([\w-]+)(?:=["']?([^"'\s>]*)["']?)?/g)) {
     el.dataset[m[1].replace(/-(\w)/g, (x, y) => y.toUpperCase())] = m[2] ?? "";
@@ -973,6 +987,8 @@ head("driving the Uniswap card");
      /0\.3%/.test($("det").innerHTML), $("det").innerHTML.slice(0, 200));
   console.log(`      quoted every tier that had a pool and took ${shown} over 2900`);
 
+
+
   /*──── approve, then swap ────*/
   await $("go").fire("click");                       // connects
   await nap(200);
@@ -1009,6 +1025,34 @@ head("driving the Uniswap card");
   const usdcAfter = decUint(await c.read(usdc, "balanceOf(address)",
     [uniTrader.from.toString()]));
   eq("and the tokens actually moved", usdcAfter - usdcBefore, 2995n * 10n ** 6n);
+
+  /*──── the override, which used to be a highlight and nothing else ────*/
+
+  /*  The page says the tier "can be overridden". Before this it could not:
+      pressing a tier moved a class and `quoteAll` still scanned every pool
+      and took the best, so the trade went where the router wanted while the
+      interface said otherwise. A control that lies about what it does is
+      worse than no control, so this presses the WORSE tier and requires the
+      trade to actually go there.                                          */
+  {
+    const worse = $("rt").querySelectorAll("[data-fee]").find((b) => b.dataset.fee === "500");
+    ok("the shallower tier is offered as a choice", !!worse,
+       $("rt").innerHTML.slice(0, 160));
+    await worse.fire("click");
+    await nap(800);
+    const forced = $("so").value.replace(/,/g, "");
+    ok("choosing it changes the quote to that tier's price",
+       Math.abs(Number(forced) - 2900) < 0.01,
+       `after pressing 0.05% the card says ${forced}, and that tier pays 2900`);
+
+    await $("go").fire("click");
+    await nap(400);
+    const s2 = await c.read(uniRouterV3, "last()");
+    eq("and the trade goes through the tier that was chosen, not the best one",
+       decUint(s2, 3), 500n);
+    console.log(`      pressed 0.05%: quote 2995 -> ${forced}, and the swap went ` +
+                `through the 0.05% pool rather than the 0.3% one`);
+  }
 
   /*──── the sentinel ────*/
   $("si").value = "0";
@@ -1136,9 +1180,12 @@ head("the same page wired to the other router");
   The failure this section exists to catch is the signed one. `tickLower`
   and `tickUpper` are int24, and every pair priced below parity has a
   negative current tick — so a real range is routinely two negative numbers.
-  A client that zero-pads instead of sign-extending turns -201240 into
-  16575976, mints in a range nobody chose, and nothing reverts, because that
-  is a perfectly legal tick.
+
+  A client that reinterprets the low 24 bits fails loudly: -201240 becomes
+  16575976, which is not a legal int24 and the decoder rejects it. The
+  failure that is silent is a client that DROPS the sign, sending +201240 —
+  a legal tick roughly nine million times the intended price, minting in a
+  range nobody chose with nothing to complain about.
 
   So the mock records the ticks it decoded, as signed, and the assertions
   read them back.
@@ -1222,11 +1269,11 @@ head("driving the liquidity page");
   /*  The pool sits at ±196256 depending on which token sorted first, and a
       ±10% band around it stays on the same side of zero. When that side is
       the negative one — which is the ordinary case for a real pair — a
-      zero-padding client would have sent 16575976 instead, in range, on the
-      grid, and completely wrong.                                         */
+      client that dropped the sign would have sent +196256 instead: legal, on
+      the grid, and about nine million times the intended price.          */
   if (WETH_FIRST) {
     ok("the lower tick is NEGATIVE and arrived negative",
-       lo < 0n, `tickLower came through as ${lo} — a zero-padded -196256 is 16575976`);
+       lo < 0n, `tickLower came through as ${lo} — a sign-dropping client sends +196256`);
     ok("the upper tick too", hi < 0n, `tickUpper ${hi}`);
   } else {
     ok("the ticks arrived on the side of zero the pool is actually on",
@@ -1337,6 +1384,38 @@ head("driving the liquidity page");
      decUint(mp, 4) > 4295128739n &&
      decUint(mp, 4) < 1461446703485210103287273052203988822378723970342n,
      `sqrtPriceX96 ${decUint(mp, 4)}`);
+
+  /*  And at the price that was actually typed, which is the assertion this
+      test was missing.
+
+      "In range" is true of the reciprocal too, so the check above passes
+      whether the pool is created at 3000 USDC per WETH or at 3000 WETH per
+      USDC — and which of those you get depended on which address happened
+      to sort first. For a real pair that is a factor of nine million, the
+      pool goes live, nothing reverts, and the first arbitrageur empties it.
+
+      The form says "second token per first", meaning the two dropdowns, so
+      3000 typed with WETH first and USDC second must mean 3000 USDC per
+      WETH — tick -196256 when WETH sorted first and +196256 when it did
+      not. The tick is recovered from sqrtPriceX96 by asking the contract
+      for the sqrt of the expected tick and comparing.                    */
+  {
+    const wantTick = WETH_FIRST ? -196256n : 196256n;
+    const wantSqrt = decUint(await c.read(site.venue, "sqrtAt(int24)",
+      [wantTick < 0n ? (1n << 256n) + wantTick : wantTick]));
+    const got = decUint(mp, 4);
+    // one tick of tolerance: the client picks the tick with a logarithm
+    const lo = decUint(await c.read(site.venue, "sqrtAt(int24)",
+      [(wantTick - 60n) < 0n ? (1n << 256n) + (wantTick - 60n) : wantTick - 60n]));
+    const hi = decUint(await c.read(site.venue, "sqrtAt(int24)",
+      [(wantTick + 60n) < 0n ? (1n << 256n) + (wantTick + 60n) : wantTick + 60n]));
+    ok("and at the price that was actually typed, not its reciprocal",
+       got > lo && got < hi,
+       `sqrtPriceX96 ${got}, expected near ${wantSqrt} (tick ${wantTick}) — ` +
+       `a reciprocal would be a factor of ~9,000,000 out`);
+    console.log(`      3000 typed as "second per first" landed on tick ~${wantTick}, ` +
+                `not its reciprocal`);
+  }
 }
 
 head("the order that needs no server");
@@ -1392,6 +1471,70 @@ head("explore: a chart drawn by a contract");
      "the chart came after the scripts, which suggests it needs them");
   ok("with the pool it was read from printed next to it",
      two.body.toLowerCase().includes(deep.toLowerCase()));
+
+  /*  Which way is up.
+
+      A tick is token1 per token0, so it rises with token0's price and falls
+      with token1's. The high/low list under the chart inverts for that; the
+      bars did not, so for every subject whose address sorts above its quote
+      the chart was drawn upside down against its own labels — a day the
+      token rose rendered as a day it fell.
+
+      The first version of this test looked at one token and passed against
+      the bug, because whichever token that happened to be, half the time it
+      is token0 and the broken branch is never taken. Address order is not
+      something a test may leave to chance when it IS the bug. So both ends
+      of the same pool are checked, one of which is necessarily token1.   */
+  {
+    const bars = (b) => (b.match(/<i style="height:(\d+)%"/g) || [])
+      .map((x) => Number(x.match(/(\d+)%/)[1]));
+
+    // make the recorded price drift, so the series has a direction at all
+    await c.exec(deep, "setSlope(int56)", [2n]);
+
+    const look = async (subject, label) => {
+      const body = (await GET(["explore", subject.toLowerCase()])).body;
+      const q = (body.match(/priced in<\/dt><dd>[^<]*<span class=m><code>(0x[0-9a-f]{40})/) || [])[1];
+      const h = bars(body);
+      return { label, subject, quote: q, h, body };
+    };
+
+    const a = await look(usdc, "USDC");
+    const b = await look(weth, "WETH");
+    let sawToken1 = false;
+
+    for (const r of [a, b]) {
+      if (!r.quote || r.h.length !== 24) {
+        ok(`${r.label}: a chart to check`, false,
+           `quote=${r.quote} bars=${r.h.length}`);
+        continue;
+      }
+      const isToken0 = r.subject.toLowerCase() < r.quote.toLowerCase();
+      if (!isToken0) sawToken1 = true;
+      const rising = r.h[r.h.length - 1] > r.h[0];
+      ok(`${r.label} is token${isToken0 ? 0 : 1} against its quote, so a rising tick ` +
+         `must draw a ${isToken0 ? "RISING" : "FALLING"} chart`,
+         isToken0 ? rising : !rising,
+         `first ${r.h[0]}%, last ${r.h[r.h.length - 1]}%`);
+    }
+
+    /*  And the control for the control: if neither subject came out as
+        token1, this whole block tested the safe branch twice and would
+        pass against the bug it exists to catch.                         */
+    ok("and one of the two really is the token1 case, so the branch was exercised",
+       sawToken1, "both subjects sorted first — the inverted branch never ran");
+
+    const hi = (a.body.match(/<dt>high<\/dt><dd>([\d,.]+)/) || [])[1];
+    const lo2 = (a.body.match(/<dt>low<\/dt><dd>([\d,.]+)/) || [])[1];
+    ok("and the high/low labels are there for the bars to agree with",
+       !!hi && !!lo2 &&
+       Number(String(hi).replace(/,/g, "")) >= Number(String(lo2).replace(/,/g, "")),
+       `high ${hi}, low ${lo2}`);
+
+    await c.exec(deep, "setSlope(int56)", [0n]);
+    console.log("      checked both ends of the same pool, so the inverted branch " +
+                "is exercised whichever way the addresses happened to sort");
+  }
   console.log(`      ${bars} bars of time-weighted average tick, from the pool's own ` +
               `ring buffer, with no indexer anywhere`);
 

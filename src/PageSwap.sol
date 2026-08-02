@@ -160,7 +160,7 @@ contract PageSwap {
             editable ? "<button class=mx id=mx>MAX</button>" : "",
             "<span class=tk id=", tick, ">select</span></div>",
             "<select id=", sel, ">", _options(), "</select>",
-            "<input id=", box, " placeholder=\"0x\\u2026 any ERC-20 address\" hidden>"
+            "<input id=", box, " placeholder=\"0x\xe2\x80\xa6 any ERC-20 address\" hidden>"
             "</div>"
         );
     }
@@ -268,8 +268,15 @@ contract PageSwap {
             "<code>approve</code>. Permit2 is not involved: it lives in "
             "<code>UniversalRouter</code>, which this page does not use. Your funds move "
             "from your wallet to a Uniswap contract and nothing in this collection is on "
-            "the path &mdash; there is no contract here that could be, because none of "
-            "them has a function that spends.</p>"
+            "the path &mdash; every contract that renders this page is <code>view</code> "
+            "throughout and has no function that could take anything.</p>"
+            "<p class=e>That is a claim about <em>this</em> page, not about the "
+            "collection. <code>Pool</code>, which runs each token\u0027s own market, does "
+            "spend what you approve to it &mdash; that is what a market is, and it is on "
+            "a different page with a different approval. The distinction is the point: "
+            "an allowance you grant here goes to Uniswap\u0027s router and an allowance "
+            "you grant there goes to the pool, and neither page can use the other\u0027s."
+            "</p>"
             "<p class=e>Nothing here has been audited.</p>"
         );
     }

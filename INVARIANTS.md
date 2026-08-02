@@ -419,9 +419,19 @@ amount by a word.
 → `tools/verify-site.mjs` · *"driving the Uniswap card"*, *"the same page wired to the other router"* — every field asserted by name against a mock that records what it decoded, both shapes, plus the wrong shape sent deliberately
 
 **80. Every tick the client sends is sign-extended.**
-Ticks are `int24` and negative for any pair priced below parity. A zero-padded
-`-201240` is `16575976`: in range, on the grid, and a position minted somewhere
-nobody chose, with no revert.
+A tick is `int24` and negative for any pair priced below parity. Two things
+could go wrong with that and only one of them is silent, which the first
+version of this entry got backwards. *Reinterpreting* the low 24 bits of
+`-201240` gives `16575976`, which is not a legal `int24` at all — the maximum
+is `8388607` — so solc's decoder rejects it and the call reverts; and the
+client here would throw before that, because `BigInt(-201240).toString(16)`
+is `"-31218"` and the hex whitelist refuses the sign. Both loud.
+
+The silent one is a client that *drops* the sign and sends `+201240` — a
+perfectly legal tick, roughly nine million times the intended price, minting
+in a range nobody chose with nothing to complain about. `I.S`
+two's-complements, and the mock position manager records the ticks it decoded
+as signed so either mistake is visible.
 → `tools/verify-site.mjs` · *"driving the liquidity page"* — the mock records ticks as signed and the assertion reads them back
 → `tools/forge.mjs::selfCheck` refuses to report on the suite at all if the fuzzer stops generating negative `int24` values
 
@@ -506,6 +516,46 @@ A program building a swap from this document has an address and, without
 `routerKind`, no way to know whether it takes eight words or seven — the two
 structs are incompatible and the wrong one does not revert.
 → `tools/verify-site.mjs` · *"and the router's calldata shape, which is the part a program needs"*
+
+**95. A price typed into a form means what the form says, not what the pool says.**
+The create-pool field is labelled "second token per first", meaning the two
+dropdowns; a pool says token1 per token0, meaning address order. Those agree
+half the time, and the half where they do not is a reciprocal — a factor of
+nine million for a real pair, live on chain, with nothing reverting. The client
+maps between the two and echoes the resulting tick's actual worth before
+sending.
+→ `tools/verify-site.mjs` · *"and at the price that was actually typed, not its reciprocal"*
+
+**96. A chart is oriented by the token being priced, not by the raw tick.**
+A tick rises with token0's price and falls with token1's, so bars drawn
+straight from the tick are upside down for every subject that sorts after its
+quote — against the high/low labels printed directly beneath them.
+→ `tools/verify-site.mjs` · *"…so a rising tick must draw a RISING/FALLING chart"*, checked at **both** ends of one pool, plus a control asserting the token1 branch was actually exercised
+
+**97. A control that appears to choose something chooses it.**
+Pressing a fee tier changes the tier the quote comes from and the tier the
+trade is sent to — not only the highlight.
+→ `tools/verify-site.mjs` · *"and the trade goes through the tier that was chosen, not the best one"*
+
+**98. A failed read is never rendered as a zero.**
+`totalAssets`, `convertToAssets`, `quorumVotes` and `state` all report whether
+they answered, separately from what they answered. The last of those mattered
+most: `ProposalState.Pending` is zero, so a failed `state()` used to render as
+a specific, wrong, plausible answer.
+→ `src/PageCivic.sol` — every one returns `(bool, uint256)` and the page prints "would not answer"
+
+**99. One resource, one URL — including the spelling of an address.**
+`/vote` takes no segment and no longer accepts a discarded one. `/explore` and
+`/earn` accept a mixed-case address, because that is what a block explorer
+gives you, but redirect it to the canonical lower-case form with a 301 rather
+than serving the same document at both.
+→ `src/Premises.sol::_toAddr` returns a `canon` flag; `_moved` answers 301 with a `Location`
+
+**100. A chart covers a whole number of its own intervals.**
+`window` is trimmed to `step × points`, because the last interval used to span
+`step + (window % points)` seconds while still being divided by `step` — so the
+most recent bar, the one a reader looks at first, was scaled by the remainder.
+→ `src/Venue.sol::history`
 
 ---
 

@@ -26,6 +26,10 @@ interface IV3Pool {
         int56[] memory tickCumulatives,
         uint160[] memory secondsPerLiquidityCumulativeX128s
     );
+    function observations(uint256 index) external view returns (
+        uint32 blockTimestamp, int56 tickCumulative,
+        uint160 secondsPerLiquidityCumulativeX128, bool initialized
+    );
 }
 
 /*═══════════════════════════════════════════════════════════════════════════
@@ -373,12 +377,21 @@ contract Venue {
         if (points == 0 || points > 48 || window == 0) return (false, ticks, 0);
         step = window / points;
         if (step == 0) return (false, ticks, 0);
+        /*  The window is trimmed to a whole number of steps.
+
+            It was not, and the consequence was one wrong bar on every chart
+            whose window did not divide evenly: the last interval spanned
+            `step + (window % points)` seconds while `meanTick` was still
+            handed `step`, so the final point — the most recent one, the one
+            a reader looks at first — was scaled by (step + r)/step. A chart
+            is a claim about a rate; dividing by the wrong duration is not a
+            rounding error, it is a different number.                     */
+        window = step * uint32(points);
 
         uint32[] memory agos = new uint32[](uint256(points) + 1);
         for (uint256 i; i <= points; ++i) {
-            agos[i] = uint32(window - uint32(i) * step);
+            agos[i] = window - uint32(i) * step;
         }
-        agos[points] = 0;
 
         (bool call_, bytes memory out) = p.staticcall{gas: 2_000_000}(
             abi.encodeWithSelector(IV3Pool.observe.selector, agos));
@@ -411,6 +424,50 @@ contract Venue {
             ticks[i] = Tick.meanTick(int56(int256(lo)), int56(int256(hi)), step);
         }
         ok = true;
+    }
+
+    /// @notice How far back this pool can actually answer, in seconds.
+    /// @dev    The chart used to ask for a fixed day of history and take
+    ///         "no" for an answer, which meant a pool remembering fifty
+    ///         minutes drew nothing at all — and the page then recommended
+    ///         buying three hundred observations, which on a busy pool is
+    ///         about an hour and would not have helped either. Asking the
+    ///         pool how much it remembers turns both of those into a chart
+    ///         of whatever there is.
+    ///
+    ///         The oldest observation is the one *after* the newest in the
+    ///         ring, unless the buffer has not filled yet — in which case
+    ///         that slot is uninitialised and slot zero is the oldest. This
+    ///         is what Uniswap's own `getOldestObservationSecondsAgo` does.
+    function oldest(address p) external view returns (bool ok, uint32 secondsAgo) {
+        if (p == address(0) || p.code.length == 0) return (false, 0);
+        (bool a, bytes memory w) =
+            p.staticcall{gas: 60_000}(abi.encodeWithSelector(IV3Pool.slot0.selector));
+        if (!a || w.length < 224) return (false, 0);
+        (, , uint256 index, uint256 card) =
+            abi.decode(w, (uint256, uint256, uint256, uint256));
+        if (card == 0) return (false, 0);
+
+        (bool b, uint32 at, bool init) = _observation(p, (index + 1) % card);
+        if (!b) return (false, 0);
+        if (!init) {
+            (b, at, init) = _observation(p, 0);
+            if (!b || !init) return (false, 0);
+        }
+        if (at == 0 || uint256(at) > block.timestamp) return (false, 0);
+        return (true, uint32(block.timestamp - uint256(at)));
+    }
+
+    function _observation(address p, uint256 i)
+        private view returns (bool, uint32, bool)
+    {
+        (bool ok, bytes memory out) = p.staticcall{gas: 40_000}(
+            abi.encodeWithSelector(IV3Pool.observations.selector, i));
+        if (!ok || out.length < 128) return (false, 0, false);
+        (uint256 at, , , uint256 init) =
+            abi.decode(out, (uint256, uint256, uint256, uint256));
+        if (at > type(uint32).max) return (false, 0, false);
+        return (true, uint32(at), init != 0);
     }
 
     /*═══════════════════ arithmetic the client should not do ═══════════════════*/

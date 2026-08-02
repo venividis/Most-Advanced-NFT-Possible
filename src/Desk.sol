@@ -213,9 +213,11 @@ contract Desk {
         "return h.padStart(64,'0')};"
         "const W=v=>pad(BigInt(v).toString(16));"
         // a signed word. Ticks are negative for every pair priced below
-        // parity, which is most of them, and -200 padded with zeroes is
-        // 200 rather than -200: the position gets minted in a range nobody
-        // chose and nothing reverts. Two's complement, or nothing.
+        // parity, which is most of them. `W` would throw on one — the hex
+        // whitelist refuses the minus sign — and a client that instead
+        // dropped the sign would send a legal tick about nine million times
+        // the intended price, minting in a range nobody chose with nothing
+        // to complain about. Two's complement, or nothing.
         "const S=v=>{v=BigInt(v);if(v<0n)v=(1n<<256n)+v;"
         "if(v<0n||v>=(1n<<256n))throw new Error('value does not fit in a word');"
         "return pad(v.toString(16))};"
