@@ -222,7 +222,10 @@ const routes = [];
     [["explore", wethAddr.toLowerCase()], "/explore/<token>",
      "one token: every tier, and a chart from the pool's own oracle"],
     [["earn"], "/earn", "an ERC-4626 vault, once you bring one"],
-    [["vote"], "/vote", "governance, read from the governor"]
+    [["vote"], "/vote", "governance, read from the governor"],
+    [["launch"], "/launch", "a launchpad: a token, a hook, a pool"],
+    [["hook", "0x0000000000000000000000000000000000000280"], "/hook/<address>",
+     "what a hook's address says it may do"]
   ]) {
     routes.push({ label, note, ...(await hit(path)) });
   }

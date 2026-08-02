@@ -157,6 +157,16 @@ contract Venue {
     address public immutable GOVERNOR;
     /// @notice The token that governor counts.
     address public immutable GOV_TOKEN;
+    /// @notice The v4 PoolManager, where a pool with a hook is created.
+    /// @dev    Zero on a chain with no v4 deployment, and the launch page
+    ///         then offers v3 only and says so. v4's `initialize` is the one
+    ///         v4 entry point a client with no ABI coder can reach on its
+    ///         own: `PoolKey` is five static fields, so
+    ///         `initialize((address,address,uint24,int24,address),uint160)`
+    ///         is six flat words with no offset. Adding liquidity is not —
+    ///         that goes through `modifyLiquidities(bytes,uint256)`, whose
+    ///         argument is a dynamic array of dynamic bytes.
+    address public immutable POOL_MANAGER;
 
     /// @dev Seven addresses as seven arguments is seven chances to transpose
     ///      two of them at deployment and not notice until a page prints the
@@ -171,6 +181,7 @@ contract Venue {
         address wrapped;
         address governor;
         address govToken;
+        address poolManager;
     }
 
     error UnknownRouterKind();
@@ -190,6 +201,15 @@ contract Venue {
         WRAPPED = w.wrapped;
         GOVERNOR = w.governor;
         GOV_TOKEN = w.govToken;
+        POOL_MANAGER = w.poolManager;
+    }
+
+    /// @notice Whether v4 is wired up here, separately from v3.
+    /// @dev    A chain can have one and not the other, and the launch page
+    ///         needs to say which rather than offering a hook field that
+    ///         leads nowhere.
+    function hasV4() external view returns (bool) {
+        return POOL_MANAGER != address(0) && POOL_MANAGER.code.length > 0;
     }
 
     /// @notice Whether this chain has a venue wired up at all.

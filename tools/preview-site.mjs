@@ -130,7 +130,8 @@ await c.exec(lease, "list(uint256,uint128,uint32,uint32)", [1, 10n ** 16n, 1, 30
 const site = await deploySite(c, A, {
   hub: nft, pool, lease,
   uniswap: { name: "preview", factory: uniF, quoter, router, routerKind: 0,
-             positions: npm_, wrapped: weth, governor: gov, govToken: govTok }
+             positions: npm_, wrapped: weth, governor: gov, govToken: govTok,
+             poolManager: book }
 });
 const GET = getter(c, site.premises);
 
@@ -154,6 +155,9 @@ const pages = [
   [["earn"], "earn.html", "bring a vault"],
   [["earn", vault.toLowerCase()], "earn-vault.html", "a vault, verified"],
   [["vote"], "vote.html", "governance"],
+  [["launch"], "launch.html", "the launchpad"],
+  [["hook", "0x0000000000000000000000000000000000000280"], "hook.html",
+   "a hook, read off its address"],
   [["token", "1", "services.json"], "token-1-services.json", "machine-readable"],
   [["services.json"], "services.json", "the directory, machine-readable"]
 ];
@@ -175,6 +179,8 @@ for (const [route, file, what] of pages) {
       .replace(/href="\/limit"/g, 'href="limit.html"')
       .replace(/href="\/earn"/g, 'href="earn.html"')
       .replace(/href="\/vote"/g, 'href="vote.html"')
+      .replace(/href="\/launch"/g, 'href="launch.html"')
+      .replace(/href="\/hook\/0x[0-9a-fA-F]+"/g, 'href="hook.html"')
       .replace(/href="\/explore\/0x[0-9a-fA-F]+"/g, 'href="explore-token.html"')
       .replace(/href="\/explore"/g, 'href="explore.html"')
       .replace(/href="\/services\.json"/g, 'href="services.json"')

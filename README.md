@@ -314,6 +314,64 @@ snapshotted at each proposal's start block**: delegating today does nothing for 
 proposal that opened yesterday, the vote is accepted, it counts zero, and nothing
 tells you.
 
+### The launchpad, and the one thing an address can prove
+
+`/launch` is a launchpad: mint a token, choose what may intercept its pool,
+create the pool, seed it. Everything worth varying is a real parameter of one of
+those four — supply, decimals, the split, the starting price, the range, the fee
+tier or a dynamic fee, the tick spacing, and the hook.
+
+The reason it is worth having rather than being one more form is **Uniswap v4
+puts a hook's permissions in its address.** The PoolManager decides whether to
+call `beforeSwap` by testing one bit of the hook's own address — fourteen
+callbacks, the low fourteen bits. So:
+
+**Paste any hook address at `/hook/<address>` and the page says exactly what it
+will be allowed to do to you, with no call, no ABI, no source, and nothing its
+author can misstate** — because those bits are not a description of the hook,
+they are the mechanism that invokes it. A hook cannot carry the swap bit and not
+intercept swaps. That is a stronger guarantee than reading verified source,
+which tells you what the code says rather than what the pool will do. It is
+rendered by the page contract, so it is there with JavaScript switched off, and
+it is a link you can send to somebody.
+
+The page says the other half every single time, because it is the half people
+skip: **these are exactly the bits a trap has.** A hook that refuses withdrawals
+until Friday and one that refuses them forever have identical address shapes.
+The bits prove a power exists. Nothing about them proves it will be used well.
+What the page produces is a list of what to go and read.
+
+**And the search is a read.** A hook must *live at* an address carrying its bits,
+which means trying CREATE2 salts until one lands — about 2^14 on average. The
+client here has no keccak-256, on purpose. So `Kiln.mine` is a `view` function
+and the visitor's own node walks the salts under `eth_call`: it executes, returns
+the first that matches, and commits nothing. The expensive, keccak-shaped part of
+deploying a hook turns out to be free. That is the whole reason a launchpad with
+hooks can exist on a page with no server.
+
+`Gate`, the one hook shipped, holds `beforeSwap` and `beforeRemoveLiquidity`, so
+"trading opens at X" and "liquidity locked until Y" are enforced by the pool
+rather than promised by a locker — both timestamps immutable, no setter, no
+owner. The tokens the launchpad mints have no owner and a fixed supply, which is
+a deliberate limit rather than a missing feature: every omitted lever is one a
+deployer could pull against the people who bought.
+
+What it will not do is seed a **v4** pool with liquidity. Creating one is
+reachable — `PoolKey` is five static fields, so `initialize` is six flat words —
+but adding liquidity goes through `modifyLiquidities(bytes,uint256)`, a dynamic
+array of dynamic bytes behind a decoder that rejects non-canonical encoding, and
+this client has no ABI coder. It could be built, since the page contract has
+`abi.encode` and could hand the browser finished calldata. It is not built, and
+until it is the page routes v4 liquidity nowhere rather than somewhere
+plausible. A hookless launch finishes end to end on v3.
+
+Every v4 fact here was read from source in the session that wrote it — the flag
+values, `PoolKey`'s layout, the dynamic-fee flag, and the exact `IHooks`
+signatures including `ModifyLiquidityParams` and `SwapParams`. The load-bearing
+test hashes those signature strings and compares against `Gate`'s selectors,
+because a callback differing by one field type is a function the PoolManager
+calls and the hook does not have.
+
 ### The thing most likely to have lost somebody money
 
 Two Uniswap routers have an `exactInputSingle`, and their params structs differ
@@ -522,7 +580,7 @@ client.
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and seven such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1196,7 +1254,7 @@ tools/
 test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy, load, seal
 
-INVARIANTS.md           one hundred statements that must hold, and the test for each
+INVARIANTS.md           one hundred and seven statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 

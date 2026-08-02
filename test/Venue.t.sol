@@ -39,7 +39,8 @@ contract VenueTest is Test {
     function _venue(address factory) internal returns (Venue) {
         return new Venue(Venue.Wiring({
             factory: factory, quoter: ANY, router: ANY, routerKind: 0,
-            positions: ANY, wrapped: address(weth), governor: ANY, govToken: ANY
+            positions: ANY, wrapped: address(weth), governor: ANY, govToken: ANY,
+            poolManager: ANY
         }));
     }
 
@@ -49,7 +50,8 @@ contract VenueTest is Test {
         vm.expectRevert(Venue.UnknownRouterKind.selector);
         new Venue(Venue.Wiring({
             factory: address(f), quoter: ANY, router: ANY, routerKind: 2,
-            positions: ANY, wrapped: ANY, governor: ANY, govToken: ANY
+            positions: ANY, wrapped: ANY, governor: ANY, govToken: ANY,
+            poolManager: ANY
         }));
     }
 
@@ -60,7 +62,8 @@ contract VenueTest is Test {
         for (uint8 k; k < 2; ++k) {
             Venue x = new Venue(Venue.Wiring({
                 factory: address(f), quoter: ANY, router: ANY, routerKind: k,
-                positions: ANY, wrapped: ANY, governor: ANY, govToken: ANY
+                positions: ANY, wrapped: ANY, governor: ANY, govToken: ANY,
+                poolManager: ANY
             }));
             assertEq(x.ROUTER_KIND(), k);
         }

@@ -30,6 +30,14 @@ interface IPageExplore {
     function explore(address token) external view returns (string memory);
 }
 
+interface IPageLaunch {
+    function launch() external view returns (string memory);
+}
+
+interface IPageHook {
+    function hook(address at) external view returns (string memory);
+}
+
 interface IPageCivic {
     function earn(address vault) external view returns (string memory);
     function vote() external view returns (string memory);
@@ -95,6 +103,8 @@ interface IPageManifest {
       /explore  /explore/<token>  what a token trades at, and its own chart
       /earn  /earn/<vault>        an ERC-4626 vault, verified before it is used
       /vote                       Uniswap governance, from the governor itself
+      /launch                     a launchpad: a token, a hook, a pool
+      /hook  /hook/<address>      what a v4 hook's address says it may do
       /open  /open/<n>           every market that exists, from the pool's own list
       /assets  /assets/<n>        every asset any of those markets trades
       /services.json  /services.json/<n>    the same, for a program
@@ -129,6 +139,8 @@ contract Premises {
     IPagePools    public immutable P_POOLS;
     IPageCivic    public immutable P_CIVIC;
     IPageExplore  public immutable P_EXPLORE;
+    IPageLaunch   public immutable P_LAUNCH;
+    IPageHook     public immutable P_HOOK;
 
     struct KeyValue { string key; string value; }
 
@@ -152,7 +164,9 @@ contract Premises {
         IPageSwap pSwap,
         IPagePools pPools,
         IPageCivic pCivic,
-        IPageExplore pExplore
+        IPageExplore pExplore,
+        IPageLaunch pLaunch,
+        IPageHook pHook
     ) {
         HUB = hub;
         CHROME = chrome;
@@ -165,6 +179,8 @@ contract Premises {
         P_POOLS = pPools;
         P_CIVIC = pCivic;
         P_EXPLORE = pExplore;
+        P_LAUNCH = pLaunch;
+        P_HOOK = pHook;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -262,12 +278,18 @@ contract Premises {
             return (200, P_CIVIC.vote(), _headers(HTML));
         }
 
-        /*  Two routes that take an optional contract address. With none
+        if (_eq(resource[0], "launch")) {
+            if (n != 1) return _notFound();
+            return (200, P_LAUNCH.launch(), _headers(HTML));
+        }
+
+        /*  Three routes that take an optional contract address. With none
             they are an index; with one they are a page about that address,
             rendered here rather than fetched by a script — which is why
             `/explore/<token>` works in a client with JavaScript switched
             off entirely.                                                 */
-        if (_eq(resource[0], "explore") || _eq(resource[0], "earn")) {
+        if (_eq(resource[0], "explore") || _eq(resource[0], "earn")
+            || _eq(resource[0], "hook")) {
             if (n > 2) return _notFound();
             address subject;
             if (n == 2) {
@@ -284,6 +306,9 @@ contract Premises {
             }
             if (_eq(resource[0], "explore")) {
                 return (200, P_EXPLORE.explore(subject), _headers(HTML));
+            }
+            if (_eq(resource[0], "hook")) {
+                return (200, P_HOOK.hook(subject), _headers(HTML));
             }
             return (200, P_CIVIC.earn(subject), _headers(HTML));
         }

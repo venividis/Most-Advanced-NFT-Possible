@@ -302,6 +302,10 @@ contract PageManifest {
         "{\"path\":\"/earn\",\"is\":\"an ERC-4626 vault, verified before it is offered\","
         "\"takes\":\"/earn/<vault>\"},"
         "{\"path\":\"/vote\",\"is\":\"governance, read from the governor\"},"
+        "{\"path\":\"/launch\",\"is\":\"a launchpad: a token with no owner, a v4 "
+        "hook, a pool\"},"
+        "{\"path\":\"/hook\",\"is\":\"which callbacks a v4 hook's address says it "
+        "receives\",\"takes\":\"/hook/<address>\"},"
         "{\"path\":\"/services.json\",\"is\":\"this document\",\"paged\":true}"
         "]";
 

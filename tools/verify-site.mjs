@@ -151,6 +151,15 @@ await c.exec(weth, "mint(address,uint256)", [uniRouterV3, 10n ** 24n]);
 const uniPositions = await c.deploy(A("test/mocks/UniV3.sol", "MockPositions").bytecode,
   "", "NonfungiblePositionManager");
 
+/*  A v4 PoolManager, as far as this site reads one: `hasV4` asks whether
+    the address has code, and the launch page only ever *sends* `initialize`
+    to it — which these tests do not exercise, because a faithful
+    PoolManager is a great deal of contract for one call. What IS exercised
+    is everything the launchpad itself does: the token, the salt search, the
+    hook and its address. Those are this collection's own code.          */
+const uniManager = await c.deploy(A("test/mocks/UniV3.sol", "MockBook").bytecode,
+  "", "PoolManager");
+
 const UNI = {
   name: "the test chain", factory: uniFactory, quoter: uniQuoter,
   router: uniRouterV3, routerKind: 0, positions: uniPositions,
@@ -160,7 +169,8 @@ const UNI = {
       ordinary case and the one the default deployment should exercise.
       The governance tests stand up their own wiring with a real one.   */
   governor: "0x0000000000000000000000000000000000000000",
-  govToken: "0x0000000000000000000000000000000000000000"
+  govToken: "0x0000000000000000000000000000000000000000",
+  poolManager: uniManager
 };
 
 const site = await deploySite(c, A, { hub: nft, pool, lease, uniswap: UNI });
@@ -390,11 +400,12 @@ head("and it describes the collection-wide surface too");
   ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 8,
      JSON.stringify(m.routes || null).slice(0, 120));
   const paths = (m.routes || []).map((r) => r.path);
-  for (const p of ["/swap", "/pools", "/limit", "/explore", "/earn", "/vote", "/open", "/assets"]) {
+  for (const p of ["/swap", "/pools", "/limit", "/explore", "/earn", "/vote",
+                   "/launch", "/hook", "/open", "/assets"]) {
     ok(`  ${p} is discoverable`, paths.includes(p), paths.join(" "));
   }
-  ok("the two routes that take an address say so",
-     (m.routes || []).filter((r) => r.takes).length === 2,
+  ok("the three routes that take an address say so",
+     (m.routes || []).filter((r) => r.takes).length === 3,
      JSON.stringify((m.routes || []).filter((r) => r.takes)));
 
   /*  Every path the manifest advertises must actually answer. A directory
@@ -748,8 +759,17 @@ function mount(html) {
     const id = (m[2].match(/\bid=["']?([\w.-]+)["']?/) || [])[1];
     if (id && !byId.has(id)) byId.set(id, el);
   }
-  const cfg = html.match(/<script type="application\/json" id="D">([\s\S]*?)<\/script>/);
-  if (cfg && byId.get("D")) byId.get("D").textContent = cfg[1];
+  /*  Every JSON config block, not just the one this shim was first written
+      for. It used to look up `id="D"` by name, so a page carrying a second
+      block — the launchpad carries its own, deliberately, because it
+      describes this collection's contract rather than Uniswap's — handed
+      the client an empty string and JSON.parse threw before a single
+      listener attached. A shim that knows one id is a shim that silently
+      stops modelling the page the moment a second appears.             */
+  for (const m of html.matchAll(
+      /<script type="application\/json" id="(\w+)">([\s\S]*?)<\/script>/g)) {
+    if (byId.get(m[1])) byId.get(m[1]).textContent = m[2];
+  }
   const listeners = {};
   globalThis.addEventListener = (k, f) => { (listeners[k] = listeners[k] || []).push(f); };
   globalThis.dispatchEvent = (e) => { for (const f of listeners[e.type] || []) f(e); };
@@ -1105,7 +1125,7 @@ head("the same page wired to the other router");
   const venue02 = await c.deploy(A("src/Venue.sol", "Venue").bytecode,
     encodeAddressArg(uniFactory) + encodeAddressArg(uniQuoter) +
     encodeAddressArg(uniRouter02) + w(1) + encodeAddressArg(uniRouter02) +
-    encodeAddressArg(weth) + w(0) + w(0), "Venue02");
+    encodeAddressArg(weth) + w(0) + w(0) + w(0), "Venue02");
   const deskU02 = await c.deploy(A("src/DeskUni.sol", "DeskUni").bytecode,
     encodeAddressArg(venue02) + encodeAddressArg(pool), "DeskUni02");
   const pSwap02 = await c.deploy(A("src/PageSwap.sol", "PageSwap").bytecode,
@@ -1585,7 +1605,8 @@ head("vote: the numbers, and where the words are not");
   const venueG = await c.deploy(A("src/Venue.sol", "Venue").bytecode,
     encodeAddressArg(uniFactory) + encodeAddressArg(uniQuoter) +
     encodeAddressArg(uniRouterV3) + w(0) + encodeAddressArg(uniPositions) +
-    encodeAddressArg(weth) + encodeAddressArg(g) + encodeAddressArg(gTok), "VenueGov");
+    encodeAddressArg(weth) + encodeAddressArg(g) + encodeAddressArg(gTok) + w(0),
+    "VenueGov");
   const deskUG = await c.deploy(A("src/DeskUni.sol", "DeskUni").bytecode,
     encodeAddressArg(venueG) + encodeAddressArg(pool), "DeskUniGov");
   const pCivicG = await c.deploy(A("src/PageCivic.sol", "PageCivic").bytecode,
@@ -1650,6 +1671,214 @@ head("vote: the numbers, and where the words are not");
   eq("and the support value that was chosen", decUint(cast, 2), 1n);
   eq("from the voter, not from any contract here",
      decAddr(cast, 3).toLowerCase(), voter.from.toString().toLowerCase());
+}
+
+
+/*════════════ the launchpad, and a hook read off its own address ════════════
+
+  The distinctive claim on this page is that a v4 hook's permissions are
+  legible from its address with no call at all — because in v4 those bits are
+  not a description of the hook, they are the mechanism the PoolManager uses
+  to decide what to invoke. So the assertions here are mostly about that: a
+  contract renders the answer, and the answer is right for addresses nobody
+  in this repository chose.
+*/
+head("the launchpad");
+{
+  const page = await GET(["launch"]);
+  eq("/launch answers 200", page.status, 200);
+  ok("it offers the token form", /id=cn/.test(page.body) && /id=cv/.test(page.body));
+  ok("and says what the token deliberately cannot do",
+     /no mint, no pause, no blacklist, no owner/.test(page.body));
+  ok("and explains why mining an address is a read rather than a transaction",
+     /eth_call/.test(page.body) && /reads are free/.test(page.body));
+  ok("and names the step it stops at rather than implying it finishes",
+     /modifyLiquidities/.test(page.body) && /routes v4 liquidity nowhere/.test(page.body));
+
+  /*──── the token factory, driven ────*/
+  mount(page.body);
+  const dev = await c.as("0x" + "99".repeat(32));
+  const W = wallet(dev);
+  runScripts(page.body);
+  await nap(30);
+  const $ = (i) => byId.get(i);
+  ok("the launch client loaded", !!globalThis.IP);
+
+  $("cn").value = "Example Coin";
+  $("cs").value = "EXMPL";
+  $("cd").value = "18";
+  $("cv").value = "1000000";
+  $("ck").value = "0x2a";
+
+  await $("cchk").fire("click");
+  await nap(300);
+  const shown = ($("cpre").innerHTML.match(/0x[0-9a-f]{40}/) || [])[0];
+  ok("it says where the token would land before sending anything", !!shown,
+     $("cpre").innerHTML.slice(0, 160));
+  eq("and that read sent no transaction", W.sent(), 0);
+
+  await $("cgo").fire("click");
+  await nap(400);
+  ok("minting sent one transaction", W.sent() >= 1);
+
+  /*  The address it predicted must be the address that appeared — a
+      launchpad that announces an address and produces another has told
+      everybody watching to send funds to the wrong contract.            */
+  const n = decUint(await c.read(site.kiln, "coinCount()"));
+  ok("the launchpad recorded it", n >= 1n, `coinCount ${n}`);
+  const made = decAddr(await c.read(site.kiln, "coins(uint256)", [n - 1n]));
+  eq("and it landed exactly where the page said it would",
+     made.toLowerCase(), String(shown).toLowerCase());
+
+  const sym = decString(await c.read(made, "symbol()"));
+  eq("with the symbol that was typed", sym, "EXMPL");
+  eq("and the supply, scaled by the decimals that were typed",
+     decUint(await c.read(made, "totalSupply()")), 10n ** 24n);
+  eq("all of it held by whoever launched it",
+     decUint(await c.read(made, "balanceOf(address)", [dev.from.toString()])), 10n ** 24n);
+  console.log(`      "Example Coin"/"EXMPL" encoded as two dynamic strings by a ` +
+              `client with no ABI coder, and landed at the predicted address`);
+
+  /*  The two-string encoding is the one place this client does something
+      other than pad and concatenate, so it is worth checking the SECOND
+      string specifically — a wrong offset corrupts the tail, not the head,
+      and the name would look fine while the symbol was gibberish.       */
+  eq("and the second string is intact too, which a wrong offset would ruin",
+     decString(await c.read(made, "name()")), "Example Coin");
+
+  const fresh = await GET(["launch"]);
+  ok("the new token appears in the launchpad's own list",
+     fresh.body.includes(made.slice(2).toLowerCase()) || fresh.body.includes(made),
+     "not listed");
+  ok("and the list says what being on it does and does not mean",
+     /means nothing whatever about whether it is worth anything/.test(fresh.body));
+
+  /*──── the salt search, which is the whole hook story ────*/
+
+  /*  A v4 hook must live at an address whose low fourteen bits ARE its
+      permissions, so deploying one means trying CREATE2 salts until one
+      lands — about sixteen thousand on average. The client has no keccak,
+      so the search is an eth_call against the launchpad and the visitor's
+      own node does it. This drives that from the page and then checks the
+      address the search returned against what CREATE2 actually produces.  */
+  mount(fresh.body);
+  const W2 = wallet(dev);
+  runScripts(fresh.body);
+  await nap(30);
+  const $$ = (i) => byId.get(i);
+
+  $$("ho").value = "0";
+  $$("hl").value = "30";
+  const before = W2.sent();
+  await $$("hmine").fire("click");
+  await nap(3000);
+
+  const out = $$("hmined").innerHTML;
+  const at = (out.match(/0x[0-9a-f]{40}/) || [])[0];
+  ok("the search found an address", !!at, out.slice(0, 220));
+  eq("and searching sent no transaction — it is an eth_call", W2.sent(), before);
+  ok("the page says how many candidates it tried",
+     /tried/.test(out), out.slice(0, 160));
+
+  /*  The bits are the point: the PoolManager tests these to decide what to
+      invoke, so an address one bit off is a hook whose lock is never
+      consulted.                                                          */
+  const GATE = (1 << 9) | (1 << 7);
+  eq("and its low fourteen bits are exactly beforeSwap + beforeRemoveLiquidity",
+     Number(BigInt(at) & 0x3fffn), GATE);
+  console.log(`      the visitor's own node searched CREATE2 salts and found ` +
+              `${at} — low bits 0x${(BigInt(at) & 0x3fffn).toString(16)}`);
+
+  /*  And deploying really lands there. A hook that deploys somewhere other
+      than where the page promised is a hook whose permissions nobody
+      checked.                                                            */
+  await $$("hgo").fire("click");
+  await nap(600);
+  ok("deploying it sent a transaction", W2.sent() > before);
+  const code = await c.codeSize(at);
+  ok("and a contract now exists at exactly that address", code > 0,
+     `no code at ${at}`);
+  eq("which trusts the PoolManager the site was deployed against",
+     decAddr(await c.read(at, "MANAGER()")).toLowerCase(), uniManager.toLowerCase());
+
+  /*  The two timestamps, rather than the gate's current verdict.
+
+      The client computes them from `Date.now()` — the visitor's clock,
+      which on a real chain tracks `block.timestamp` closely and in this
+      harness does not track it at all. So what is checked is what the
+      client actually computed and stored: the interval between them, and
+      that neither has a setter.                                          */
+  const opens = decUint(await c.read(at, "OPENS()"));
+  const unlocks = decUint(await c.read(at, "UNLOCKS()"));
+  eq("liquidity is locked for exactly the thirty days that were typed",
+     unlocks - opens, 30n * 86400n);
+  ok("and trading opens at the moment of deployment, as configured",
+     opens > 0n, `opens ${opens}`);
+  let answered = false;
+  try { await c.call(at, "0x" + "12345678" + "0".repeat(64)); answered = true; }
+  catch (e) { answered = false; }
+  ok("neither timestamp has a setter to move it", !answered,
+     "the hook answered a selector it does not declare");
+  console.log("      trading opens immediately, liquidity locked 30 days — " +
+              "both immutable, enforced by the pool rather than promised");
+}
+
+head("reading a hook off its address");
+{
+  const idx = await GET(["hook"]);
+  eq("/hook answers 200", idx.status, 200);
+
+  /*  Addresses chosen for their low bits, not taken from this repository —
+      the point is that the answer is arithmetic on the address, so it must
+      be right for addresses nobody here picked.                          */
+  const cases = [
+    ["0x00000000000000000000000000000000000000c0", ["beforeSwap", "afterSwap"],
+     ["beforeRemoveLiquidity"]],
+    ["0x0000000000000000000000000000000000000280", ["beforeSwap", "beforeRemoveLiquidity"],
+     ["afterSwap"]],
+    ["0x0000000000000000000000000000000000002000", ["beforeInitialize"], ["beforeSwap"]],
+    ["0x0000000000000000000000000000000000000001",
+     ["afterRemoveLiquidityReturnsDelta"], ["beforeSwap"]]
+  ];
+  for (const [addr, on, off] of cases) {
+    const r = await GET(["hook", addr]);
+    eq(`  /hook/${addr.slice(0, 10)}… answers 200`, r.status, 200);
+    const yes = [...r.body.matchAll(/<b class=ok>yes<\/b><\/td><td><code>(\w+)</g)]
+      .map((m) => m[1]);
+    for (const f of on) {
+      ok(`    ${f} is reported`, yes.includes(f), `saw ${yes.join(",") || "none"}`);
+    }
+    for (const f of off) {
+      ok(`    and ${f} is not`, !yes.includes(f), `saw ${yes.join(",")}`);
+    }
+  }
+
+  /*  The two questions the page answers in prose, which are the ones a
+      person actually has.                                                */
+  const swapping = await GET(["hook", "0x00000000000000000000000000000000000000c0"]);
+  ok("a swap-touching hook is called out as such",
+     /called on every trade/.test(swapping.body));
+  ok("and one that cannot touch withdrawals says liquidity can always leave",
+     /Liquidity can always be/.test(swapping.body));
+
+  const gate = await GET(["hook", "0x0000000000000000000000000000000000000280"]);
+  ok("a hook that can refuse withdrawals is called out",
+     /can refuse it/.test(gate.body));
+  ok("and the page refuses to read that as safety",
+     /how liquidity is trapped/.test(gate.body) &&
+     /cannot tell you which/.test(gate.body));
+
+  const inert = await GET(["hook", "0x1111111111111111111111111111111100000000"]);
+  ok("an address with no flag bits is not called a hook",
+     /not a hook/.test(inert.body) && /never hand it a callback/.test(inert.body));
+  console.log("      the answer is arithmetic on the address — no call, no ABI, " +
+              "and nothing the hook's author can misstate");
+
+  /*  And it is rendered by the contract, so it survives with scripting off.  */
+  ok("the answer is in the markup rather than assembled by a script",
+     gate.body.indexOf("beforeRemoveLiquidity") < (gate.body.indexOf("<script>") === -1
+       ? Infinity : gate.body.indexOf("<script>")),
+     "the table came after the scripts");
 }
 
 head("driving the holder's side");

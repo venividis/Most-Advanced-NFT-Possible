@@ -35,8 +35,8 @@ export const UNISWAP = {
     positions: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     wrapped: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     governor: "0x408ED6354d4973f66138C91495F2f2FCbd8724C3",
-    govToken: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984"
-  },
+    poolManager: "0x000000000004444c5dc75cB358380D2e3dE08A90",
+    govToken: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984"},
   42161: {
     name: "Arbitrum One",
     factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
@@ -46,8 +46,8 @@ export const UNISWAP = {
     positions: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     wrapped: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
     governor: "0x0000000000000000000000000000000000000000",
-    govToken: "0x0000000000000000000000000000000000000000"
-  },
+    poolManager: "0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32",
+    govToken: "0x0000000000000000000000000000000000000000"},
   10: {
     name: "Optimism",
     factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
@@ -57,8 +57,8 @@ export const UNISWAP = {
     positions: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     wrapped: "0x4200000000000000000000000000000000000006",
     governor: "0x0000000000000000000000000000000000000000",
-    govToken: "0x0000000000000000000000000000000000000000"
-  },
+    poolManager: "0x9a13F98Cb987694C9F086b1F5eB990EeA8264Ec3",
+    govToken: "0x0000000000000000000000000000000000000000"},
   137: {
     name: "Polygon",
     factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
@@ -68,8 +68,8 @@ export const UNISWAP = {
     positions: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     wrapped: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
     governor: "0x0000000000000000000000000000000000000000",
-    govToken: "0x0000000000000000000000000000000000000000"
-  },
+    poolManager: "0x67366782805870060151383F4BbFF9daB53e5cD6",
+    govToken: "0x0000000000000000000000000000000000000000"},
   8453: {
     name: "Base",
     factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
@@ -79,8 +79,8 @@ export const UNISWAP = {
     positions: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
     wrapped: "0x4200000000000000000000000000000000000006",
     governor: "0x0000000000000000000000000000000000000000",
-    govToken: "0x0000000000000000000000000000000000000000"
-  }
+    poolManager: "0x498581fF718922c3f8e6A244956aF099B2652b2b",
+    govToken: "0x0000000000000000000000000000000000000000"}
 };
 
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -89,7 +89,8 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 export const NO_VENUE = {
   name: "nowhere in particular",
   factory: ZERO, quoter: ZERO, router: ZERO, routerKind: 0,
-  positions: ZERO, wrapped: ZERO, governor: ZERO, govToken: ZERO
+  positions: ZERO, wrapped: ZERO, governor: ZERO, govToken: ZERO,
+  poolManager: ZERO
 };
 
 /*──────────────── ERC-5219 on the wire ────────────────*/
@@ -169,7 +170,9 @@ export async function deploySite(c, A, { hub, pool, lease, uniswap = NO_VENUE })
     encodeAddressArg(uniswap.positions) +
     encodeAddressArg(uniswap.wrapped) +
     encodeAddressArg(uniswap.governor) +
-    encodeAddressArg(uniswap.govToken),
+    encodeAddressArg(uniswap.govToken) +
+    encodeAddressArg(uniswap.poolManager ||
+      "0x0000000000000000000000000000000000000000"),
     "Venue");
 
   /*  Desk holds the application: the config block a page emits and the
@@ -240,16 +243,38 @@ export async function deploySite(c, A, { hub, pool, lease, uniswap = NO_VENUE })
     encodeAddressArg(deskU) + encodeAddressArg(deskC) + encodeAddressArg(venue),
     "PageExplore");
 
+  /*  The launchpad. `Kiln` is this collection's own contract — it deploys
+      tokens and hooks and has no other power over either — and it needs the
+      v4 PoolManager because the hooks it ships accept calls from nothing
+      else.                                                                */
+  const kiln = await c.deploy(
+    A("src/Kiln.sol", "Kiln").bytecode,
+    encodeAddressArg(uniswap.poolManager ||
+      "0x0000000000000000000000000000000000000000"), "Kiln");
+
+  const deskL = await c.deploy(A("src/DeskLaunch.sol", "DeskLaunch").bytecode, "", "DeskLaunch");
+
+  const pLaunch = await c.deploy(
+    A("src/PageLaunch.sol", "PageLaunch").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskU) +
+    encodeAddressArg(deskL) + encodeAddressArg(venue) + encodeAddressArg(kiln),
+    "PageLaunch");
+
+  const pHook = await c.deploy(
+    A("src/PageHook.sol", "PageHook").bytecode,
+    encodeAddressArg(chrome), "PageHook");
+
   const premises = await c.deploy(
     A("src/Premises.sol", "Premises").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(pToken) +
     encodeAddressArg(pMarket) + encodeAddressArg(pPool) + encodeAddressArg(pServices) +
     encodeAddressArg(pManifest) + encodeAddressArg(pSwap) + encodeAddressArg(pPools) +
-    encodeAddressArg(pCivic) + encodeAddressArg(pExplore),
+    encodeAddressArg(pCivic) + encodeAddressArg(pExplore) +
+    encodeAddressArg(pLaunch) + encodeAddressArg(pHook),
     "Premises");
 
   return {
     chrome, desk, pToken, pMarket, pPool, pServices, pManifest,
-    venue, deskU, deskT, deskC, pSwap, pPools, pCivic, pExplore, premises
+    venue, deskU, deskT, deskC, pSwap, pPools, pCivic, pExplore, kiln, deskL, pLaunch, pHook, premises
   };
 }

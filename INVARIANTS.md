@@ -557,6 +557,55 @@ than serving the same document at both.
 most recent bar, the one a reader looks at first, was scaled by the remainder.
 → `src/Venue.sol::history`
 
+## The launchpad
+
+**101. A hook's declared callbacks equal the low fourteen bits of its address.**
+`Kiln.deployHook` refuses to hand back an address whose bits differ from what
+the recipe declares. A hook missing one of its bits is one whose callback the
+PoolManager never invokes — nothing reverts, nothing warns, and a lock that is
+never consulted looks exactly like a lock.
+→ `test/Kiln.t.sol::test_aSaltThatLandsWrongIsRefusedRatherThanDeployed`, `test_aMinedSaltDeploysAHookThatTheManagerWillCall`
+→ `tools/verify-site.mjs` · *"and its low fourteen bits are exactly beforeSwap + beforeRemoveLiquidity"*
+
+**102. A hook's callback signatures are the ones v4 actually calls.**
+Matched by selector, which is the hash of the whole signature. One field's type
+wrong and the PoolManager calls a function the hook does not have — with no
+fallback, that reverts every swap and every withdrawal on any pool that trusted
+it, while the code compiles and verifies.
+→ `test/Kiln.t.sol::test_theHookSelectorsAreTheOnesV4Calls`, hashed from the canonical strings, with `test_aNearlyRightSignatureIsADifferentFunction` as the control
+
+**103. A token this launchpad deploys has no owner and a fixed supply.**
+No mint, no pause, no blacklist, no upgrade path. Customisation lives in the
+launch — supply, split, price, range, fee, tick spacing, hook — not in the token
+as a permission somebody can exercise later.
+→ `test/Kiln.t.sol::test_theSupplyIsFixedAndNobodyCanAddToIt`, `testFuzz_transfersConserveTheSupply`
+
+**104. A launch lands at the address it was promised.**
+`CREATE2`, with the launcher mixed into the salt — so an address can be
+announced before it exists, and cannot be taken by somebody re-sending the same
+call with more gas.
+→ `test/Kiln.t.sol::test_aLaunchLandsWhereItSaidItWould`, `test_twoPeopleMayUseTheSameSalt`
+→ `tools/verify-site.mjs` · *"and it landed exactly where the page said it would"*
+
+**105. Searching for a hook address sends nothing.**
+`mine` is a `view`, so the visitor's own node walks CREATE2 salts under
+`eth_call` and commits nothing. It is bounded and reports failure rather than
+running past an `eth_call`'s gas ceiling with no partial answer.
+→ `test/Kiln.t.sol::test_miningReportsFailureRatherThanRunningForever`, `test_movingTheWindowAlongContinuesTheSearch`
+→ `tools/verify-site.mjs` · *"and searching sent no transaction — it is an eth_call"*
+
+**106. What a hook may do is read from its address, not from its claims.**
+`/hook/<address>` answers with arithmetic on the address. Nothing is called, so
+there is nothing for the hook's author to misstate — the PoolManager tests these
+very bits to decide what to invoke.
+→ `tools/verify-site.mjs` · *"reading a hook off its address"*, four addresses chosen for their low bits and not taken from this repository
+
+**107. The page never reads a hook's address as safety.**
+The bits that enforce a lock are the bits that spring a trap; a hook that
+unlocks on Friday and one that never unlocks have identical address shapes.
+Every rendering of a withdrawal-guarding hook says so.
+→ `tools/verify-site.mjs` · *"and the page refuses to read that as safety"*
+
 ---
 
 ## Found by adversarial review, and fixed

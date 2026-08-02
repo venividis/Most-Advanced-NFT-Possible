@@ -187,6 +187,7 @@ contract Chrome {
             _tab("/explore", "explore", here == 11),
             _tab("/pools", "pools", here == 10),
             _tab("/limit", "limit", here == 14),
+            _tab("/launch", "launch", here == 15),
             _tab("/earn", "earn", here == 12),
             _tab("/vote", "vote", here == 13),
             _tab("/open", "markets", here == 7),
