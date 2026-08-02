@@ -373,6 +373,54 @@ for (const [name, path] of [
 }
 
 /*════════════════ 4 · the manifest is actionable ════════════════*/
+
+/*════════════ the manifest describes the whole site, not half of it ════════════
+
+  The manifest's entire argument is that a program should be able to find out
+  what this site offers without a hosted API. It listed the per-token services
+  and said nothing about the eight collection-wide routes or the addresses they
+  send to — so a program reading it would have concluded that half the site did
+  not exist. An index that is silently partial is worse than one that is
+  obviously small.
+*/
+head("and it describes the collection-wide surface too");
+{
+  const m = JSON.parse((await GET(["services.json"])).body);
+
+  ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 8,
+     JSON.stringify(m.routes || null).slice(0, 120));
+  const paths = (m.routes || []).map((r) => r.path);
+  for (const p of ["/swap", "/pools", "/limit", "/explore", "/earn", "/vote", "/open", "/assets"]) {
+    ok(`  ${p} is discoverable`, paths.includes(p), paths.join(" "));
+  }
+  ok("the two routes that take an address say so",
+     (m.routes || []).filter((r) => r.takes).length === 2,
+     JSON.stringify((m.routes || []).filter((r) => r.takes)));
+
+  /*  Every path the manifest advertises must actually answer. A directory
+      that names a route the router does not have is the same defect as one
+      that omits a route the router does have.                            */
+  for (const r of m.routes || []) {
+    if (r.path === "/services.json") continue;
+    const seg = r.path.split("/").filter(Boolean);
+    const got = await GET(seg);
+    ok(`  and ${r.path} actually answers`, got.status === 200, `status ${got.status}`);
+  }
+
+  ok("the venue is described rather than left out", m.venue !== undefined);
+  eq("with the factory the site was deployed against",
+     String(m.venue.factory).toLowerCase(), uniFactory.toLowerCase());
+  eq("and the router", String(m.venue.router).toLowerCase(), uniRouterV3.toLowerCase());
+  /*  The field that decides whether a program builds eight words or seven.
+      Without it a caller reading this manifest has an address and no way to
+      know which of the two incompatible structs it takes.               */
+  eq("and the router's calldata shape, which is the part a program needs",
+     m.venue.routerKind, 0);
+  ok("and whether there is a venue there at all", m.venue.present === true);
+  console.log("      a program can now find /swap and know the router takes eight " +
+              "words with a deadline at index 4");
+}
+
 head("the manifest tells a program how to call, not just what exists");
 const m1 = JSON.parse((await GET(["token", "1", "services.json"])).body);
 eq("it declares its schema", m1.schema, "ipseity.services/1");

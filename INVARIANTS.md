@@ -494,6 +494,19 @@ The struct also holds four dynamic arrays and a receipts mapping, and the getter
 omits all of them. Reading word 5 as `forVotes` is only correct because of that.
 → `tools/verify-site.mjs` · *"the vote counts are there"*, against a mock that returns exactly the getter's shape
 
+**93. The manifest names every route the router serves, and no route it does not.**
+`/services.json` lists the collection-wide surface as well as the per-token
+services, and the suite fetches every path the manifest advertises and requires
+a 200. A directory that names a route the front door does not have is the same
+defect as one that omits a route it does.
+→ `tools/verify-site.mjs` · *"and it describes the collection-wide surface too"* — every advertised path is fetched
+
+**94. The manifest carries the router's calldata shape, not only its address.**
+A program building a swap from this document has an address and, without
+`routerKind`, no way to know whether it takes eight words or seven — the two
+structs are incompatible and the wrong one does not revert.
+→ `tools/verify-site.mjs` · *"and the router's calldata shape, which is the part a program needs"*
+
 ---
 
 ## Found by adversarial review, and fixed

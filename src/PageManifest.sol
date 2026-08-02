@@ -3,7 +3,8 @@ pragma solidity ^0.8.24;
 
 import {LibNum} from "./lib/LibNum.sol";
 import {Web} from "./lib/Web.sol";
-import {IHub, IPoolRead, ILeaseRead, IRendererDoc, MarketView} from "./interfaces/Site.sol";
+import {IHub, IPoolRead, ILeaseRead, IRendererDoc, IVenue, MarketView}
+    from "./interfaces/Site.sol";
 
 /*───────────────────────────────────────────────────────────────────────────
   PageManifest — the same shopfront, for something that cannot read a page
@@ -41,16 +42,22 @@ contract PageManifest {
     IHub       public immutable HUB;
     IPoolRead  public immutable POOL;
     ILeaseRead public immutable LEASE;
+    /// @dev May be the zero address: a chain with no Uniswap deployment has
+    ///      no venue, and the manifest says so rather than omitting the key
+    ///      — an absent key and a present-but-empty one mean different
+    ///      things to a program, and only one of them is the truth.
+    IVenue     public immutable VENUE;
 
     string public constant SCHEMA = "ipseity.services/1";
 
     /// @dev Same window as the directory page, same reason.
     uint256 public constant PAGE = 24;
 
-    constructor(IHub hub, IPoolRead pool, ILeaseRead lease) {
+    constructor(IHub hub, IPoolRead pool, ILeaseRead lease, IVenue venue) {
         HUB = hub;
         POOL = pool;
         LEASE = lease;
+        VENUE = venue;
     }
 
     /*═══════════════════ /token/<id>/services.json ═══════════════════*/
@@ -248,7 +255,7 @@ contract PageManifest {
 
         return string.concat(
             _collection(supply),
-            "\",\"window\":{\"from\":", from.str(), ",\"to\":", to.str(),
+            ",\"window\":{\"from\":", from.str(), ",\"to\":", to.str(),
             ",\"pageSize\":", PAGE.str(), ",\"page\":", page.str(),
             ",\"more\":", to < supply ? "true" : "false",
             ",\"next\":\"/services.json/", (page + 1).str(), "\"}",
@@ -265,7 +272,62 @@ contract PageManifest {
             ",\"ceiling\":", HUB.MAX_SUPPLY().str(),
             ",\"mintPriceWei\":\"", HUB.price().str(),
             "\",\"pool\":\"", LibNum.hexAddr(address(POOL)),
-            "\",\"lease\":\"", LibNum.hexAddr(address(LEASE))
+            "\",\"lease\":\"", LibNum.hexAddr(address(LEASE)),
+            /*  This used to end mid-value — the caller supplied the closing
+                quote of the lease address, which meant the two could not be
+                read apart and appending anything here broke the document
+                silently. It terminates its own values now.              */
+            "\",\"routes\":", ROUTES,
+            ",\"venue\":", _venue()
+        );
+    }
+
+    /*  The routes that are not about one token.
+
+        Without these a program reading this manifest would conclude the
+        site was a token directory and nothing else — it lists what each
+        token offers and, until now, said nothing about the eight pages that
+        serve the rest of the chain. An index that is silently partial is
+        worse than one that is obviously small.                          */
+    string internal constant ROUTES =
+        "["
+        "{\"path\":\"/\",\"is\":\"the collection\"},"
+        "{\"path\":\"/open\",\"is\":\"every open market here\",\"paged\":true},"
+        "{\"path\":\"/assets\",\"is\":\"every asset those markets trade\",\"paged\":true},"
+        "{\"path\":\"/swap\",\"is\":\"any ERC-20 pair, on Uniswap v3\"},"
+        "{\"path\":\"/pools\",\"is\":\"liquidity at a range you choose\"},"
+        "{\"path\":\"/limit\",\"is\":\"a one-sided position: an order with no server\"},"
+        "{\"path\":\"/explore\",\"is\":\"a token's pools and its own price history\","
+        "\"takes\":\"/explore/<erc20>\"},"
+        "{\"path\":\"/earn\",\"is\":\"an ERC-4626 vault, verified before it is offered\","
+        "\"takes\":\"/earn/<vault>\"},"
+        "{\"path\":\"/vote\",\"is\":\"governance, read from the governor\"},"
+        "{\"path\":\"/services.json\",\"is\":\"this document\",\"paged\":true}"
+        "]";
+
+    /*  Where those pages send, so a program can check the addresses against
+        Uniswap's published deployments rather than against this contract.
+
+        `routerKind` is the field that matters and it is here for the same
+        reason it is on the page: two Uniswap routers have an
+        `exactInputSingle` whose structs differ by one field, the wrong shape
+        does not revert, and a program building calldata from this manifest
+        needs to know which one it is talking to. 0 is the v3-periphery
+        SwapRouter — eight words, deadline at index 4. 1 is SwapRouter02 —
+        seven words, no deadline.                                         */
+    function _venue() private view returns (string memory) {
+        if (address(VENUE) == address(0)) return "null";
+        return string.concat(
+            "{\"at\":\"", LibNum.hexAddr(address(VENUE)),
+            "\",\"present\":", VENUE.present() ? "true" : "false",
+            ",\"factory\":\"", LibNum.hexAddr(VENUE.FACTORY()),
+            "\",\"quoter\":\"", LibNum.hexAddr(VENUE.QUOTER()),
+            "\",\"router\":\"", LibNum.hexAddr(VENUE.ROUTER()),
+            "\",\"routerKind\":", uint256(VENUE.ROUTER_KIND()).str(),
+            ",\"positions\":\"", LibNum.hexAddr(VENUE.POSITIONS()),
+            "\",\"wrapped\":\"", LibNum.hexAddr(VENUE.WRAPPED()),
+            "\",\"governor\":\"", LibNum.hexAddr(VENUE.GOVERNOR()),
+            "\",\"govToken\":\"", LibNum.hexAddr(VENUE.GOV_TOKEN()), "\"}"
         );
     }
 

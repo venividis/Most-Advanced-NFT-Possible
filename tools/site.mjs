@@ -201,7 +201,8 @@ export async function deploySite(c, A, { hub, pool, lease, uniswap = NO_VENUE })
 
   const pManifest = await c.deploy(
     A("src/PageManifest.sol", "PageManifest").bytecode,
-    encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease), "PageManifest");
+    encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
+    encodeAddressArg(venue), "PageManifest");
 
   /*  The Uniswap side: one contract holding the data (addresses, the
       derived asset list, every selector) and one holding the programs that
