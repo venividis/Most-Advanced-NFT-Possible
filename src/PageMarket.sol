@@ -263,7 +263,8 @@ contract PageMarket {
             "pool's own list rather than by walking token ids &mdash; which is the "
             "difference between a directory and a guess. Anyone may trade against any "
             "of these; the fee goes to the token.</p>"
-            "<p><a class=g href=\"/assets\">which assets are traded &rarr;</a></p>",
+            "<p><a class=g href=\"/assets\">which assets are traded &rarr;</a>"
+            "<a class=g href=\"/swap\">swap any pair on Uniswap &rarr;</a></p>",
             total == 0
                 ? "<p class=e>No market is open anywhere in the collection yet.</p>"
                 : string.concat(
@@ -271,73 +272,6 @@ contract PageMarket {
                     "<th>fee</th><th>trades</th><th></th></tr>", rows, "</table>"),
             _pager(page, ids.length, total),
             CHROME.foot(msg.sender, block.chainid)
-        );
-    }
-
-    /*═══════════════════ /assets ═══════════════════*/
-
-    /*  The token list, derived rather than fetched.
-
-        An asset is on it because a market here trades it. That is a
-        stronger property than any hosted list can offer: nothing appears
-        that cannot be traded, nothing is curated by anybody, and there is
-        no file on a server whose disappearance empties the dropdown.    */
-    function assets(uint256 page) external view returns (string memory) {
-        uint256 total = POOL.openCount();
-        uint256[] memory ids = POOL.openIds(page * PAGE, PAGE);
-
-        address[] memory seen = new address[](ids.length * 2);
-        uint256 n;
-        string memory rows;
-        for (uint256 i; i < ids.length; ++i) {
-            (address b, address q,,,,,,,,,,) = POOL.market(ids[i]);
-            for (uint256 k; k < 2; ++k) {
-                address a = k == 0 ? b : q;
-                bool dup;
-                for (uint256 j; j < n; ++j) if (seen[j] == a) { dup = true; break; }
-                if (dup) continue;
-                seen[n++] = a;
-                rows = string.concat(rows, _assetRow(a, ids));
-            }
-        }
-
-        return string.concat(
-            CHROME.head("IPSEITY \xc2\xb7 assets"),
-            CHROME.navTop(8),
-            "<h1>what is traded here</h1>"
-            "<p class=e>Every ERC-20 that some token's market actually trades. This is "
-            "not a curated list and it is not fetched from anywhere &mdash; an asset is "
-            "on it because a market here holds it, which is a stronger claim than any "
-            "hosted token list can make. Nothing appears that cannot be traded.</p>",
-            n == 0 ? "<p class=e>Nothing is traded yet.</p>"
-                   : string.concat("<table><tr><th>asset</th><th>address</th>"
-                                   "<th>decimals</th><th>markets</th></tr>", rows,
-                                   "</table>"),
-            _pager(page, ids.length, total),
-            CHROME.foot(msg.sender, block.chainid)
-        );
-    }
-
-    function _assetRow(address a, uint256[] memory ids) private view returns (string memory) {
-        string memory where;
-        uint256 count;
-        for (uint256 i; i < ids.length; ++i) {
-            (address b, address q,,,,,,,,,,) = POOL.market(ids[i]);
-            if (b != a && q != a) continue;
-            ++count;
-            if (count <= 6) {
-                where = string.concat(where, count == 1 ? "" : " ",
-                    "<a href=\"/token/", ids[i].str(), "/market\">#", ids[i].str(),
-                    "</a>");
-            }
-        }
-        if (count > 6) where = string.concat(where, " <span class=m>and ",
-            (count - 6).str(), " more</span>");
-        return string.concat(
-            "<tr><td>", Web.symbolOf(a), "</td>",
-            "<td><code>", LibNum.hexAddr(a), "</code></td>",
-            "<td>", uint256(Web.decimalsOf(a)).str(), "</td>",
-            "<td>", where, "</td></tr>"
         );
     }
 

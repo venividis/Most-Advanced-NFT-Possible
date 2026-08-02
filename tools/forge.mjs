@@ -19,7 +19,9 @@
       call the test makes;
     · an afterMessage hook, so `expectRevert` can turn a revert into a
       success at the call boundary, which is the only way the calling
-      contract survives to run its next line;
+      contract survives to run its next line — and a second check against
+      the test's own revert, because an `internal` library reverting has no
+      call frame to catch it at;
     · a block whose header is not frozen, so `warp` can move the clock in
       the middle of a call that is already executing.
 
@@ -184,7 +186,13 @@ ${cmp("uint256")}${cmp("int256")}${cmp("address")}${cmp("bool")}${cmp("bytes32")
         if (lo > hi) revert("bound: lo > hi");
         if (x >= lo && x <= hi) return x;
         uint256 span = uint256(hi - lo) + 1;
-        uint256 off = uint256(x < 0 ? -x : x) % span;
+        /*  The whole signed range is reinterpreted as unsigned before the
+            modulus. Negating first is what the obvious version does, and it
+            panics on int256.min, whose negation does not fit — which a fuzzer
+            reaches by drawing one word of all ones. Now that signed types are
+            drawn signed, it reaches it often.                              */
+        uint256 off;
+        unchecked { off = uint256(x) % span; }
         return lo + int256(off);
     }
 }
@@ -480,7 +488,34 @@ function encOne(t) {                          // one value, head-form if static
   if (isDynamic(t)) return encDynamic(t);
   if (t === "bool") return W(next() & 1n);
   if (t === "address") return W(rand(160));
-  if (/^u?int(\d+)?$/.test(t)) return W(rand(Number((t.match(/\d+/) || [256])[0])));
+  /*  A signed type is not an unsigned one with a smaller range.
+
+      This used to be `W(rand(bits))` for both, and the consequence was
+      worse than "negative numbers were never tried". For `int24` it drew a
+      24-bit *unsigned* value, so:
+
+        · every value above 8388607 is not a valid int24 at all, and solc's
+          decoder rejects it by reverting with no returndata — which the
+          runner reported as a failing test with no message, on a test that
+          was fine;
+        · the half of the domain below zero was never generated once. Every
+          tick in this collection is negative for any pair priced below
+          parity, which is most of them, so the fuzzers over tick maths
+          were exercising the easy half and reporting full coverage.
+
+      A signed draw takes the same random bits, reads the top one as a sign,
+      and sign-extends to a full word — which is what the ABI expects and
+      what forge does.                                                    */
+  if (/^u?int(\d+)?$/.test(t)) {
+    const bits = Number((t.match(/\d+/) || [256])[0]);
+    let v = rand(bits);
+    if (t[0] === "i") {
+      const span = 1n << BigInt(bits);
+      if (v >= span >> 1n) v -= span;              // two's complement
+      if (v < 0n) v += 1n << 256n;                 // sign-extended to 256
+    }
+    return W(v);
+  }
   if (/^bytes(\d+)$/.test(t)) {
     const n = Number(t.match(/\d+/)[0]);
     return rand(n * 8).toString(16).padStart(n * 2, "0").padEnd(64, "0");
@@ -583,6 +618,41 @@ async function selfCheck() {
   await call(createAddressFromString(VM_ADDR), sel("assume(bool)") + W(0));
   if (!state.assumeFailed) bad.push("vm.assume(false) did not mark the run discarded");
 
+  /*  The generator, checked against the two ways it was silently wrong.
+
+      A signed parameter must be *drawn* signed. The version before this
+      drew `int24` as a 24-bit unsigned value, which meant every draw above
+      8388607 was not a valid int24 and solc's decoder rejected it with an
+      empty revert — reported as a failing test with no message — while the
+      entire negative half of the domain was never generated at all. Every
+      tick in this collection is negative for a pair priced below parity,
+      so the tick fuzzers were covering the easy half and saying so.
+
+      Both halves are checked here rather than in a test, because this is a
+      property of the harness and a harness cannot be trusted to notice its
+      own blind spot from inside a suite it is generating.                */
+  {
+    let neg = 0, tooBig = 0;
+    const LIMIT = (1n << 23n) - 1n;                      // int24 max
+    for (let i = 0; i < 256; i++) {
+      const word = BigInt("0x" + encOne("int24"));
+      const signed = word >= 1n << 255n ? word - (1n << 256n) : word;
+      if (signed < 0n) neg++;
+      if (signed > LIMIT || signed < -(LIMIT + 1n)) tooBig++;
+    }
+    if (tooBig) bad.push(
+      `${tooBig} of 256 generated int24 values are not valid int24 — solc's ` +
+      "decoder rejects them with an empty revert, which reads as a failing test");
+    if (neg < 64) bad.push(
+      `only ${neg} of 256 generated int24 values were negative — a signed ` +
+      "fuzz parameter is being drawn unsigned, so half the domain is never tried");
+    let uNeg = 0;
+    for (let i = 0; i < 64; i++) {
+      if (BigInt("0x" + encOne("uint24")) >= 1n << 255n) uNeg++;
+    }
+    if (uNeg) bad.push("an unsigned parameter was sign-extended");
+  }
+
   if (bad.length) {
     console.log("\n  \x1b[31mthe runner is not running anything\x1b[0m");
     for (const b of bad) console.log("    \x1b[31m· " + b + "\x1b[0m");
@@ -660,7 +730,28 @@ for (const file of files) {
         }
         if (state.assumeFailed) { ran--; continue; }   // forge discards the run
         if (res.execResult.exceptionError) {
-          failed = decodeRevert(bytesToHex(res.execResult.returnValue || new Uint8Array()));
+          const got = bytesToHex(res.execResult.returnValue || new Uint8Array());
+
+          /*  A revert with no call frame around it.
+
+              expectRevert is handled at the message boundary, which is
+              where it has to be for the common case: the calling contract
+              must survive to run its next line. But a `revert` inside an
+              `internal` library function is not a message at all — it is
+              the test's own frame unwinding — so there is no boundary to
+              catch it at, and an expectation left standing looked exactly
+              like a test that failed.
+
+              That is the worst shape a harness gap can take: the assertion
+              was right, the code was right, and the report said otherwise.
+              So an outstanding expectation is also matched against the
+              test's own revert.                                          */
+          if (state.expect && (!state.expect.data || got.startsWith(state.expect.data))) {
+            state.expect = null;
+            state.expectSatisfied = true;
+            continue;
+          }
+          failed = decodeRevert(got);
           if (isFuzz) failed += `  (run ${r + 1}, seed ${SEED})`;
           break;
         }

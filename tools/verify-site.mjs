@@ -43,7 +43,7 @@
 ───────────────────────────────────────────────────────────────────────────*/
 import { compile, artifact } from "./compile.mjs";
 import * as evm from "./evm.mjs";
-import { Chain, encodeAddressArg, decUint, decAddr, decString } from "./evm.mjs";
+import { Chain, encodeAddressArg, decUint, decAddr, decBool, decString } from "./evm.mjs";
 import { deploySite, getter } from "./site.mjs";
 import { createAddressFromString } from "@ethereumjs/util";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
@@ -101,7 +101,63 @@ const pool = await c.deploy(A("src/Pool.sol", "Pool").bytecode,
 await c.exec(nft, "setPool(address)", [pool]);
 const lease = await c.deploy(A("src/Lease.sol", "Lease").bytecode, encodeAddressArg(nft), "Lease");
 
-const site = await deploySite(c, A, { hub: nft, pool, lease });
+/*──────────────── a Uniswap v3 deployment to point the site at ────────────────
+
+  Every signature and return shape is the real one, and both routers record
+  the struct they decoded rather than merely acting on it — because the two
+  routers' structs differ by one field, the wrong shape does not revert, and
+  a mock that just performed the trade would pass either way.             */
+/* constructor(string n, string s, uint8 d, uint256 feeBps, bool silent) */
+const encS = (t) => w(t.length) + Buffer.from(t).toString("hex").padEnd(64, "0");
+const weth = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
+  w(0xa0) + w(0xe0) + w(18) + w(0) + w(0) + encS("Wrapped Ether") + encS("WETH"), "WETH");
+const usdc = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
+  w(0xa0) + w(0xe0) + w(6) + w(0) + w(0) + encS("USD Coin") + encS("USDC"), "USDC");
+
+const uniFactory = await c.deploy(A("test/mocks/UniV3.sol", "MockV3Factory").bytecode, "", "v3Factory");
+const uniBook = await c.deploy(A("test/mocks/UniV3.sol", "MockBook").bytecode, "", "book");
+const uniQuoter = await c.deploy(A("test/mocks/UniV3.sol", "MockQuoter").bytecode,
+  encodeAddressArg(uniBook), "QuoterV2");
+const uniRouterV3 = await c.deploy(A("test/mocks/UniV3.sol", "MockRouterV3").bytecode,
+  encodeAddressArg(uniBook), "SwapRouter");
+const uniRouter02 = await c.deploy(A("test/mocks/UniV3.sol", "MockRouter02").bytecode,
+  encodeAddressArg(uniBook), "SwapRouter02");
+
+/*  Two tiers with pools, at different depths, so "quote every tier and take
+    the best" has something to get wrong. The 0.05% pool is shallow and
+    prices worse; the 0.3% pool is deep and prices better.                */
+/*  A pool prices token1 per token0, and token0 is whichever address sorts
+    first — which for two freshly deployed mocks is whichever this run
+    happened to produce. Three thousand USDC per WETH is tick -196256 when
+    WETH is token0 and +196256 when it is not, and hardcoding one of them
+    would give the pool a price that is the reciprocal of the one the test
+    means half the time.                                                  */
+const WETH_FIRST = weth.toLowerCase() < usdc.toLowerCase();
+const POOL_TICK = WETH_FIRST ? -196256n : 196256n;
+await c.exec(uniFactory, "make(address,address,uint24,uint160,int24,uint128)",
+  [weth, usdc, 500n, 1n << 96n, POOL_TICK, 10n ** 6n]);
+await c.exec(uniFactory, "make(address,address,uint24,uint160,int24,uint128)",
+  [weth, usdc, 3000n, 1n << 96n, POOL_TICK, 9n * 10n ** 18n]);
+/* 1 WETH buys 2900 USDC through the shallow pool, 2995 through the deep one */
+await c.exec(uniBook, "set(address,address,uint24,uint256)", [weth, usdc, 500n, 2900n * 10n ** 6n]);
+await c.exec(uniBook, "set(address,address,uint24,uint256)", [weth, usdc, 3000n, 2995n * 10n ** 6n]);
+await c.exec(uniBook, "set(address,address,uint24,uint256)",
+  [usdc, weth, 3000n, 333_000_000_000n]);
+/* the routers pay out of their own inventory */
+await c.exec(usdc, "mint(address,uint256)", [uniRouterV3, 10n ** 15n]);
+await c.exec(usdc, "mint(address,uint256)", [uniRouter02, 10n ** 15n]);
+await c.exec(weth, "mint(address,uint256)", [uniRouterV3, 10n ** 24n]);
+
+const uniPositions = await c.deploy(A("test/mocks/UniV3.sol", "MockPositions").bytecode,
+  "", "NonfungiblePositionManager");
+
+const UNI = {
+  name: "the test chain", factory: uniFactory, quoter: uniQuoter,
+  router: uniRouterV3, routerKind: 0, positions: uniPositions,
+  wrapped: weth, governor: uniBook, govToken: usdc
+};
+
+const site = await deploySite(c, A, { hub: nft, pool, lease, uniswap: UNI });
 const GET = getter(c, site.premises);
 ok("the site is deployed", (await c.codeSize(site.premises)) > 0);
 
@@ -116,10 +172,6 @@ ok("three tokens issued", true);
 head("a token whose symbol is a script tag");
 
 const nasty = await c.deploy(A("test/mocks/Nasty.sol", "ScriptToken").bytecode, "", "ScriptToken");
-/* constructor(string n, string s, uint8 d, uint256 feeBps, bool silent) */
-const encS = (t) => w(t.length) + Buffer.from(t).toString("hex").padEnd(64, "0");
-const weth = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
-  w(0xa0) + w(0xe0) + w(18) + w(0) + w(0) + encS("Wrapped Ether") + encS("WETH"), "WETH");
 
 await c.exec(pool, "openMarket(uint256,address,address,uint16)", [1, nasty, weth, 30]);
 
@@ -565,19 +617,58 @@ const OBLIGED = async (label) => {
     way to find out whether the calldata it assembles means what the page
     says it means.                                                        */
 let byId = new Map();
+
+/*  Elements built by a script rather than by the page.
+
+    The fee-tier row on the Uniswap card is written with `innerHTML` and
+    then wired up with `querySelectorAll` on the same element — which is
+    ordinary DOM and was, until this, something the shim silently did not
+    do. A shim that answers "no children" to that question does not fail
+    loudly; it hands back an empty list and the buttons are never wired,
+    so a test asserting the row works would pass against a row nobody can
+    press. So assigning innerHTML re-parses, and the parse is cached on the
+    string so that listeners attached to a child survive until the parent's
+    markup actually changes.                                              */
+const matches = (el, q) => {
+  const d = q.match(/^\[data-([\w-]+)\]$/);
+  if (d) return d[1].replace(/-(\w)/g, (x, y) => y.toUpperCase()) in el.dataset;
+  if (q.startsWith(".")) return el.className.split(/\s+/).includes(q.slice(1));
+  return el.tagName === q;
+};
+
 const mkEl = (tag, attrs) => {
   const el = {
-    tagName: tag, value: "", textContent: "", innerHTML: "",
+    tagName: tag, value: "", textContent: "",
     disabled: false, hidden: false, className: "", placeholder: "",
-    dataset: {}, _on: {},
+    dataset: {}, _on: {}, _html: "", _kids: null,
+    get innerHTML() { return this._html; },
+    set innerHTML(v) { if (v !== this._html) { this._html = String(v); this._kids = null; } },
+    querySelectorAll(q) {
+      if (this._kids === null) {
+        this._kids = [];
+        for (const m of String(this._html).matchAll(/<(\w+)([^>]*)>/g)) {
+          this._kids.push(mkEl(m[1], m[2]));
+        }
+      }
+      return this._kids.filter((e) => matches(e, q));
+    },
     addEventListener(k, f) { (this._on[k] = this._on[k] || []).push(f); },
     async fire(k) { for (const f of this._on[k] || []) await f(); }
+  };
+  el.classList = {
+    add: (k) => { if (!el.className.split(/\s+/).includes(k))
+                    el.className = (el.className + " " + k).trim(); },
+    remove: (k) => { el.className =
+      el.className.split(/\s+/).filter((x) => x && x !== k).join(" "); },
+    contains: (k) => el.className.split(/\s+/).includes(k)
   };
   for (const m of (attrs || "").matchAll(/data-([\w-]+)(?:=["']?([^"'\s>]*)["']?)?/g)) {
     el.dataset[m[1].replace(/-(\w)/g, (x, y) => y.toUpperCase())] = m[2] ?? "";
   }
-  const v = (attrs || "").match(/\bvalue="([^"]*)"/);
+  const v = (attrs || "").match(/\bvalue=["']?([^"'\s>]*)["']?/);
   if (v) el.value = v[1];
+  const cl = (attrs || "").match(/\bclass=["']?([^"'>]*)["']?/);
+  if (cl) el.className = cl[1].trim();
   return el;
 };
 function mount(html) {
@@ -597,15 +688,7 @@ function mount(html) {
   globalThis.Event = class { constructor(t) { this.type = t; } };
   globalThis.document = {
     getElementById: (i) => byId.get(i) || null,
-    querySelectorAll: (q) => {
-      const m = q.match(/^\[data-([\w-]+)\]$/);
-      if (m) {
-        const k = m[1].replace(/-(\w)/g, (x, y) => y.toUpperCase());
-        return all.filter((e) => k in e.dataset);
-      }
-      if (q.startsWith(".")) return all.filter((e) => e.className === q.slice(1));
-      return [];
-    }
+    querySelectorAll: (q) => all.filter((e) => matches(e, q))
   };
   return byId;
 }
@@ -658,8 +741,6 @@ head("driving the swap card");
   await c.exec(nft, "mint()", [], { value: 10n ** 16n });
   const T = Number(decUint(await c.read(nft, "totalSupply()")));
   DRIVEN = T;
-  const usdc = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
-    w(0xa0) + w(0xe0) + w(6) + w(0) + w(0) + encS("USD Coin") + encS("USDC"), "USDC");
   await c.exec(weth, "mint(address,uint256)", [c.from.toString(), 10n ** 24n]);
   await c.exec(usdc, "mint(address,uint256)", [c.from.toString(), 10n ** 18n]);
   await c.exec(weth, "approve(address,uint256)", [pool, 1n << 255n]);
@@ -747,6 +828,565 @@ head("driving the swap card");
   try { await globalThis.IP.connect(); } catch (e) { refused = /on chain/.test(e.message); }
   ok("a wallet on the wrong chain is told so rather than used", refused);
 
+}
+
+
+/*════════════ the Uniswap card, actually driven ════════════
+
+  This is the section that would catch the one mistake on this whole site
+  that costs somebody money.
+
+  Two Uniswap routers have an `exactInputSingle`. Their params structs
+  differ by exactly one field — the older one carries a `deadline` at index
+  4 and SwapRouter02 does not — and sending one shape to the other router
+  does not revert. It shifts `recipient` and every amount by one word and
+  executes something nobody asked for.
+
+  So the mocks do not merely perform the trade. They decode the struct and
+  record every field, and the assertions below check field by field that the
+  word the client wrote into `amountIn` arrived as `amountIn`. Then the
+  whole thing is done again against a second deployment wired to the other
+  router with the other kind, because a page that is right about one shape
+  and silent about the other is a page that is right by accident.
+*/
+head("driving the Uniswap card");
+{
+  const page = await GET(["swap"]);
+  eq("/swap answers 200", page.status, 200);
+
+  mount(page.body);
+  const uniTrader = await c.as("0x" + "55".repeat(32));
+  await c.exec(weth, "mint(address,uint256)", [uniTrader.from.toString(), 10n ** 21n]);
+  const W = wallet(uniTrader);
+  runScripts(page.body);
+  await nap(30);
+  const $ = (i) => byId.get(i);
+
+  ok("the shared client loaded", !!globalThis.IP);
+  ok("and the Uniswap client on top of it", !!globalThis.UNI);
+
+  /*──── the config carries the addresses, not a copy of them ────*/
+  const U = globalThis.UNI.U;
+  eq("the factory in the page is the factory the site was deployed with",
+     U.factory.toLowerCase(), uniFactory.toLowerCase());
+  eq("and the router", U.router.toLowerCase(), uniRouterV3.toLowerCase());
+  eq("and the router's calldata shape travels with it", U.kind, 0);
+
+  /*  The selectors, checked against keccak here rather than trusted. This
+      is the check a reader can do by hand from the page source.        */
+  const s4 = (sig) => "0x" + Buffer.from(keccak256(Buffer.from(sig, "utf8")))
+    .toString("hex").slice(0, 8);
+  eq("the v3 router selector is the hash of the v3 router's own signature",
+     U.sel.swapV3,
+     s4("exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))"));
+  eq("and SwapRouter02's is a different function entirely",
+     U.sel.swap02,
+     s4("exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))"));
+  ok("which are not the same four bytes", U.sel.swapV3 !== U.sel.swap02);
+  /*  QuoterV2's NatSpec lists its struct fields in a different order from
+      the declaration. The declaration is what the ABI encodes.        */
+  eq("the quoter selector follows the struct declaration, not the comment",
+     U.sel.quote, s4("quoteExactInputSingle((address,address,uint256,uint24,uint160))"));
+  ok("and not the order its own documentation gives",
+     U.sel.quote !== s4("quoteExactInputSingle((address,address,uint24,uint256,uint160))"));
+
+  /*──── the dropdown is derived from the chain ────*/
+  const syms = U.assets.map((a) => a.s);
+  ok("the offered assets were derived from open markets, not fetched",
+     syms.includes("WETH") && syms.includes("USDC"), syms.join(","));
+  ok("and every one of them carries its own decimals",
+     U.assets.every((a) => typeof a.d === "number" && a.d <= 36));
+  ok("the page offers a box for anything not on that list",
+     /paste an address/.test(page.body));
+
+  /*──── a quote, from the tier that prices best ────*/
+  $("ta").value = weth.toLowerCase();
+  await $("ta").fire("change");
+  $("tb").value = usdc.toLowerCase();
+  await $("tb").fire("change");
+  await nap(300);
+
+  $("si").value = "1";
+  await $("si").fire("input");
+  await nap(900);
+
+  const shown = $("so").value.replace(/,/g, "");
+  ok("typing an amount produced a quote", shown.length > 0, "the field stayed empty");
+  ok("and it came from the deepest tier rather than the first one that answered",
+     Math.abs(Number(shown) - 2995) < 0.01,
+     `card says ${shown}, the 0.3% pool pays 2995 and the 0.05% pool pays 2900`);
+  ok("the card names which pool it quoted through",
+     /0\.3%/.test($("det").innerHTML), $("det").innerHTML.slice(0, 200));
+  console.log(`      quoted every tier that had a pool and took ${shown} over 2900`);
+
+  /*──── approve, then swap ────*/
+  await $("go").fire("click");                       // connects
+  await nap(200);
+  await $("go").fire("click");                       // approves
+  await nap(200);
+  const allow = decUint(await c.read(weth, "allowance(address,address)",
+    [uniTrader.from.toString(), uniRouterV3]));
+  ok("the first press approved the router and nothing else", allow > 0n);
+
+  const usdcBefore = decUint(await c.read(usdc, "balanceOf(address)",
+    [uniTrader.from.toString()]));
+  await $("go").fire("click");                       // swaps
+  await nap(400);
+
+  const seen = await c.read(uniRouterV3, "last()");
+  ok("the swap reached the router", decBool(seen, 0), "it never arrived");
+
+  /*  Field by field. Any one of these being off by a word is the failure
+      the two-router trap produces, and it produces no revert.          */
+  eq("tokenIn arrived as tokenIn", decAddr(seen, 1).toLowerCase(), weth.toLowerCase());
+  eq("tokenOut arrived as tokenOut", decAddr(seen, 2).toLowerCase(), usdc.toLowerCase());
+  eq("the fee tier arrived as the fee tier", decUint(seen, 3), 3000n);
+  eq("the recipient is the person who pressed the button",
+     decAddr(seen, 4).toLowerCase(), uniTrader.from.toString().toLowerCase());
+  ok("the deadline is in the future and not decades away",
+     decUint(seen, 5) > 0n && decUint(seen, 5) < BigInt(Math.floor(Date.now() / 1000)) + 7200n,
+     `deadline ${decUint(seen, 5)}`);
+  eq("one WETH typed as text arrived as one WETH in base units",
+     decUint(seen, 6), WAD);
+  eq("and the floor is the quote less the slippage tolerance, to the wei",
+     decUint(seen, 7), (2995n * 10n ** 6n * 9950n) / 10000n);
+  eq("with no price limit, which is what zero means there", decUint(seen, 8), 0n);
+
+  const usdcAfter = decUint(await c.read(usdc, "balanceOf(address)",
+    [uniTrader.from.toString()]));
+  eq("and the tokens actually moved", usdcAfter - usdcBefore, 2995n * 10n ** 6n);
+
+  /*──── the sentinel ────*/
+  $("si").value = "0";
+  await $("si").fire("input");
+  await nap(400);
+  ok("an amount of zero cannot be sent",
+     $("go").disabled === true || /Enter an amount/.test($("go").textContent),
+     `button says "${$("go").textContent}", disabled=${$("go").disabled}`);
+  const before0 = W.sent();
+  await $("go").fire("click");
+  await nap(200);
+  eq("and pressing anyway sends nothing", W.sent(), before0);
+  console.log("      zero is CONTRACT_BALANCE on SwapRouter02 — " +
+              "\"swap everything the router holds\", not \"swap nothing\"");
+
+  /*──── a token nobody vetted ────*/
+  $("ta").value = "?";
+  $("tax").value = nasty;
+  await $("tax").fire("change");
+  await nap(300);
+  const tick = $("ts").textContent;
+  ok("a pasted token's ticker is stripped to something inert",
+     !/[<>&"']/.test(tick), `rendered as ${JSON.stringify(tick)}`);
+  console.log(`      a symbol of "<script>alert(1)</script>" renders as ` +
+              `${JSON.stringify(tick)}`);
+
+  /*  The same hazard on the collection's own market card, which is where it
+      was found. Token 1's pair is the script-tag token. The JSON escaper
+      stops that symbol ending the config block; it does not stop the string
+      coming back out of JSON.parse with its angle brackets intact, and the
+      quote panel builds itself with innerHTML.                          */
+  const hostile = await GET(["token", "1", "market"]);
+  mount(hostile.body);
+  wallet(uniTrader);
+  runScripts(hostile.body);
+  await nap(30);
+  const sym = globalThis.IP.D.base.s;
+  ok("and the market card's own config is scrubbed the same way",
+     !/[<>&"']/.test(sym), `the client holds ${JSON.stringify(sym)}`);
+  console.log(`      after JSON.parse the raw symbol is back \u2014 so every ` +
+              `ticker in the config is put through the whitelist once, centrally`);
+}
+
+/*════════════ the other router, the other shape ════════════*/
+head("the same page wired to the other router");
+{
+  /*  A whole second front door would be wasteful; the page contract answers
+      directly. What is under test is the calldata, and the calldata comes
+      from the config, and the config comes from the Venue.               */
+  const venue02 = await c.deploy(A("src/Venue.sol", "Venue").bytecode,
+    encodeAddressArg(uniFactory) + encodeAddressArg(uniQuoter) +
+    encodeAddressArg(uniRouter02) + w(1) + encodeAddressArg(uniRouter02) +
+    encodeAddressArg(weth) + w(0) + w(0), "Venue02");
+  const deskU02 = await c.deploy(A("src/DeskUni.sol", "DeskUni").bytecode,
+    encodeAddressArg(venue02) + encodeAddressArg(pool), "DeskUni02");
+  const pSwap02 = await c.deploy(A("src/PageSwap.sol", "PageSwap").bytecode,
+    encodeAddressArg(site.chrome) + encodeAddressArg(pool) + encodeAddressArg(site.desk) +
+    encodeAddressArg(deskU02) + encodeAddressArg(site.deskT) + encodeAddressArg(venue02),
+    "PageSwap02");
+
+  const body = decString(await c.read(pSwap02, "swap()"));
+  ok("the page says which router it is wired to and what that costs",
+     /SwapRouter02/.test(body) && /no deadline field/.test(body));
+  ok("rather than showing a deadline box that quietly does nothing",
+     /shown as inert/.test(body));
+
+  mount(body);
+  const t2 = await c.as("0x" + "66".repeat(32));
+  await c.exec(weth, "mint(address,uint256)", [t2.from.toString(), 10n ** 21n]);
+  wallet(t2);
+  runScripts(body);
+  await nap(30);
+  const $ = (i) => byId.get(i);
+  eq("the client picked up the other shape", globalThis.UNI.U.kind, 1);
+
+  $("ta").value = weth.toLowerCase();
+  await $("ta").fire("change");
+  $("tb").value = usdc.toLowerCase();
+  await $("tb").fire("change");
+  await nap(300);
+  $("si").value = "2";
+  await $("si").fire("input");
+  await nap(900);
+
+  await $("go").fire("click");
+  await nap(200);
+  await $("go").fire("click");
+  await nap(200);
+  await $("go").fire("click");
+  await nap(400);
+
+  const seen = await c.read(uniRouter02, "last()");
+  ok("the swap reached SwapRouter02", decBool(seen, 0));
+  eq("tokenIn is still tokenIn with a field removed",
+     decAddr(seen, 1).toLowerCase(), weth.toLowerCase());
+  eq("and the recipient did not shift by a word",
+     decAddr(seen, 4).toLowerCase(), t2.from.toString().toLowerCase());
+  eq("and two WETH is two WETH", decUint(seen, 6), 2n * WAD);
+  console.log("      seven words instead of eight, and every field still " +
+              "landed where its name says");
+
+  /*  The negative control. If the mock accepted anything, every assertion
+      above would be theatre — so the wrong shape is sent deliberately and
+      must arrive wrong.                                                 */
+  const wrong = globalThis.UNI.S.swap02 +
+    encodeAddressArg(weth) + encodeAddressArg(usdc) + w(3000) +
+    encodeAddressArg(t2.from.toString()) +
+    w(Math.floor(Date.now() / 1000) + 600) +          // the extra deadline word
+    w(WAD) + w(0) + w(0);
+  let mangled = false;
+  try {
+    await t2.send({ to: uniRouter02, data: wrong, label: "wrong shape" });
+    const bad = await c.read(uniRouter02, "last()");
+    mangled = decUint(bad, 6) !== WAD;
+  } catch (e) { mangled = true; }
+  ok("sending the eight-word shape to the seven-word router does NOT arrive intact",
+     mangled,
+     "the mock accepted the wrong shape unchanged, so the checks above prove nothing");
+  console.log("      which is exactly why the kind is stored beside the address");
+}
+
+
+/*════════════ liquidity, ranges, and the order without a server ════════════
+
+  The failure this section exists to catch is the signed one. `tickLower`
+  and `tickUpper` are int24, and every pair priced below parity has a
+  negative current tick — so a real range is routinely two negative numbers.
+  A client that zero-pads instead of sign-extending turns -201240 into
+  16575976, mints in a range nobody chose, and nothing reverts, because that
+  is a perfectly legal tick.
+
+  So the mock records the ticks it decoded, as signed, and the assertions
+  read them back.
+*/
+head("driving the liquidity page");
+{
+  const page = await GET(["pools"]);
+  eq("/pools answers 200", page.status, 200);
+
+  /*  Both pools for this pair sit at tick -196256, which is where WETH/USDC
+      sits when a whole WETH is worth three thousand USDC. Negative, like
+      almost every real pair.                                             */
+  mount(page.body);
+  const lp = await c.as("0x" + "77".repeat(32));
+  await c.exec(weth, "mint(address,uint256)", [lp.from.toString(), 10n ** 21n]);
+  await c.exec(usdc, "mint(address,uint256)", [lp.from.toString(), 10n ** 12n]);
+  const W = wallet(lp);
+  runScripts(page.body);
+  await nap(30);
+  const $ = (i) => byId.get(i);
+
+  ok("the liquidity client loaded", !!globalThis.UNI);
+  ok("the page offers the fee tiers this chain has enabled",
+     /fee tier/.test(page.body));
+  ok("and says what withdrawing actually costs in transactions",
+     /two transactions/.test(page.body) && /decreaseLiquidity/.test(page.body));
+
+  $("la").value = weth.toLowerCase();
+  await $("la").fire("change");
+  $("lb").value = usdc.toLowerCase();
+  await $("lb").fire("change");
+  await nap(500);
+
+  /*──── a band around the current price ────*/
+  await $("lt").querySelectorAll("[data-fee]")
+    .find((b) => b.dataset.fee === "3000").fire("click");
+  await nap(400);
+  const spanBtn = globalThis.document.querySelectorAll("[data-span]")
+    .find((b) => b.dataset.span === "10");
+  await spanBtn.fire("click");
+  await nap(500);
+
+  const rng = $("rng").innerHTML;
+  /*  A price AND the ticks behind it, because the tick is what the pool
+      stores and the price is only what it means. A panel showing "0" would
+      mean the exact price came back as sub-unit and got rounded away, which
+      is the bug a price-only panel hides.                                */
+  ok("the range panel names a real price and the ticks behind it",
+     /ticks/.test(rng) && /\d+ \u2026 \d+|-\d+ \u2026/.test(rng.replace(/<[^>]+>/g, "")) &&
+     /[1-9]/.test((rng.match(/range<\/span><b>([^<]*)/) || ["", ""])[1]),
+     rng.slice(0, 240));
+  console.log(`      ${rng.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 130)}`);
+
+  $("a0").value = "1";
+  $("a1").value = "3000";
+  await $("add2").fire("click");         // connect + approve WETH
+  await nap(200);
+  await $("add2").fire("click");         // approve USDC
+  await nap(200);
+  await $("add2").fire("click");         // mint
+  await nap(400);
+
+  const m = await c.read(uniPositions, "last()");
+  ok("the mint reached the position manager", decBool(m, 0), "it never arrived");
+
+  /*  token0 < token1 is required and the client sorts. Which of WETH/USDC
+      is token0 depends on the addresses this run happened to produce, so
+      the assertion is the ordering rule and not a fixed answer.          */
+  const t0 = decAddr(m, 1).toLowerCase(), t1 = decAddr(m, 2).toLowerCase();
+  ok("the pair arrived sorted, which the position manager requires",
+     t0 < t1, `${t0} then ${t1}`);
+  ok("and it is the pair that was chosen",
+     [t0, t1].sort().join() ===
+     [weth.toLowerCase(), usdc.toLowerCase()].sort().join());
+  eq("the fee tier is the one that was pressed", decUint(m, 3), 3000n);
+
+  const sw = (i) => { const v = decUint(m, i); return v >= 1n << 255n ? v - (1n << 256n) : v; };
+  const lo = sw(4), hi = sw(5);
+  /*  The pool sits at ±196256 depending on which token sorted first, and a
+      ±10% band around it stays on the same side of zero. When that side is
+      the negative one — which is the ordinary case for a real pair — a
+      zero-padding client would have sent 16575976 instead, in range, on the
+      grid, and completely wrong.                                         */
+  if (WETH_FIRST) {
+    ok("the lower tick is NEGATIVE and arrived negative",
+       lo < 0n, `tickLower came through as ${lo} — a zero-padded -196256 is 16575976`);
+    ok("the upper tick too", hi < 0n, `tickUpper ${hi}`);
+  } else {
+    ok("the ticks arrived on the side of zero the pool is actually on",
+       lo > 0n && hi > 0n, `${lo} .. ${hi}`);
+    ok("and round-tripped through a signed encoder without wrapping",
+       lo < 887272n && hi < 887272n, `${lo} .. ${hi}`);
+  }
+  ok("and the range is the right way round", lo < hi, `${lo} .. ${hi}`);
+  ok("both bounds sit on the tier's grid, which is what the pool accepts",
+     lo % 60n === 0n && hi % 60n === 0n, `${lo}, ${hi} at spacing 60`);
+  console.log(`      minted at ticks ${lo} … ${hi}, both multiples of 60, both signed`);
+
+  eq("the recipient is the person who pressed the button",
+     decAddr(m, 10).toLowerCase(), lp.from.toString().toLowerCase());
+  ok("and the deadline is in the future",
+     decUint(m, 11) > BigInt(Math.floor(Date.now() / 1000)) - 60n);
+
+  /*──── the portfolio, with no indexer ────*/
+  const page2 = await GET(["pools"]);
+  mount(page2.body);
+  wallet(lp);
+  runScripts(page2.body);
+  await nap(600);
+  const rows = $("pos").innerHTML;
+  ok("the position just minted is listed, read straight off the manager",
+     /#1/.test(rows) && /collect fees/.test(rows), rows.slice(0, 200));
+
+  /*  Collecting everything is uint128 max, not uint256 max — the fields are
+      uint128 and the ABI decoder rejects a word with high bits set.      */
+  await $("pos").querySelectorAll("[data-take]")[0].fire("click");
+  await nap(300);
+  const col = await c.read(uniPositions, "lastCollect()");
+  eq("collect sweeps with the uint128 sentinel, not the uint256 one",
+     decUint(col, 2), (1n << 128n) - 1n);
+  console.log("      a uint256-max word in a uint128 field is rejected by the " +
+              "decoder, not truncated");
+
+  /*──── creating a pool ────*/
+  /*  A fresh page is a fresh client, and it has no pair chosen — the same
+      as a person arriving at the URL. Choosing it again here is not
+      housekeeping; forgetting to is how the first version of this test
+      "passed" a create-pool button that had never been given a pair.    */
+  $("la").value = weth.toLowerCase();
+  await $("la").fire("change");
+  $("lb").value = usdc.toLowerCase();
+  await $("lb").fire("change");
+  await nap(400);
+  $("p0").value = "3000";
+  await $("mkpool").fire("click");
+  await nap(400);
+  const mp = await c.read(uniPositions, "lastPool()");
+  ok("creating a pool reached the position manager", decBool(mp, 0));
+  ok("with the pair sorted", decAddr(mp, 1).toLowerCase() < decAddr(mp, 2).toLowerCase());
+  ok("and a starting price inside what a pool can represent",
+     decUint(mp, 4) > 4295128739n &&
+     decUint(mp, 4) < 1461446703485210103287273052203988822378723970342n,
+     `sqrtPriceX96 ${decUint(mp, 4)}`);
+}
+
+head("the order that needs no server");
+{
+  const page = await GET(["limit"]);
+  eq("/limit answers 200", page.status, 200);
+  ok("it refuses to call a range order a limit order without saying how it differs",
+     /fills gradually/i.test(page.body) && /un-fills/i.test(page.body) &&
+     /Nothing settles it/i.test(page.body));
+  ok("and says plainly why Uniswap's own limit orders are out of reach",
+     /hosted order book/.test(page.body) && /EIP-712/.test(page.body));
+  ok("it offers the same range controls the liquidity page does",
+     /id=pmin/.test(page.body) && /id=pmax/.test(page.body));
+}
+
+
+/*════════════ the three pages where the honest answer is the answer ════════════*/
+head("explore: a chart drawn by a contract");
+{
+  const idx = await GET(["explore"]);
+  eq("/explore answers 200", idx.status, 200);
+  ok("it does not claim volume or trending it cannot read",
+     /no volume counter|None of that is in chain state|subgraph/i.test(idx.body));
+  ok("and offers a box for any address", /id=xa/.test(idx.body));
+
+  /*  An ordinary token, priced against the chain's wrapped native — which
+      is the shape of every real visit to this page.                      */
+  const one = await GET(["explore", usdc.toLowerCase()]);
+  eq("/explore/<address> answers 200", one.status, 200);
+  ok("it names the token from the token itself", /USDC/.test(one.body));
+  ok("and prints the address beside the ticker",
+     one.body.toLowerCase().includes(usdc.toLowerCase()));
+  ok("it reports every fee tier, including the ones with no pool",
+     /no pool/.test(one.body) && /0\.3/.test(one.body), "tier table missing");
+
+  /*  A pool with no oracle buffer is the ordinary case, and the page has to
+      say so and offer the fix rather than rendering an empty chart.      */
+  ok("a pool with no history says so instead of drawing nothing",
+     /no history to draw/.test(one.body) && /increaseObservationCardinalityNext/.test(one.body));
+
+  /*  Now give the deepest pool a memory and ask again. The chart must
+      appear, and it must appear in the HTML — no script involved.       */
+  const deep = decAddr(await c.read(uniFactory, "getPool(address,address,uint24)",
+    [weth, usdc, 3000n]));
+  await c.exec(deep, "setHistory(uint32,uint16)", [200000n, 300n]);
+  const two = await GET(["explore", usdc.toLowerCase()]);
+  ok("once the pool has a buffer, a chart appears", /class=ch/.test(two.body),
+     "no chart element");
+  const bars = (two.body.match(/<i style="height:/g) || []).length;
+  eq("one bar per interval, drawn in Solidity", bars, 24);
+  ok("and it is in the markup rather than assembled by a script",
+     two.body.indexOf("class=ch") < two.body.indexOf("<script>"),
+     "the chart came after the scripts, which suggests it needs them");
+  ok("with the pool it was read from printed next to it",
+     two.body.toLowerCase().includes(deep.toLowerCase()));
+  console.log(`      ${bars} bars of time-weighted average tick, from the pool's own ` +
+              `ring buffer, with no indexer anywhere`);
+
+  /*  The awkward case: the subject IS the wrapped native, so it cannot be
+      priced against the default and the page has to go looking. The first
+      version searched four candidates out of the first eight markets and
+      reported "no pool at any tier" for the most liquid token on the chain.  */
+  const wrapped = await GET(["explore", weth.toLowerCase()]);
+  ok("the wrapped native token finds something to be priced against",
+     /class=ch/.test(wrapped.body) || /liquidity at tick/.test(wrapped.body));
+  ok("and it is a pair that actually has a pool",
+     !/no pool<\/td>[\s\S]*no pool<\/td>[\s\S]*no pool<\/td>[\s\S]*no pool/.test(wrapped.body),
+     "every tier came back empty, so the candidate search gave up too early");
+}
+
+head("earn: a vault is verified before it is offered");
+{
+  const idx = await GET(["earn"]);
+  eq("/earn answers 200", idx.status, 200);
+  ok("it says plainly that no vault list can exist here",
+     /not enumerable/.test(idx.body));
+  ok("and that APY is unreadable rather than merely omitted",
+     /rate over time/.test(idx.body));
+
+  /*  An address that is not a vault must not get a deposit form. WETH is a
+      real ERC-20 and answers nothing of ERC-4626.                        */
+  const notAVault = await GET(["earn", weth.toLowerCase()]);
+  eq("a non-vault address answers 200", notAVault.status, 200);
+  ok("but gets no deposit button", !/id=vdep/.test(notAVault.body),
+     "a deposit form was rendered for an address that is not a vault");
+  ok("and is told why", /does not answer/.test(notAVault.body));
+
+  const vault = await c.deploy(A("test/mocks/UniV3.sol", "MockVault").bytecode,
+    encodeAddressArg(usdc), "MockVault");
+  const real = await GET(["earn", vault.toLowerCase()]);
+  ok("a real ERC-4626 vault does get one", /id=vdep/.test(real.body));
+  ok("named with the asset the vault itself declares",
+     real.body.includes("USDC") && real.body.toLowerCase().includes(usdc.toLowerCase()));
+  ok("and one share priced in that asset", /one share/.test(real.body));
+  ok("with no yield figure anywhere", !/APY|% per year|annual/i.test(
+     real.body.replace(/APY cannot be read[\s\S]*?<\/p>/g, "")));
+}
+
+head("vote: the numbers, and where the words are not");
+{
+  const g = await c.deploy(A("test/mocks/UniV3.sol", "MockGovernor").bytecode, "", "Governor");
+  const gTok = await c.deploy(A("test/mocks/UniV3.sol", "MockVotes").bytecode, "", "UNI");
+  const venueG = await c.deploy(A("src/Venue.sol", "Venue").bytecode,
+    encodeAddressArg(uniFactory) + encodeAddressArg(uniQuoter) +
+    encodeAddressArg(uniRouterV3) + w(0) + encodeAddressArg(uniPositions) +
+    encodeAddressArg(weth) + encodeAddressArg(g) + encodeAddressArg(gTok), "VenueGov");
+  const deskUG = await c.deploy(A("src/DeskUni.sol", "DeskUni").bytecode,
+    encodeAddressArg(venueG) + encodeAddressArg(pool), "DeskUniGov");
+  const pCivicG = await c.deploy(A("src/PageCivic.sol", "PageCivic").bytecode,
+    encodeAddressArg(site.chrome) + encodeAddressArg(pool) + encodeAddressArg(site.desk) +
+    encodeAddressArg(deskUG) + encodeAddressArg(site.deskC) + encodeAddressArg(venueG),
+    "PageCivicGov");
+
+  const body = decString(await c.read(pCivicG, "vote()"));
+  ok("the proposal count came from the governor", /proposals<\/dt><dd>3</.test(body),
+     body.slice(body.indexOf("proposals"), body.indexOf("proposals") + 80));
+  ok("each proposal's state is read, not guessed",
+     /active/.test(body) && /defeated/.test(body), "states missing");
+  ok("the vote counts are there", /1,000/.test(body) || /1,000,000/.test(body));
+  ok("it explains that a proposal's text is structurally unreachable",
+     /no opcode to read past logs/.test(body));
+  ok("and warns that voting power is snapshotted at the start block",
+     /snapshotted at each/.test(body) && /counts zero|counted as nothing|never delegated/i.test(body));
+  ok("castVoteWithReason is not offered rather than being offered broken",
+     !/id=reason/.test(body) && /variant that carries a reason/.test(body));
+
+  mount(body);
+  const voter = await c.as("0x" + "88".repeat(32));
+  const W = wallet(voter);
+  runScripts(body);
+  await nap(200);
+  const $ = (i) => byId.get(i);
+
+  /*  No delegation yet, so the vote must be refused before it is sent —
+      not accepted and counted as nothing, which is what the governor
+      itself would do.                                                   */
+  $("pid").value = "3";
+  await globalThis.document.querySelectorAll("[data-support]")
+    .find((b) => b.dataset.support === "1").fire("click");
+  const before = W.sent();
+  await $("cast").fire("click");
+  await nap(200);
+  eq("a vote with no delegated power is refused before it is sent", W.sent(), before);
+
+  await $("gdel").fire("click");
+  await nap(200);
+  ok("delegating to yourself is one transaction", W.sent() > before);
+  eq("and it delegated to the person who pressed it",
+     decAddr(await c.read(gTok, "delegates(address)", [voter.from.toString()])).toLowerCase(),
+     voter.from.toString().toLowerCase());
+
+  await $("cast").fire("click");
+  await nap(300);
+  const cast = await c.read(g, "lastVote()");
+  ok("now the vote reaches the governor", decBool(cast, 0));
+  eq("with the proposal id it was given", decUint(cast, 1), 3n);
+  eq("and the support value that was chosen", decUint(cast, 2), 1n);
+  eq("from the voter, not from any contract here",
+     decAddr(cast, 3).toLowerCase(), voter.from.toString().toLowerCase());
 }
 
 head("driving the holder's side");

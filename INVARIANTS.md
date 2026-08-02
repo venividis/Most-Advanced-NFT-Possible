@@ -400,6 +400,102 @@ seven days as anything else.
 
 ---
 
+## The rest of the chain
+
+Everything under `/swap`, `/pools`, `/limit`, `/explore`, `/earn` and `/vote`
+sends the visitor's wallet straight to a Uniswap or ERC-4626 contract. Nothing
+in this collection is on that path, and nothing in it could be: `Venue` has no
+function that moves anything, and every page contract has zero state-changing
+functions. So these invariants are about what the pages *say* and what the
+client *sends*, which is where being wrong would cost somebody money.
+
+**79. A router's calldata shape travels with its address.**
+`Venue` stores `ROUTER_KIND` beside `ROUTER`, refuses a kind it does not
+understand at deployment, and the client derives the selector from that kind's
+own signature string. The two Uniswap routers' `exactInputSingle` structs differ
+by one field and the wrong one does not revert — it shifts `recipient` and every
+amount by a word.
+→ `test/Venue.t.sol::test_aRouterKindNobodyCheckedIsRefused`, `test_bothRealRouterKindsAreAccepted`
+→ `tools/verify-site.mjs` · *"driving the Uniswap card"*, *"the same page wired to the other router"* — every field asserted by name against a mock that records what it decoded, both shapes, plus the wrong shape sent deliberately
+
+**80. Every tick the client sends is sign-extended.**
+Ticks are `int24` and negative for any pair priced below parity. A zero-padded
+`-201240` is `16575976`: in range, on the grid, and a position minted somewhere
+nobody chose, with no revert.
+→ `tools/verify-site.mjs` · *"driving the liquidity page"* — the mock records ticks as signed and the assertion reads them back
+→ `tools/forge.mjs::selfCheck` refuses to report on the suite at all if the fuzzer stops generating negative `int24` values
+
+**81. No page ever interpolates an unescaped ticker.**
+A symbol is a string chosen by whoever deployed the token. On-chain JSON escaping
+stops it ending the config block; it does not survive `JSON.parse`, which returns
+the raw characters. Every ticker in the config passes through one whitelist,
+once, in the shared client — the same one applied to symbols the client reads
+itself.
+→ `tools/verify-site.mjs` · *"a pasted token's ticker is stripped to something inert"*, *"and the market card's own config is scrubbed the same way"*
+
+**82. An amount of zero is never sent to a router.**
+`Constants.CONTRACT_BALANCE == 0`, so on SwapRouter02 a zero `amountIn` means
+"swap this router's entire balance", not "swap nothing".
+→ `tools/verify-site.mjs` · *"an amount of zero cannot be sent"*, *"and pressing anyway sends nothing"*
+
+**83. A fee tier is never offered unless the factory says it exists.**
+The v3 factory's constructor enables 500, 3000 and 10000. The 0.01% tier exists
+only where an owner later called `enableFeeAmount`, so it is read per chain
+rather than assumed.
+→ `test/Venue.t.sol::test_theHundredthTierIsNotAssumedToExist`, `test_aTierEnabledLaterIsSeen`
+
+**84. An address is never described as a Uniswap pool on its own say-so.**
+`Venue.state` asks the pool which factory it belongs to and refuses it if the
+answer is not the factory the page prints at the bottom.
+→ `test/Venue.t.sol::test_anImpostorPoolIsNotDescribedAsAPool`, with `test_aRealPoolIsDescribedAsOne` as the control
+
+**85. A misbehaving external address cannot switch a page off.**
+Every read into Uniswap is a raw `staticcall` with a gas stipend and a length
+check. A factory that reverts, returns a codeless address, or burns every drop of
+gas it is handed produces "no venue" and a page that still renders.
+→ `test/Venue.t.sol::test_aFactoryThatRevertsDoesNotTakeThePageWithIt`, `test_aFactoryPointingAtNothingIsNotFollowed`, `test_aFactoryThatBurnsEveryDropOfGasStillLeavesEnoughToRender`, `test_aPoolThatAnswersHalfTheReadsPricesNothing`
+
+**86. A pool with no oracle history says so rather than reverting or drawing
+nothing.**
+Every v3 pool is created with room for one observation and `observe` reverts
+`OLD` past what it holds — the common case, not a malfunction. The page offers
+`increaseObservationCardinalityNext` instead.
+→ `test/Venue.t.sol::test_aFreshPoolHasNoHistoryAndSaysSoRatherThanReverting`, `test_aPoolWithMemoryDrawsAChart`
+→ `tools/verify-site.mjs` · *"a pool with no history says so instead of drawing nothing"*, *"once the pool has a buffer, a chart appears"*
+
+**87. A time-weighted mean tick always rounds toward negative infinity.**
+Integer division truncates toward zero, so a negative mean rounds *up* and every
+point on a chart below parity sits one tick too high.
+→ `test/Venue.t.sol::test_aNegativeMeanRoundsTowardNegativeInfinity`
+
+**88. The chart is in the markup, not assembled by a script.**
+A row of divs with percentage heights, computed in Solidity from the pool's own
+ring buffer. It renders with JavaScript switched off.
+→ `tools/verify-site.mjs` · *"one bar per interval, drawn in Solidity"*, *"and it is in the markup rather than assembled by a script"*
+
+**89. No deposit form is rendered for an address that has not answered as a
+vault.**
+`/earn` calls `asset()` first and refuses the form outright when it does not
+answer — a stronger check than appearing on a hosted list.
+→ `tools/verify-site.mjs` · *"but gets no deposit button"*, with *"a real ERC-4626 vault does get one"* as the control
+
+**90. No yield figure is ever printed.**
+APY is a rate over time; one `eth_call` sees one moment. A number the page cannot
+check is a number it does not show.
+→ `tools/verify-site.mjs` · *"with no yield figure anywhere"*
+
+**91. A vote is refused before it is sent when the voter has no delegated power.**
+The governor would accept it and count it as nothing.
+→ `tools/verify-site.mjs` · *"a vote with no delegated power is refused before it is sent"*, then *"now the vote reaches the governor"* once delegated
+
+**92. `proposals()` is decoded as the ten static words the auto-generated getter
+returns.**
+The struct also holds four dynamic arrays and a receipts mapping, and the getter
+omits all of them. Reading word 5 as `forVotes` is only correct because of that.
+→ `tools/verify-site.mjs` · *"the vote counts are there"*, against a mock that returns exactly the getter's shape
+
+---
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

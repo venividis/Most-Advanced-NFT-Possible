@@ -13,7 +13,25 @@ interface IPageToken {
 interface IPageMarket {
     function market(uint256 id) external view returns (string memory);
     function open(uint256 page) external view returns (string memory);
+}
+
+interface IPageSwap {
+    function swap() external view returns (string memory);
     function assets(uint256 page) external view returns (string memory);
+}
+
+interface IPagePools {
+    function pools() external view returns (string memory);
+    function limit() external view returns (string memory);
+}
+
+interface IPageExplore {
+    function explore(address token) external view returns (string memory);
+}
+
+interface IPageCivic {
+    function earn(address vault) external view returns (string memory);
+    function vote() external view returns (string memory);
 }
 
 interface IPagePool {
@@ -70,6 +88,12 @@ interface IPageManifest {
   ERC-4804 / ERC-6860 client reaches it over `web3://` with no DNS:
 
       /                          the collection, and what it offers
+      /swap                      any pair of ERC-20s, on Uniswap v3
+      /pools                     liquidity, at a range you choose
+      /limit                     a range order: an order without a server
+      /explore  /explore/<token>  what a token trades at, and its own chart
+      /earn  /earn/<vault>        an ERC-4626 vault, verified before it is used
+      /vote                       Uniswap governance, from the governor itself
       /open  /open/<n>           every market that exists, from the pool's own list
       /assets  /assets/<n>        every asset any of those markets trades
       /services.json  /services.json/<n>    the same, for a program
@@ -100,6 +124,10 @@ contract Premises {
     IPagePool     public immutable P_POOL;
     IPageServices public immutable P_SERVICES;
     IPageManifest public immutable P_MANIFEST;
+    IPageSwap     public immutable P_SWAP;
+    IPagePools    public immutable P_POOLS;
+    IPageCivic    public immutable P_CIVIC;
+    IPageExplore  public immutable P_EXPLORE;
 
     struct KeyValue { string key; string value; }
 
@@ -119,7 +147,11 @@ contract Premises {
         IPageMarket pMarket,
         IPagePool pPool,
         IPageServices pServices,
-        IPageManifest pManifest
+        IPageManifest pManifest,
+        IPageSwap pSwap,
+        IPagePools pPools,
+        IPageCivic pCivic,
+        IPageExplore pExplore
     ) {
         HUB = hub;
         CHROME = chrome;
@@ -128,6 +160,10 @@ contract Premises {
         P_POOL = pPool;
         P_SERVICES = pServices;
         P_MANIFEST = pManifest;
+        P_SWAP = pSwap;
+        P_POOLS = pPools;
+        P_CIVIC = pCivic;
+        P_EXPLORE = pExplore;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -194,7 +230,43 @@ contract Premises {
                 if (!ok) return _notFound();
                 page = v;
             }
-            return (200, P_MARKET.assets(page), _headers(HTML));
+            return (200, P_SWAP.assets(page), _headers(HTML));
+        }
+
+        /*───── the rest of the chain ─────*/
+
+        if (_eq(resource[0], "swap")) {
+            if (n != 1) return _notFound();
+            return (200, P_SWAP.swap(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "pools")) {
+            if (n != 1) return _notFound();
+            return (200, P_POOLS.pools(), _headers(HTML));
+        }
+
+        /*  Three routes that take an optional contract address. With none
+            they are an index; with one they are a page about that address,
+            rendered here rather than fetched by a script — which is why
+            `/explore/<token>` works in a client with JavaScript switched
+            off entirely.                                                 */
+        if (_eq(resource[0], "explore") || _eq(resource[0], "earn")
+            || _eq(resource[0], "vote")) {
+            if (n > 2) return _notFound();
+            address subject;
+            if (n == 2) {
+                (bool okA, address v) = _toAddr(resource[1]);
+                if (!okA) return _notFound();
+                subject = v;
+            }
+            if (_eq(resource[0], "explore")) return (200, P_EXPLORE.explore(subject), _headers(HTML));
+            if (_eq(resource[0], "earn"))    return (200, P_CIVIC.earn(subject),    _headers(HTML));
+            return (200, P_CIVIC.vote(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "limit")) {
+            if (n != 1) return _notFound();
+            return (200, P_POOLS.limit(), _headers(HTML));
         }
 
         if (_eq(resource[0], "services.json")) {
@@ -342,6 +414,39 @@ contract Premises {
 
     function _eq(string memory a, string memory b) private pure returns (bool) {
         return keccak256(bytes(a)) == keccak256(bytes(b));
+    }
+
+    /*  A path segment that names a contract.
+
+        `/explore/0xC02aaA39...` renders a whole token page — its pools, its
+        depth at each fee tier, and a price chart out of the pool's own
+        oracle — with no JavaScript involved at all. That is only possible
+        if an address can be a resource, so it is parsed here with the same
+        strictness the numeric parser has: exactly forty hex digits after
+        `0x`, one canonical spelling, and anything else is a 404 rather than
+        a revert.
+
+        Mixed case is accepted and lowercased rather than being checked
+        against EIP-55. A checksum would catch a mistyped address, which is
+        worth something — but this parser is reached by a link the page
+        itself wrote, and refusing a lowercase address that a person pasted
+        from a block explorer would be refusing the common case to guard the
+        rare one. The page prints back the address it read, which is the
+        check that actually helps.                                        */
+    function _toAddr(string memory s) private pure returns (bool ok, address a) {
+        bytes memory b = bytes(s);
+        if (b.length != 42 || b[0] != "0" || (b[1] != "x" && b[1] != "X")) return (false, address(0));
+        uint256 v;
+        for (uint256 i = 2; i < 42; ++i) {
+            uint8 ch = uint8(b[i]);
+            uint256 d;
+            if (ch >= 0x30 && ch <= 0x39) d = ch - 0x30;
+            else if (ch >= 0x61 && ch <= 0x66) d = ch - 0x61 + 10;
+            else if (ch >= 0x41 && ch <= 0x46) d = ch - 0x41 + 10;
+            else return (false, address(0));
+            v = v * 16 + d;
+        }
+        return (true, address(uint160(v)));
     }
 
     /// @dev A path segment is text. Anything that is not a plain decimal

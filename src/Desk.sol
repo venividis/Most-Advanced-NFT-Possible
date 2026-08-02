@@ -212,8 +212,56 @@ contract Desk {
         "if(h.length>64)throw new Error('value does not fit in a word');"
         "return h.padStart(64,'0')};"
         "const W=v=>pad(BigInt(v).toString(16));"
+        // a signed word. Ticks are negative for every pair priced below
+        // parity, which is most of them, and -200 padded with zeroes is
+        // 200 rather than -200: the position gets minted in a range nobody
+        // chose and nothing reverts. Two's complement, or nothing.
+        "const S=v=>{v=BigInt(v);if(v<0n)v=(1n<<256n)+v;"
+        "if(v<0n||v>=(1n<<256n))throw new Error('value does not fit in a word');"
+        "return pad(v.toString(16))};"
+        // and back again, for a word that came off the wire
+        "const SW=w=>{w=BigInt(w);return w>=(1n<<255n)?w-(1n<<256n):w};"
         "const AD=a=>{a=String(a||'').trim();"
         "if(!/^0x[0-9a-fA-F]{40}$/.test(a))throw new Error('not an address: '+a);return pad(a)};"
+        /*  A ticker, from a token nobody vetted, safe to put in a page.
+
+            The pages this collection renders escape every symbol on chain,
+            but a symbol the CLIENT reads is a symbol the client escapes,
+            and this page runs on the same origin as `/token/<id>/live` —
+            where a wallet is injected. So: a whitelist, the same argument
+            `Web.esc` makes, made again on the side that does its own
+            reading. Anything that is not a plain ticker becomes the
+            address instead, which is the more useful answer anyway.     */
+        "const TK=(s,a)=>{s=String(s||'').replace(/[^A-Za-z0-9 ._+-]/g,'').trim().slice(0,16);"
+        "return s||(String(a||'').slice(0,6)+'\\u2026'+String(a||'').slice(-4))};"
+        /*  And the same whitelist over every ticker the page arrived with.
+
+            The config block is written with the JSON escaper, so a symbol of
+            `</script>` cannot end the block — but JSON escaping is not HTML
+            escaping, and `\\u003cscript\\u003e` comes back out of JSON.parse
+            as a literal `<script>`. Any page that then interpolates it into
+            `innerHTML` — which the quote panel does, on every card here —
+            has put a string the token's deployer chose into the DOM of a
+            page a wallet is injected into.
+
+            Escaping at the point of use would mean getting it right at every
+            point of use forever. This is the one place every symbol passes
+            through, so it happens here, once, to symbols the contract wrote
+            and symbols the client read alike.                             */
+        "(function scrub(o,d){if(!o||typeof o!=='object'||d>6)return;"
+        "for(const k in o){const v=o[k];"
+        "if(k==='s'&&typeof v==='string')o[k]=TK(v,o.a);else scrub(v,d+1)}})(D,0);"
+        // an ERC-20 string return, decoded without an ABI coder: word 0 is
+        // the offset, the word there is the length, the bytes follow. The
+        // bytes32 generation answered in one word and no header at all.
+        "const STR=r=>{const h=String(r).replace(/^0x/,'');"
+        "if(h.length<=64){let s='';for(let i=0;i<32;i++){"
+        "const c=parseInt(h.substr(i*2,2),16)||0;if(c)s+=String.fromCharCode(c)}return s}"
+        "const off=Number(BigInt('0x'+h.slice(0,64)))*2;"
+        "if(off+64>h.length)return '';"
+        "const n=Number(BigInt('0x'+h.substr(off,64)));if(n>128)return '';"
+        "let s='';for(let i=0;i<n;i++)s+=String.fromCharCode(parseInt(h.substr(off+64+i*2,2),16)||0);"
+        "return s};"
         // decimal text <-> base units, entirely in BigInt
         "const parse=(s,d)=>{s=String(s==null?'':s).trim().replace(/,/g,'');"
         "if(!s)return 0n;if(!/^\\d*\\.?\\d*$/.test(s))throw new Error('not a number: '+s);"
@@ -224,9 +272,18 @@ contract Desk {
         "const u=10n**BigInt(d);let w=(v/u).toString();"
         "let f=(v%u).toString().padStart(d,'0').slice(0,p).replace(/0+$/,'');"
         "w=w.replace(/\\B(?=(\\d{3})+(?!\\d))/g,',');return w+(f?'.'+f:'')};"
-        "const call=async(to,data)=>{const p=pv();if(!p)throw new Error('no wallet found');"
-        "const r=await p.request({method:'eth_call',params:[{to:to,data:data},'latest']});"
+        // `gas` is optional and matters in exactly one place: QuoterV2 works
+        // by making a pool swap and catching the revert, which is not cheap,
+        // and a node that defaults an eth_call to a small budget answers
+        // "out of gas" to a question that had an answer.
+        "const call=async(to,data,gas)=>{const p=pv();if(!p)throw new Error('no wallet found');"
+        "const o={to:to,data:data};if(gas)o.gas='0x'+BigInt(gas).toString(16);"
+        "const r=await p.request({method:'eth_call',params:[o,'latest']});"
         "if(!r||r.length<66)throw new Error('the call returned nothing');return r};"
+        // the same, but a failure is an answer rather than an exception —
+        // most of what these pages ask is "is there a pool", and there
+        // usually is not
+        "const tryCall=async(to,data,gas)=>{try{return await call(to,data,gas)}catch(e){return null}};"
         "const word=(r,i)=>BigInt('0x'+String(r).slice(2+i*64,66+i*64));"
         "const connect=async()=>{const p=pv();if(!p)throw new Error('no wallet found');"
         "const a=await p.request({method:'eth_requestAccounts'});A=a[0];"
@@ -260,8 +317,9 @@ contract Desk {
         "(el.dataset.valfrom?parse(($(el.dataset.valfrom)||{}).value,18):el.dataset.value):null;"
         "await send(el.dataset.to,d,v)}"
         "catch(e){say(String(e&&e.message||e),'no')}}));"
-        "return{D:D,pv:pv,nm:nm,$:$,say:say,W:W,AD:AD,pad:pad,parse:parse,fmt:fmt,"
-        "call:call,word:word,connect:connect,send:send,chainOk:chainOk,acct:()=>A}"
+        "return{D:D,pv:pv,nm:nm,$:$,say:say,W:W,S:S,SW:SW,AD:AD,pad:pad,parse:parse,fmt:fmt,"
+        "TK:TK,STR:STR,call:call,tryCall:tryCall,word:word,connect:connect,send:send,"
+        "chainOk:chainOk,acct:()=>A}"
         "})();";
 
     /*═══════════════════ the swap card ═══════════════════*/

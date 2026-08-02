@@ -127,6 +127,18 @@ contract Chrome {
         "text-decoration:none;color:#8b95ad;padding:.35rem .8rem;border-radius:2rem;"
         "border:1px solid transparent}"
         ".tabs a.on{border-color:#24304a;background:#131a27;color:#cfe3ff}"
+        /*  the fee-tier row on the Uniswap card: which pools exist for this
+            pair, and which one the quote came through                     */
+        ".tr{margin:.15rem .3rem 0 0;padding:.25rem .6rem;font-size:.76rem;"
+        "border-radius:2rem;background:#0e131d;border-color:#1e2636;color:#8b95ad}"
+        ".tr.on{background:#1d3a6b;border-color:#2c518f;color:#e6f0ff}"
+        /*  the chart: bars drawn from the pool's own oracle, no canvas and
+            no library — a div per observation, height as a percentage      */
+        ".ch{display:flex;align-items:flex-end;gap:2px;height:9rem;margin:1rem 0;"
+        "border-bottom:1px solid #1a2030;padding-bottom:2px}"
+        ".ch i{flex:1;background:#1d3a6b;border-top:1px solid #4a7fd4;min-height:1px;"
+        "border-radius:1px 1px 0 0}"
+        ".ch i:hover{background:#2c518f}"
         ".two{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}"
         "@media(max-width:30rem){.two{grid-template-columns:1fr}}";
 
@@ -162,10 +174,21 @@ contract Chrome {
         );
     }
 
+    /// @dev Two groups, in one bar. The Uniswap surfaces first, because a
+    ///      stranger arriving at this site wants to trade something before
+    ///      they want to read about the collection; the collection's own
+    ///      markets after, because that is the thing that is not available
+    ///      anywhere else.
     function navTop(uint8 here) external pure returns (string memory) {
         return string.concat(
             "<nav>",
             _tab("/", "index", here == 0),
+            _tab("/swap", "swap", here == 9),
+            _tab("/explore", "explore", here == 11),
+            _tab("/pools", "pools", here == 10),
+            _tab("/limit", "limit", here == 14),
+            _tab("/earn", "earn", here == 12),
+            _tab("/vote", "vote", here == 13),
             _tab("/open", "markets", here == 7),
             _tab("/assets", "assets", here == 8),
             _tab("/services.json", "json", here == 6),

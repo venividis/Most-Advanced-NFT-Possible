@@ -246,6 +246,125 @@ and ends a lease properly. The holder's controls render for everyone and are
 refused by the contract for everyone else — hiding them would mean the page never
 told you the instrument has an owner who decides these things.
 
+### The rest of the chain: nine things a modern exchange offers
+
+The collection's own markets are the point — every token *is* an exchange, and
+its holder takes the fee. But a person who arrives at one of these sites wants
+to trade things that are not in the collection, and Uniswap v3 is where that
+liquidity is. So the site has a second half, and building it meant answering a
+question feature by feature: **what is actually on chain here, and what is a web
+server?**
+
+Uniswap's interface is a React application behind a domain name behind a
+registrar. The contracts underneath it are none of those things. What the hosted
+app adds is a token list, a routing engine, a subgraph and an order book — real
+work, all of it off chain. The honest form of "use Uniswap's infrastructure with
+our own GUI" is not to reimplement those badly. It is to serve the parts that
+are genuinely on chain, from contract code with no server anywhere, and to say
+plainly which parts are not.
+
+| | | |
+|---|---|---|
+| **Swap tokens** | **built** — `/swap` | Quotes every fee tier that has a pool, one `eth_call` to QuoterV2 each, and takes the best. Single hop; a multi-hop path is a packed `bytes` argument and this client has no ABI coder, so it says where it looked rather than implying it searched. |
+| **Provide liquidity** | **built** — `/pools` | `NonfungiblePositionManager.mint`, eleven flat words. Your positions are enumerated straight off the manager — `balanceOf`, then `tokenOfOwnerByIndex`, then `positions` — with no indexer. |
+| **Concentrated liquidity** | **built** — `/pools` | The same transaction with the bounds pulled in. Full range, a band around spot, or two prices you type. |
+| **Create markets** | **built** — `/pools` | `createAndInitializePoolIfNecessary`, four words, permissionless. The pair is sorted before it is sent, because the position manager does not sort for you and an unsorted pair derives an address with no pool at it. |
+| **Limit orders** | **substituted** — `/limit` | Uniswap's are an EIP-712 signature POSTed to a hosted order book; there is no contract to call and no registry to read. What *is* on chain is the **range order**: a one-sided position that the AMM converts as the price crosses it. See below. |
+| **Token discovery** | **partly** — `/explore` | No volume, no TVL, no trending, no launches — none of that is in chain state and none of it is invented here. What is here is a real price chart out of the pool's own oracle. See below. |
+| **Earn yield** | **built, without the list** — `/earn` | Which vaults exist is not enumerable and APY is a rate over time, so neither is faked. Bring an ERC-4626 address and the page verifies it against itself before it will show you a deposit button. |
+| **Vote on governance** | **built** — `/vote` | Proposal counts, states, vote tallies and quorum read straight from Governor Bravo; `castVote` is two flat words. The proposal *text* is unreachable — see below. |
+| **Cross-chain swaps** | **not built** | The hosted piece sequences steps across two chains, waiting for finality on one before releasing the other. There is no Uniswap bridge contract to call, and a browser client speaks to one wallet on one chain. Attempting it would be pretending. |
+
+Eight of nine are reachable; the ninth is not, and the two marked *substituted*
+and *partly* are worth their own paragraphs because in both cases what remains
+after the server is removed is arguably better than what it replaced.
+
+**A range order is not a limit order, and the page says so four times.** Put
+liquidity in a narrow band entirely on one side of the current price and the
+pool will only accept one of the two tokens — at that price it does not need the
+other. As the price crosses your band the pool converts what you deposited. That
+is a sale at a price you chose, settled by the AMM, with no counterparty, no
+relayer, no signature and nobody's permission. It also **fills gradually** across
+the band rather than at one price, **un-fills** if the price comes back through,
+**earns fees** the whole time it is working, and **never settles itself** — the
+proceeds sit in the position until you return, in two transactions. Those four
+differences are on the page, because they are the sort a person otherwise finds
+out about afterwards.
+
+**The chart has no indexer behind it and cannot be forged.** Every v3 pool has
+been accumulating a cumulative tick since the day it was created. The difference
+between two of those readings divided by the seconds between them is the
+time-weighted average price over that interval, computed by the pool. So
+`/explore/<address>` draws a real price history read from the same contract that
+would execute your trade — and the page contract renders it as HTML, a row of
+divs with percentage heights, so **the chart is there with JavaScript switched
+off entirely**. The catch is on the page: a pool is created with room for exactly
+*one* observation, so most pools have no history. Anyone may pay to lengthen the
+buffer, permanently, for everyone, and the page offers that button rather than
+treating "no memory" as an excuse.
+
+**A proposal's text is structurally unreachable, and that is not a shortcut.**
+`propose()` takes a human-readable description and does exactly one thing with
+it: emits it in an event. The stored proposal has no description field. Reading
+an event needs `eth_getLogs`, and the EVM gives contracts *no opcode to read past
+logs at all* — so no Solidity anywhere can put those words on the page. It shows
+the numbers, which are the part that is not somebody's summary, and says where
+the words are. It also warns, before you can vote, that **voting power is
+snapshotted at each proposal's start block**: delegating today does nothing for a
+proposal that opened yesterday, the vote is accepted, it counts zero, and nothing
+tells you.
+
+### The thing most likely to have lost somebody money
+
+Two Uniswap routers have an `exactInputSingle`, and their params structs differ
+by exactly one field:
+
+| router | struct | selector |
+|---|---|---|
+| v3-periphery `SwapRouter` | 8 fields, **`deadline` at index 4** | `0x414bf389` |
+| `SwapRouter02` | 7 fields, **no deadline anywhere** | `0x04e45aaf` |
+
+Send one shape to the other router and it does not revert. It shifts `recipient`
+and every amount by one word and executes something nobody asked for. So the
+router's *kind* is an immutable stored beside its address in `Venue`, the
+constructor refuses a kind it does not understand, the selector is derived from
+that kind's own signature string, and the page prints both. Neither router is
+"the safe one" — SwapRouter02 is what Uniswap's interface uses, and the older one
+is the only one whose deadline a client with no ABI coder can reach, because
+SwapRouter02's lives behind `multicall(uint256,bytes[])`. Base has no
+v3-periphery SwapRouter at all. It is a deployment choice, and the page says
+which was made and what was given up.
+
+The test for this does not merely perform a trade. The mock routers **decode the
+struct and record every field**, and the suite asserts field by field that the
+word the client wrote into `amountIn` arrived as `amountIn` — then does the whole
+thing again against a second deployment wired to the other router, and finally
+sends the wrong shape deliberately to prove the mock would have noticed.
+
+Three more traps, each of which produces a wrong answer rather than a failure:
+
+- **QuoterV2's NatSpec lists its struct fields in a different order from the
+  declaration.** The declaration is what the ABI encodes. Hashing the comment's
+  order gives a selector for a function that does not exist; getting the selector
+  right but the words in the comment's order gives a silent quote at
+  `fee = 1000000000`.
+- **Ticks are signed.** Every pair priced below parity has a negative current
+  tick, and a tick word padded with zeroes instead of sign-extended turns
+  `-201240` into `16575976` — in range, on the grid, and completely wrong. The
+  position mints somewhere nobody chose and nothing reverts.
+- **`amountIn == 0` is not an empty trade on SwapRouter02.** `CONTRACT_BALANCE`
+  is zero, so it means "swap this router's entire balance". It is refused in the
+  client and in the mock.
+
+Finding the third of those changed the test harness, not just the code. The
+runner's fuzzer drew `int24` as a 24-bit *unsigned* value — so every draw above
+8,388,607 was not a valid `int24` and solc's decoder rejected it with an empty
+revert, reported as a failing test with no message, while the entire negative
+half of the domain was never generated once. Every tick fuzzer was exercising the
+easy half and reporting full coverage. The generator now draws signed types
+signed, and the runner's self-check refuses to report on the suite at all if the
+fuzzer stops producing negative values.
+
 ### The token dropdown, and what it can honestly contain
 
 Uniswap's dropdown is two things: a **token list** — a JSON file fetched from
@@ -266,6 +385,28 @@ contract that would execute the trade.
 market here actually holds, with the markets that trade it. Nothing appears that
 cannot be traded, nothing is curated by anybody, and there is no file on a server
 whose disappearance empties the dropdown.
+
+On `/swap` the same derivation seeds the dropdown, and beside it is a box for any
+address at all — which is the honest answer to "will it show every token Uniswap
+shows?" **No, and nothing that runs without a server can.** What it does instead
+is drop the middleman rather than reproduce it. Paste an address and the page
+asks the token what it is, asks the factory which of the four fee tiers has a
+pool for it, and asks each of those pools how deep it is at the current tick.
+So: *anything Uniswap can trade, this page can trade*, because it checks the pool
+rather than checking a list. A token list tells you a ticker. This tells you
+whether the trade fills.
+
+That check also has to be done carefully, and one of its failures was found by
+the test suite rather than by reasoning. A symbol read off an unvetted token is
+a string the token's deployer chose. The config block is written with the JSON
+escaper, so a symbol of `</script>` cannot end the block — but JSON escaping is
+not HTML escaping, and `\u003cscript\u003e` comes back out of `JSON.parse` as a
+literal `<script>`. Any page that then interpolates it into `innerHTML`, which
+the quote panel does on every card here, has put attacker-chosen text into the
+DOM of a page a wallet is injected into. Escaping at each point of use would mean
+getting it right at every point of use forever; instead every ticker in the
+config passes through one whitelist, once, in the shared client — the same one
+applied to symbols the client reads for itself.
 
 Building it exposed a real defect in the directory that shipped before it.
 `/open` walked *token ids* — so a collection with markets on tokens 3000, 3500
@@ -941,10 +1082,23 @@ src/
   Renderer.sol          tokenURI, the three faces, the JSON
   Sigil.sol             the 4D projector, in Solidity
   Pool.sol              every token as its own exchange
+  Lease.sol             renting a token by the day, priced by its holder
   Premises.sol          the front door: ERC-5219, holds none of the artwork
+  Chrome.sol            the shell every page shares
+  Desk.sol              the application for the collection's own markets
+  PageToken.sol         PageMarket.sol  PagePool.sol  PageServices.sol
+  PageManifest.sol      the same, for programs
+  Venue.sol             the one contract that knows Uniswap exists — reads only
+  DeskUni.sol           its data: addresses, derived assets, every selector
+  DeskTrade.sol         the swap and liquidity clients
+  DeskCivic.sol         the vault and governance clients
+  PageSwap.sol          /swap and /assets
+  PagePools.sol         /pools and /limit — liquidity, ranges, range orders
+  PageExplore.sol       /explore — a price chart drawn by a contract
+  PageCivic.sol         /earn and /vote
   IpseityAccount.sol    the Reach — the ERC-6551 vault, sealable and measured
   GripVault.sol         the Grip — the second account, which cannot spend
-  lib/                  SSTORE2, Base64, Trig, Curve, Timelock, the section word
+  lib/                  SSTORE2, Base64, Trig, Curve, Timelock, Mul, Tick, Assets
   interfaces/           every standard, with the reasoning
 tools/
   glsl-check.mjs        every shader parses and type-checks
@@ -956,13 +1110,15 @@ tools/
   verify-kernel.mjs     try to lie to a buyer about a sealed kernel
   verify-premises.mjs   prove the index cannot touch the artwork
   verify-timelock.mjs   try to escape the delay
+  verify-site.mjs       run the contract's own client against the contracts
+  forge.mjs             the Foundry suite, without Foundry
   fuzz.mjs              the stated properties, under seeded random attack
   preview.mjs           dist/preview.html
   evm.mjs, compile.mjs  the harness
 test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy, load, seal
 
-INVARIANTS.md           fifty statements that must hold, and the test for each
+INVARIANTS.md           ninety-two statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 
