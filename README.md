@@ -1263,10 +1263,10 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 ## What was and was not run here
 
 `glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `forge.mjs`
-(135 Solidity tests), `gas.mjs`, `verify.mjs` in both storage modes (122 packed / 121
+(158 Solidity tests), `gas.mjs`, `verify.mjs` in both storage modes (122 packed / 121
 raw), `verify-pool.mjs` (62), `verify-vault.mjs` (97), `verify-kernel.mjs` (36),
-`verify-premises.mjs` (30), `verify-site.mjs` (343), `verify-timelock.mjs` (24) and
-`fuzz.mjs` (14 properties) were executed in this environment — 904 assertions and
+`verify-premises.mjs` (30), `verify-site.mjs` (395), `verify-timelock.mjs` (24) and
+`fuzz.mjs` (14 properties) were executed in this environment — 979 assertions and
 tests, 14 properties, 15 refuted claims and a 220-tick agent run — and every number
 in this document comes from those runs.
 
