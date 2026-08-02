@@ -1020,6 +1020,29 @@ the Reach spends 7,302 policing a capability it has.
 
 ---
 
+The Uniswap pages were measured the same way, against a venue with real pools
+behind it rather than against the zero address — measuring them with nothing to
+read would have measured the "no venue" notice and reported that the swap card
+costs nothing:
+
+```
+/swap                0.62M    any pair of ERC-20s, on Uniswap v3
+/pools               0.54M    liquidity at a range you choose
+/limit               0.54M    a range order: an order without a server
+/explore             0.46M    a few tokens to start from
+/explore/<token>     0.81M    every tier, and a chart from the pool's own oracle
+/earn                0.41M    an ERC-4626 vault, once you bring one
+/vote                0.51M    governance, read from the governor
+/assets              0.11M    every asset any market here trades
+```
+
+`/explore/<token>` is the one worth watching and the reason it is in the budget
+at all: when a token cannot be priced against the wrapped native it walks
+candidate assets asking the factory for a pool, and the chart is twenty-five
+observations out of the pool's own ring buffer on top of that. At 0.81M it is
+still comfortably inside the most cautious hosted RPC's ceiling — but it is the
+page that would leave first, so it is measured on every run rather than assumed.
+
 ## Building it
 
 ```bash
@@ -1127,16 +1150,16 @@ AGENT.md                ERC-7857, session keys, and what an agent can be given
 ## What was and was not run here
 
 `glsl-check.mjs`, `selftest.mjs` (55 assertions), `build-engine.mjs`, `forge.mjs`
-(73 Solidity tests), `gas.mjs`, `verify.mjs` in both storage modes (122 packed / 121
+(135 Solidity tests), `gas.mjs`, `verify.mjs` in both storage modes (122 packed / 121
 raw), `verify-pool.mjs` (62), `verify-vault.mjs` (97), `verify-kernel.mjs` (36),
-`verify-premises.mjs` (29), `verify-timelock.mjs` (24) and `fuzz.mjs` (14 properties)
-were executed in this environment — 498 assertions and tests, 14 properties, 15
-refuted claims and a 220-tick agent run — and every number in this document comes
-from those runs.
+`verify-premises.mjs` (30), `verify-site.mjs` (311), `verify-timelock.mjs` (24) and
+`fuzz.mjs` (14 properties) were executed in this environment — 872 assertions and
+tests, 14 properties, 15 refuted claims and a 220-tick agent run — and every number
+in this document comes from those runs.
 
 `forge test` itself was **not** executed: Foundry's installer is unreachable from
 this session, and so are GitHub, codeload and the crates.io API, so there is no
-route to it. The 73 Solidity tests are run instead by `tools/forge.mjs`, which
+route to it. The 135 Solidity tests are run instead by `tools/forge.mjs`, which
 supplies a cheatcode precompile at the address `forge-std` points `vm` at and the
 VM hooks that `prank`, `expectRevert` and `warp` need. That is strictly less than
 forge — no invariant campaigns, no coverage guidance, no traces — but the
@@ -1176,6 +1199,20 @@ the four bounds, the three structural refusals, the kernel — is built and
 tested; the signer is specified and not written.
 
 ---
+
+**The Uniswap side was run against mocks, not against Uniswap.** Every signature
+and return shape in `test/mocks/UniV3.sol` was read from Uniswap's own source and
+cross-checked against the deployed mainnet ABIs, and the mocks are faithful in
+the ways that decide whether the real thing works — `slot0` returns all seven
+values, `observe` returns two arrays, `getPool` is symmetric and returns zero for
+a pair with no pool, `QuoterV2` is deliberately *not* `view`, `proposals()`
+returns the ten static words the auto-generated getter actually returns, and both
+routers decode their struct and record every field. But a mock is a mock. The
+addresses in `tools/site.mjs` were read from Uniswap's published deployment docs
+and none of them was confirmed against live chain state, because there is no RPC
+in this environment. **Check every address on a block explorer before deploying
+anywhere that matters.**
+
 
 ## Tradeoffs worth knowing
 

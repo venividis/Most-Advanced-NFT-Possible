@@ -73,6 +73,21 @@ contract PageCivic {
     IDeskCivic public immutable DESKC;
     IVenue     public immutable VENUE;
 
+    /*  Every selector this contract sends, as the signature string it came
+        from. `keccak256` of a literal is folded at compile time, so this
+        costs nothing at runtime and buys the property the rest of the
+        collection insists on: a reader can hash the string themselves and
+        check it against the ABI, rather than taking four bytes of hex on
+        trust. Four bytes of hex is exactly the sort of thing that is right
+        in review and wrong in the deployment.                            */
+    bytes4 private constant SEL_ASSET          = bytes4(keccak256("asset()"));
+    bytes4 private constant SEL_TOTAL_ASSETS   = bytes4(keccak256("totalAssets()"));
+    bytes4 private constant SEL_TO_ASSETS      = bytes4(keccak256("convertToAssets(uint256)"));
+    bytes4 private constant SEL_PROPOSAL_COUNT = bytes4(keccak256("proposalCount()"));
+    bytes4 private constant SEL_QUORUM         = bytes4(keccak256("quorumVotes()"));
+    bytes4 private constant SEL_PROPOSALS      = bytes4(keccak256("proposals(uint256)"));
+    bytes4 private constant SEL_STATE          = bytes4(keccak256("state(uint256)"));
+
     constructor(
         IChrome chrome, IPoolRead pool, IDesk desk,
         IDeskUni deskU, IDeskCivic deskC, IVenue venue
@@ -139,7 +154,7 @@ contract PageCivic {
         }
         uint8 da = Web.decimalsOf(asset);
         uint8 dv = Web.decimalsOf(v);
-        uint256 total = _vaultWord(v, 0x01e1d114);                  // totalAssets()
+        uint256 total = _vaultWord(v, SEL_TOTAL_ASSETS);
         uint256 perShare = _vaultConvert(v, 10 ** uint256(dv));
 
         return string.concat(
@@ -197,7 +212,7 @@ contract PageCivic {
     function _vaultAsset(address v) private view returns (bool, address) {
         if (v.code.length == 0) return (false, address(0));
         (bool ok, bytes memory out) =
-            v.staticcall{gas: 40_000}(abi.encodeWithSelector(bytes4(0x38d52e0f)));
+            v.staticcall{gas: 40_000}(abi.encodeWithSelector(SEL_ASSET));
         if (!ok || out.length < 32) return (false, address(0));
         address a = abi.decode(out, (address));
         return a == address(0) || a.code.length == 0 ? (false, address(0)) : (true, a);
@@ -212,7 +227,7 @@ contract PageCivic {
 
     function _vaultConvert(address v, uint256 shares) private view returns (uint256) {
         (bool ok, bytes memory out) = v.staticcall{gas: 80_000}(
-            abi.encodeWithSelector(bytes4(0x07a2d13a), shares));   // convertToAssets
+            abi.encodeWithSelector(SEL_TO_ASSETS, shares));
         if (!ok || out.length < 32) return 0;
         return abi.decode(out, (uint256));
     }
@@ -227,10 +242,14 @@ contract PageCivic {
             DESKU.config(),
             "<h1>governance</h1>",
             g == address(0) || g.code.length == 0
-                ? "<p class=e>No governor is wired up on chain "
-                  "<code>" "</code> &mdash; this deployment was given the zero address, "
-                  "so there is nothing here to read. Governance for Uniswap lives on "
-                  "Ethereum mainnet; the other chains have no governor of their own.</p>"
+                ? string.concat(
+                    "<p class=e>No governor is wired up on chain <code>",
+                    block.chainid.str(),
+                    "</code> &mdash; this deployment was given the zero address, so "
+                    "there is nothing here to read. Uniswap's governance lives on "
+                    "Ethereum mainnet and nowhere else; the other chains have no "
+                    "governor of their own, which is a fact about Uniswap rather than "
+                    "a gap in this page.</p>")
                 : _voteBody(g),
             DESK.core(),
             DESKU.base(),
@@ -240,8 +259,8 @@ contract PageCivic {
     }
 
     function _voteBody(address g) private view returns (string memory) {
-        uint256 count = _govWord(g, abi.encodeWithSelector(bytes4(0xda35c664)));   // proposalCount
-        uint256 quorum = _govWord(g, abi.encodeWithSelector(bytes4(0x24bc1a64)));  // quorumVotes
+        uint256 count = _govWord(g, abi.encodeWithSelector(SEL_PROPOSAL_COUNT));
+        uint256 quorum = _govWord(g, abi.encodeWithSelector(SEL_QUORUM));
         string memory rows;
         uint256 shown;
         for (uint256 id = count; id > 0 && shown < 8; --id) {
@@ -291,7 +310,7 @@ contract PageCivic {
     ///      `forVotes` is only correct because of that omission.
     function _proposal(address g, uint256 id) private view returns (string memory) {
         (bool ok, bytes memory out) = g.staticcall{gas: 80_000}(
-            abi.encodeWithSelector(bytes4(0x013cf08b), id));
+            abi.encodeWithSelector(SEL_PROPOSALS, id));
         if (!ok || out.length < 320) {
             return string.concat("<tr><td>", id.str(),
                 "</td><td colspan=5 class=m>would not answer</td></tr>");
@@ -304,7 +323,7 @@ contract PageCivic {
             against := mload(add(out, 224))    // word 6
             abstain := mload(add(out, 256))    // word 7
         }
-        uint256 st = _govWord(g, abi.encodeWithSelector(bytes4(0x3e4f49e6), id));
+        uint256 st = _govWord(g, abi.encodeWithSelector(SEL_STATE, id));
         return string.concat(
             "<tr><td>", id.str(), "</td><td>", _state(st), "</td>",
             "<td>", Web.amount(forV, 18, 0), "</td>",

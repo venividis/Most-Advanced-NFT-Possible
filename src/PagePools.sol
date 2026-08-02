@@ -196,6 +196,14 @@ contract PagePools {
             "<div><label>amount, second token</label><input id=a1 placeholder=\"0.0\">"
             "</div></div>"
             "<button class=go id=add2>Add liquidity</button>"
+            "<p class=e style=\"margin:.6rem 0 0\">A range that spans the current "
+            "price takes the two tokens in whatever ratio the pool needs, so the "
+            "amounts you type are a <em>ceiling</em> and not a promise &mdash; it may "
+            "take much less of one side. No minimum is enforced on that case, because "
+            "any floor computed without the liquidity math this client does not carry "
+            "would reject a perfectly correct mint. A range entirely on one side of "
+            "the price is different: it consumes exactly one token, the amount is "
+            "determined, and a real floor is set.</p>"
             "<div id=s></div></div>"
         );
     }

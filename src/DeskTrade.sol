@@ -268,12 +268,34 @@ contract DeskTrade {
         "const mint=async(o,a0,a1,m0,m1)=>{const dl=BigInt(Math.floor(Date.now()/1000)+mins*60);"
         "await I.send(U.positions,S.mint+I.AD(o[0].a)+I.AD(o[1].a)+I.W(fee)"
         "+I.S(lo)+I.S(hi)+I.W(a0)+I.W(a1)+I.W(m0)+I.W(m1)+I.AD(I.acct())+I.W(dl))};"
+        /*  The minimums, which are the part it is easy to get confidently
+            wrong. The first version of this asked for 99.5% of BOTH desired
+            amounts, which reverts almost every straddling mint: a position
+            that spans the current price consumes the two tokens in whatever
+            ratio the pool needs, and "at least 99.5% of each" is only
+            satisfiable if the person happened to type that exact ratio.
+
+            A one-sided range is the case where a floor is meaningful,
+            because exactly one token is consumed and the amount is
+            determined. So: a real floor there, none on a straddling range,
+            and the page says which and why rather than shipping a number
+            that looks protective and is not.                             */
         "on('add2',async()=>{const o=ord();if(!o)throw new Error('choose two tokens');"
-        "const x=$('a0').value,y=$('a1').value;"
-        "const a0=I.parse(A&&o[0].a===A.a?x:y,o[0].d),a1=I.parse(o[1].a===(A&&A.a)?x:y,o[1].d);"
+        "const isA0=o[0].a===A.a,x=$('a0').value,y=$('a1').value;"
+        "const a0=I.parse(isA0?x:y,o[0].d),a1=I.parse(isA0?y:x,o[1].d);"
         "if(a0<=0n&&a1<=0n)throw new Error('enter an amount for at least one side');"
+        "const L=await look();const c=L?L.tick:null;"
+        "let m0=0n,m1=0n;"
+        "if(c!==null&&c<lo){"
+        "if(a1>0n)throw new Error('that range is entirely above the current price, so "
+        "the pool can only take '+o[0].s+' \u2014 leave the other amount empty');"
+        "m0=a0*999n/1000n}"
+        "else if(c!==null&&c>=hi){"
+        "if(a0>0n)throw new Error('that range is entirely below the current price, so "
+        "the pool can only take '+o[1].s+' \u2014 leave the other amount empty');"
+        "m1=a1*999n/1000n}"
         "if(!await need(o[0],a0))return;if(!await need(o[1],a1))return;"
-        "await mint(o,a0,a1,a0*BigInt(10000-slip)/10000n,a1*BigInt(10000-slip)/10000n)});"
+        "await mint(o,a0,a1,m0,m1)});"
         /*  A pool that does not exist yet. token0 < token1 is required here
             and the contract does not sort for you, so the price typed is
             always token1 per token0 after sorting and the page says which

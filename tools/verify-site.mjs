@@ -154,7 +154,13 @@ const uniPositions = await c.deploy(A("test/mocks/UniV3.sol", "MockPositions").b
 const UNI = {
   name: "the test chain", factory: uniFactory, quoter: uniQuoter,
   router: uniRouterV3, routerKind: 0, positions: uniPositions,
-  wrapped: weth, governor: uniBook, govToken: usdc
+  wrapped: weth,
+  /*  No governor, deliberately. Uniswap's governance lives on Ethereum
+      mainnet and nowhere else, so "this chain has no governor" is the
+      ordinary case and the one the default deployment should exercise.
+      The governance tests stand up their own wiring with a real one.   */
+  governor: "0x0000000000000000000000000000000000000000",
+  govToken: "0x0000000000000000000000000000000000000000"
 };
 
 const site = await deploySite(c, A, { hub: nft, pool, lease, uniswap: UNI });
@@ -1106,6 +1112,8 @@ head("driving the liquidity page");
   await nap(30);
   const $ = (i) => byId.get(i);
 
+  const deepPool0 = decAddr(await c.read(uniFactory, "getPool(address,address,uint24)",
+    [weth, usdc, 3000n]));
   ok("the liquidity client loaded", !!globalThis.UNI);
   ok("the page offers the fee tiers this chain has enabled",
      /fee tier/.test(page.body));
@@ -1187,6 +1195,59 @@ head("driving the liquidity page");
      decAddr(m, 10).toLowerCase(), lp.from.toString().toLowerCase());
   ok("and the deadline is in the future",
      decUint(m, 11) > BigInt(Math.floor(Date.now() / 1000)) - 60n);
+
+  /*  A range that spans the current price consumes the two tokens in
+      whatever ratio the pool needs, so "at least 99.5% of each" is only
+      satisfiable if the person typed that exact ratio. The first version of
+      this client did exactly that and would have reverted almost every
+      straddling mint.                                                    */
+  ok("a range spanning the price carries no minimum, because none is computable",
+     decUint(m, 8) === 0n && decUint(m, 9) === 0n,
+     `mins came through as ${decUint(m, 8)} / ${decUint(m, 9)}`);
+  ok("and the page says so rather than implying a floor it did not set",
+     /ceiling<\/em> and not a promise|is a <em>ceiling/.test(page.body) ||
+     /No minimum is enforced/.test(page.body));
+
+  /*──── the one-sided case, where a floor IS computable ────*/
+  {
+    /*  A band entirely above the current tick can only be funded with
+        token0 — the pool does not need token1 at that price. That is what
+        makes a range order a range order, and it is the one case where the
+        amount consumed is determined, so a floor is meaningful.        */
+    const d0 = WETH_FIRST ? 18n : 6n, d1 = WETH_FIRST ? 6n : 18n;
+    const px = async (t) => {
+      const r = await c.read(site.venue, "priceAt(int24,uint256,bool)",
+        [t < 0n ? (1n << 256n) + t : t, 10n ** d0, 1n]);
+      return Number(decUint(r)) / Number(10n ** d1);
+    };
+    const above0 = POOL_TICK + 6000n, above1 = POOL_TICK + 7200n;
+    $("pmin").value = String(await px(above0));
+    $("pmax").value = String(await px(above1));
+    await $("rcustom").fire("click");
+    await nap(500);
+
+    // fund only the token that sorted first
+    $(WETH_FIRST ? "a0" : "a1").value = WETH_FIRST ? "1" : "1000";
+    $(WETH_FIRST ? "a1" : "a0").value = "";
+    await $("add2").fire("click");
+    await nap(400);
+
+    const one = await c.read(uniPositions, "last()");
+    const sw2 = (i) => { const v = decUint(one, i);
+      return v >= 1n << 255n ? v - (1n << 256n) : v; };
+    ok("a one-sided range is placed entirely above the current price",
+       sw2(4) > POOL_TICK, `tickLower ${sw2(4)} vs spot ${POOL_TICK}`);
+    ok("funded only on the side the pool can actually take",
+       decUint(one, 7) === 0n, `amount1Desired ${decUint(one, 7)}`);
+    ok("and it DOES carry a floor, because that amount is determined",
+       decUint(one, 8) > 0n && decUint(one, 9) === 0n,
+       `mins ${decUint(one, 8)} / ${decUint(one, 9)}`);
+    ok("the floor is just under the amount entered, not a fraction of it",
+       decUint(one, 8) * 1000n >= decUint(one, 6) * 998n,
+       `${decUint(one, 8)} against ${decUint(one, 6)}`);
+  }
+  console.log("      a straddling mint ships no floor; a one-sided one ships 99.9% " +
+              "of the single token it can consume");
 
   /*──── the portfolio, with no indexer ────*/
   const page2 = await GET(["pools"]);
@@ -1353,6 +1414,17 @@ head("vote: the numbers, and where the words are not");
      /snapshotted at each/.test(body) && /counts zero|counted as nothing|never delegated/i.test(body));
   ok("castVoteWithReason is not offered rather than being offered broken",
      !/id=reason/.test(body) && /variant that carries a reason/.test(body));
+
+  /*  The default deployment has no governor, because Uniswap's governance
+      lives on mainnet and nowhere else. That page must say which chain it
+      is on rather than leaving an empty element where the number goes.  */
+  const none = await GET(["vote"]);
+  eq("a chain with no governor answers 200", none.status, 200);
+  ok("and names the chain rather than leaving a hole where the number goes",
+     /No governor is wired up on chain <code>\d+<\/code>/.test(none.body),
+     none.body.slice(none.body.indexOf("No governor"), none.body.indexOf("No governor") + 90));
+  ok("and says why, rather than implying the page is broken",
+     /fact about Uniswap rather than/.test(none.body));
 
   mount(body);
   const voter = await c.as("0x" + "88".repeat(32));
@@ -1628,7 +1700,17 @@ head("read off the compiled ABI");
 for (const [file, name] of [
   ["src/PageToken.sol", "PageToken"], ["src/PageMarket.sol", "PageMarket"],
   ["src/PageServices.sol", "PageServices"], ["src/PageManifest.sol", "PageManifest"],
-  ["src/Chrome.sol", "Chrome"], ["src/Premises.sol", "Premises"]
+  ["src/Chrome.sol", "Chrome"], ["src/Premises.sol", "Premises"],
+  /*  And every contract on the Uniswap side. `Venue` is the one that
+      matters most: it holds the router's address and does all the reading,
+      so it is the obvious place for a function that stands in the middle of
+      somebody's money — and the claim the pages make is that there is no
+      such function anywhere here, not that there is one nobody calls.   */
+  ["src/PageSwap.sol", "PageSwap"], ["src/PagePools.sol", "PagePools"],
+  ["src/PageExplore.sol", "PageExplore"], ["src/PageCivic.sol", "PageCivic"],
+  ["src/Venue.sol", "Venue"], ["src/DeskUni.sol", "DeskUni"],
+  ["src/DeskTrade.sol", "DeskTrade"], ["src/DeskCivic.sol", "DeskCivic"],
+  ["src/Desk.sol", "Desk"]
 ]) {
   const abi = A(file, name).abi;
   const writes = abi.filter((f) =>
