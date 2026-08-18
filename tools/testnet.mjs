@@ -68,7 +68,7 @@ console.log(`      balance ${(Number(bal) / 1e18).toFixed(4)} ETH`);
 const gasPrice = BigInt(await c.rpc("eth_gasPrice"));
 /*  1.5x on the gas half: enough for fee drift without demanding a faucet
     grant three times the run. The two seed mints dominate anyway.       */
-const need = 2n * 10n ** 16n + (90_000_000n * gasPrice * 15n) / 10n;
+const need = 2n * 10n ** 14n + (90_000_000n * gasPrice * 15n) / 10n;
 if (bal < need) {
   throw new Error(
     `fund the deployer first: it needs about ${(Number(need) / 1e18).toFixed(4)} ETH ` +
@@ -131,8 +131,13 @@ note(`Parley   ${site.parley}`);
 
 /*──────────────── two holders, and a conversation ────────────────*/
 head("two holders, and a conversation");
-await c.exec(nft, "mint()", [], { value: 10n ** 16n, label: "mint" });     // #1
-await c.exec(nft, "mint()", [], { value: 10n ** 16n, label: "mint" });     // #2
+/*  Seed mints at testnet pricing. The default 0.01 ether is a statement
+    about mainnet; on a chain whose ether comes from faucets it only turns
+    a one-visit funding into two. The curator can always re-price.       */
+await c.exec(nft, "setPricing(uint256,uint256)", [10n ** 14n, 10n ** 13n], { label: "setPricing" });
+const mintPrice = decUint(await c.read(nft, "price()"));
+await c.exec(nft, "mint()", [], { value: mintPrice, label: "mint" });     // #1
+await c.exec(nft, "mint()", [], { value: mintPrice, label: "mint" });     // #2
 const second = local ? bob.from.toString() : c.from.toString();
 if (local) {
   await c.exec(nft, "transferFrom(address,address,uint256)",

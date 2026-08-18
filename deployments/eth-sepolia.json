@@ -1,0 +1,29 @@
+{
+ "rpc": "https://ethereum-sepolia-rpc.publicnode.com",
+ "chainId": 11155111,
+ "deployer": "0x5f1191a432ea9d3f36eba62c0ca797bf0a754337",
+ "contracts": {
+  "engine": "0x13fcdc80f3c833979fbf0d38ec7d87a811b19575",
+  "sigil": "0x28b98bd367f799aaf1e9dff79533a74261e1cd46",
+  "renderer": "0xb2cefdff0dc0f8200f9d69a059423524aa0faf5a",
+  "reach": "0x0c068da58167d84bf955bd1f5f338ef2e002256e",
+  "grip": "0xfa6a96894548d8c09002a869e10074012db8504c",
+  "ipseity": "0x13ed99319101cbc2bc09e3849af5462dae283f5d",
+  "pool": "0xfc482a4c4f77a5d37b7dcb97f9678a903b76987f",
+  "lease": "0x746530b7ef2b57ecb50713f062fee33bfb63d97f",
+  "parley": "0xe08ff7cf056b2a3a067fa1b00476f663b9bcbfcb",
+  "chrome": "0xc4956502df015d470174b686251719c56c1e3399",
+  "desk": "0x0338d1e3660d244e92ed8e4c01172198ea7be10a",
+  "deskTalk": "0x21f6e43618c736b546a718cce54e842f34d5464e",
+  "premises": "0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824"
+ },
+ "holders": {
+  "1": "0x5f1191a432ea9d3f36eba62c0ca797bf0a754337",
+  "2": "0x5f1191a432ea9d3f36eba62c0ca797bf0a754337"
+ },
+ "urls": {
+  "door": "web3://0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824:11155111/",
+  "chat": "web3://0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824:11155111/chat",
+  "instrument": "web3://0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824:11155111/token/1/live"
+ }
+}
