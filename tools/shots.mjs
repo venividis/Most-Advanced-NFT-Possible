@@ -187,6 +187,48 @@ console.log("\n  \x1b[1mthe gallery page\x1b[0m");
   await page.close();
 }
 
+/*──────────────────── the site viewer ────────────────────*/
+const viewer = path.join(ROOT, "dist/site/viewer.html");
+if (fs.existsSync(viewer)) {
+  console.log("\n  \x1b[1mthe site viewer\x1b[0m");
+  const bag = [];
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  page.setDefaultTimeout(120000);
+  watch(page, bag);
+  await page.goto(pathToFileURL(viewer).href);
+  await page.waitForSelector(".rail button");
+
+  const n = await page.locator(".rail button").count();
+  ok(`every route is on the rail (${n})`, n >= 10);
+  ok("and the first one is showing", (await page.locator("#path").innerText()) === "/");
+
+  /*  The one mechanism in this page that is not just markup: a link inside
+      a sandboxed frame has nowhere to navigate, so it asks the page around
+      it to switch. If that ever stops working the site is a set of dead
+      ends and nothing about the markup would say so.                    */
+  const frame = await (await page.locator("#frame").elementHandle()).contentFrame();
+  await frame.locator('a[href="chat.html"]').first().click();
+  await page.waitForTimeout(600);
+  ok("a link inside a frame moves the page around it",
+     (await page.locator("#path").innerText()) === "/chat",
+     await page.locator("#path").innerText());
+
+  await page.locator(".rail button").nth(12).click();
+  await page.waitForTimeout(400);
+  ok("and a route that is not a page is shown as what it is",
+     await page.locator("#raw").isVisible());
+
+  await page.locator(".rail button").first().click();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: path.join(SHOTS, "site-door.png"), timeout: 120000 });
+  await page.locator(".rail button").nth(1).click();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: path.join(SHOTS, "site-commons.png"), timeout: 120000 });
+
+  if (bag.length) console.log(`      \x1b[2m${bag.length} message(s): ${bag[0]}\x1b[0m`);
+  await page.close();
+}
+
 await browser.close();
 
 const files = fs.readdirSync(SHOTS);
