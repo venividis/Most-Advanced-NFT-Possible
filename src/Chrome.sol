@@ -173,7 +173,108 @@ contract Chrome {
         "margin:1.2rem 0;background:#0b0f18}"
         "body.held .gate{display:none}"
         "body:not(.held) .only{display:none}"
-        ".asme{font:12.5px ui-monospace,monospace;color:#7fe0a8}";
+        ".asme{font:12.5px ui-monospace,monospace;color:#7fe0a8}"
+        /*  the wallet picker. One overlay, one card, one button per wallet
+            that announced itself — because three extensions racing to be
+            first is not a choice anybody made.                            */
+        ".wals{position:fixed;inset:0;background:#04050add;display:grid;"
+        "place-items:center;z-index:60}"
+        ".walc{background:#0a0d14;border:1px solid #2a3550;border-radius:.8rem;"
+        "padding:1.1rem 1.2rem 1.2rem;max-width:20rem;width:92%}"
+        ".walb{display:flex;align-items:center;gap:.6rem;width:100%;"
+        "margin:.5rem 0 0;padding:.6rem .8rem;border-radius:.55rem;"
+        "background:#0e131d;border:1px solid #24304a;color:#eaf1ff;cursor:pointer;"
+        "font-size:.95rem}"
+        ".walb:hover{border-color:#2f3f61;background:#131a2a}"
+        ".walb img{width:22px;height:22px;border-radius:5px}"
+        ".walc .e{margin:.85rem 0 0;font-size:.8rem}"
+        ".acct{cursor:pointer;text-decoration:underline dotted #39445c}"
+        /*  the terminal: a scrollback and a line. The input is styled as the
+            place where things happen, because it is.                      */
+        ".term{background:#04050a;border:1px solid #1a2030;border-radius:.55rem;"
+        "padding:.8rem 1rem;height:24rem;overflow-y:auto;font:12.5px/1.7 "
+        "ui-monospace,monospace;margin:1rem 0 .6rem}"
+        ".tl{white-space:pre-wrap;overflow-wrap:anywhere;color:#c9d3e6}"
+        ".tl.in{color:#7fd4ff}.tl.ok{color:#7fe0a8}.tl.no{color:#ff8a8a}"
+        ".tinput{width:100%;max-width:100%;background:#0c0f16;border:1px solid #2a3550;"
+        "border-radius:.5rem;color:#eaf1ff;font:14px ui-monospace,monospace;"
+        "padding:.65rem .8rem}"
+        ".tinput:focus{outline:none;border-color:#2c518f}"
+        /*  the gallery grid: the stills are the page                      */
+        ".gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(9.5rem,1fr));"
+        "gap:.7rem;margin:1.2rem 0}"
+        ".gcell{display:block;border:1px solid #1a2030;border-radius:.55rem;"
+        "padding:.5rem;text-decoration:none;color:inherit}"
+        ".gcell:hover{border-color:#2a3550;background:#0c1019}"
+        ".gcell img{width:100%;aspect-ratio:1;border:0;border-radius:.4rem;background:#000}"
+        ".gid{display:block;font:12px ui-monospace,monospace;color:#7fd4ff;margin-top:.4rem}"
+        ".gname{display:block;font-size:.82rem;color:#c9d3e6}"
+        ".gtags{display:block;margin-top:.2rem;min-height:1em}"
+        ".gtags i{font-style:normal;font-size:.68rem;letter-spacing:.08em;"
+        "text-transform:uppercase;color:#6c7689;margin-right:.5rem}"
+        ".gtags i.ok{color:#7fe0a8}.gtags i.w{color:#ffb27f}"
+        /*  coins and charts                                               */
+        ".coinaddr{font-size:13px;color:#cfe3ff}"
+        ".gtframe{width:100%;height:34rem;border:1px solid #1a2030;border-radius:.55rem;"
+        "background:#04050a;max-width:none;aspect-ratio:auto}";
+
+    /*═══════════════════ the wallet, chosen ═══════════════════*/
+
+    /// @notice The one script every connected page loads first. EIP-6963
+    ///         exists so a person with three wallet extensions gets to say
+    ///         which one speaks for them; taking the first announcement
+    ///         defeats the standard — Phantom and Keplr race to announce,
+    ///         and MetaMask loses the sprint on every page load. Every
+    ///         announcer is kept, keyed by rdns; reads may use any of them,
+    ///         because a read is just RPC; the signing identity is chosen —
+    ///         by the stored choice, by being the only wallet, or by the
+    ///         person, from a picker. Clicking your own address clears the
+    ///         choice and asks again.
+    function wallet() external pure returns (string memory) {
+        return string.concat("<script>", WALLET_JS, "</script>");
+    }
+
+    string internal constant WALLET_JS =
+        "window.IPW=(()=>{"
+        "const P=new Map();"
+        "addEventListener('eip6963:announceProvider',e=>{const d=e.detail;"
+        "if(d&&d.info&&d.info.rdns&&d.provider)P.set(d.info.rdns,d)});"
+        "dispatchEvent(new Event('eip6963:requestProvider'));"
+        "let CHO=null;"
+        "const save=()=>{try{return localStorage.getItem('ipse.wallet')}catch(e){return null}};"
+        "const keep=r=>{try{localStorage.setItem('ipse.wallet',r)}catch(e){}};"
+        "const drop=()=>{try{localStorage.removeItem('ipse.wallet')}catch(e){};CHO=null};"
+        "const pick=()=>{if(CHO)return CHO;const s=save();"
+        "if(s&&P.has(s))return CHO=P.get(s);"
+        "if(P.size===1)return CHO=P.values().next().value;return null};"
+        "const pv=()=>{const d=pick();if(d)return d.provider;"
+        "return P.size?P.values().next().value.provider:window.ethereum};"
+        "const nm=()=>{const d=pick();return(d&&d.info.name)||'injected wallet'};"
+        /*  Names and icons come from extensions: the name goes in through
+            textContent, the icon only if it is a data: image, which is what
+            the standard says it is.                                       */
+        "const ask=()=>new Promise(res=>{"
+        "const o=document.createElement('div');o.className='wals';"
+        "const c=document.createElement('div');c.className='walc';"
+        "const h=document.createElement('p');h.className='k';"
+        "h.textContent='which wallet speaks for you?';c.append(h);"
+        "for(const d of P.values()){const b=document.createElement('button');"
+        "b.type='button';b.className='walb';"
+        "const i=document.createElement('img');const ic=String(d.info.icon||'');"
+        "if(ic.startsWith('data:image/'))i.src=ic;i.alt='';"
+        "const t=document.createElement('span');t.textContent=d.info.name||d.info.rdns;"
+        "b.append(i,t);b.addEventListener('click',()=>{o.remove();res(d)});c.append(b)}"
+        "const n=document.createElement('p');n.className='e';"
+        "n.textContent='Your choice is remembered on this site. Click your address later to switch wallets.';"
+        "c.append(n);o.addEventListener('click',e=>{if(e.target===o){o.remove();res(null)}});"
+        "document.body.append(o)});"
+        "const choose=async()=>{let d=pick();"
+        "if(!d&&P.size>1){d=await ask();if(!d)throw new Error('no wallet chosen');}"
+        "if(d){CHO=d;keep(d.info.rdns);return d.provider}"
+        "return window.ethereum};"
+        "return{pv:pv,nm:nm,pick:pick,ask:ask,choose:choose,keep:keep,drop:drop,"
+        "all:()=>[...P.values()]}"
+        "})();";
 
     /*═══════════════════ navigation ═══════════════════*/
 
@@ -208,16 +309,21 @@ contract Chrome {
         );
     }
 
-    /// @dev The site is two things: a place the tokens talk, and the door
-    ///      to the instrument each of them is. The bar says so in that
-    ///      order, and there is nothing else in it.
+    /// @dev The tabs are the site's whole thesis in one row: the door in,
+    ///      the terminal that does everything, the social layer, the agora,
+    ///      the collection, the coins, and the one tab that leaves the
+    ///      chain. `here` codes: 0 door · 20 terminal · 16 social · 21
+    ///      agora · 22 market · 23 coins · 24 charts · 6 json.
     function navTop(uint8 here) external pure returns (string memory) {
         return string.concat(
             "<nav>",
             _tab("/", "door", here == 0),
-            _tab("/chat", "commons", here == 16),
-            _tab("/rooms", "rooms", here == 17),
-            _tab("/open", "markets", here == 7),
+            _tab("/terminal", "terminal", here == 20),
+            _tab("/chat", "social", here == 16),
+            _tab("/agora", "agora", here == 21),
+            _tab("/gallery", "market", here == 22),
+            _tab("/coins", "coins", here == 23),
+            _tab("/charts", "charts", here == 24),
             _tab("/services.json", "json", here == 6),
             "</nav>"
         );

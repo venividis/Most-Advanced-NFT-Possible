@@ -63,6 +63,7 @@ contract PagePool {
             m.open ? _remove(m) : "",
             m.open ? _terms(id, m) : "",
             "<div id=s></div>",
+            CHROME.wallet(),
             DESK.core(),
             DESK.pool(),
             CHROME.foot(msg.sender, block.chainid)

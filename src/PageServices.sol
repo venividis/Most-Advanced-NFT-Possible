@@ -71,6 +71,7 @@ contract PageServices {
             _whatRentingIs(),
             bound ? _bound() : "",
             _rules(),
+            CHROME.wallet(),
             DESK.core(),
             DESK.rent(),
             CHROME.foot(msg.sender, block.chainid)
@@ -235,6 +236,7 @@ contract PageServices {
             _draw(id),
             _verify(reach),
             "<div id=s></div>",
+            CHROME.wallet(),
             DESK.core(),
             CHROME.foot(msg.sender, block.chainid)
         );

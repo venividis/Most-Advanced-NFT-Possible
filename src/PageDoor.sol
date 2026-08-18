@@ -71,6 +71,7 @@ contract PageDoor {
             _facts(supply),
             _roll(supply),
             "<div id=s></div>",
+            CHROME.wallet(),
             DESK.core(),
             TALK.core(),
             TALK.door(),

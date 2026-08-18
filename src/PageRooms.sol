@@ -38,7 +38,7 @@ contract PageRooms {
     function rooms() external view returns (string memory) {
         return string.concat(
             CHROME.head("IPSEITY \xc2\xb7 rooms"),
-            CHROME.navTop(17),
+            CHROME.navTop(16),
             "<h1>rooms</h1>"
             "<p class=e><b>", PARLEY.groups().str(), "</b> groups have been founded. "
             "Yours are listed below once a wallet has told this page which token it is "
@@ -58,6 +58,7 @@ contract PageRooms {
             "<div id=rooms></div>",
             _found(),
             "<div id=s></div>",
+            CHROME.wallet(),
             DESK.core(),
             TALK.core(),
             TALK.rooms(),
@@ -93,7 +94,7 @@ contract PageRooms {
 
         return string.concat(
             CHROME.head(string.concat("IPSEITY \xc2\xb7 ", Web.esc(name))),
-            CHROME.navTop(17),
+            CHROME.navTop(16),
             "<h1>", Web.esc(name), "</h1>",
             _facts(index, count, opened, members, open, steward),
             DESK.bare(),
@@ -116,6 +117,7 @@ contract PageRooms {
             "</div>",
             _steward(steward),
             "<div id=s></div>",
+            CHROME.wallet(),
             DESK.core(),
             TALK.core(),
             TALK.rooms(),
@@ -159,7 +161,7 @@ contract PageRooms {
     function _noRoom(uint256 index) private view returns (string memory) {
         return string.concat(
             CHROME.head("IPSEITY \xc2\xb7 no such room"),
-            CHROME.navTop(17),
+            CHROME.navTop(16),
             "<h1>room #", index.str(), "</h1>"
             "<p class=e>No group with that number has been founded. There are <b>",
             PARLEY.groups().str(), "</b> so far, numbered from 1.</p>"

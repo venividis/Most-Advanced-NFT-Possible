@@ -110,7 +110,7 @@ const weth = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
 const usdc = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
   w(0xa0) + w(0xe0) + w(6) + w(0) + w(0) + encS("USD Coin") + encS("USDC"), "USDC");
 
-const site = await deploySite(c, A, { hub: nft, pool, lease });
+const site = await deploySite(c, A, { hub: nft, pool, lease, sigil });
 const GET = getter(c, site.premises);
 ok("the site is deployed", (await c.codeSize(site.premises)) > 0);
 
@@ -260,6 +260,12 @@ const routes = [
   [["token", "1", "market"], "text/html", "/token/1/market"],
   [["token", "1", "pool"], "text/html", "/token/1/pool"],
   [["chat"], "text/html", "/chat"],
+  [["terminal"], "text/html", "/terminal"],
+  [["agora"], "text/html", "/agora"],
+  [["gallery"], "text/html", "/gallery"],
+  [["gallery", "0"], "text/html", "/gallery/0"],
+  [["coins"], "text/html", "/coins"],
+  [["charts"], "text/html", "/charts"],
   [["rooms"], "text/html", "/rooms"],
   [["dm", "1"], "text/html", "/dm/1"],
   [["token", "1", "rent"], "text/html", "/token/1/rent"],
@@ -341,10 +347,11 @@ head("and it describes the collection-wide surface too");
 {
   const m = JSON.parse((await GET(["services.json"])).body);
 
-  ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 7,
+  ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 12,
      JSON.stringify(m.routes || null).slice(0, 120));
   const paths = (m.routes || []).map((r) => r.path);
-  for (const p of ["/", "/chat", "/rooms", "/room/<n>", "/dm/<id>", "/open",
+  for (const p of ["/", "/terminal", "/chat", "/rooms", "/room/<n>", "/dm/<id>",
+                   "/agora", "/gallery", "/coins", "/charts", "/open",
                    "/services.json"]) {
     ok(`  ${p} is discoverable`, paths.includes(p), paths.join(" "));
   }
@@ -549,6 +556,10 @@ const scriptsOf = (body) =>
   [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 for (const [label, body] of [
   ["the door", (await GET([])).body],
+  ["the terminal", (await GET(["terminal"])).body],
+  ["the agora", (await GET(["agora"])).body],
+  ["the coins", (await GET(["coins"])).body],
+  ["the charts", (await GET(["charts"])).body],
   ["the commons", (await GET(["chat"])).body],
   ["the rooms", (await GET(["rooms"])).body],
   ["a direct message", (await GET(["dm", "1"])).body],
@@ -693,6 +704,7 @@ const mkEl = (tag, attrs) => {
       return this._kids.filter((e) => matches(e, q));
     },
     addEventListener(k, f) { (this._on[k] = this._on[k] || []).push(f); },
+    focus() {}, blur() {}, click() { return this.fire("click"); },
     async fire(k) { for (const f of this._on[k] || []) await f(); }
   };
   el.classList = {
@@ -1053,6 +1065,95 @@ head("the door hands over what the wallet holds");
   ok("and its messages", links.some((a) => /^\/dm\/\d+$/.test(a.href)));
 }
 
+/*════════════ the terminal, actually driven ════════════
+
+  The terminal claims one code path for fingers and for agents. So it is
+  driven the way an agent would drive it: TERM.run(line), assert against
+  the chain. A command that composes calldata wrongly fails here against
+  the same contracts a person would hit.
+*/
+head("driving the terminal");
+{
+  const page = await GET(["terminal"]);
+  eq("/terminal answers", page.status, 200);
+  mount(page.body);
+  wallet(c);
+  runScripts(page.body);
+  await nap(60);
+  ok("the terminal came up", !!globalThis.TERM);
+
+  const cmds = globalThis.TERM.commands();
+  ok(`and publishes its table as data — ${cmds.length} commands`,
+     Array.isArray(cmds) && cmds.length >= 20);
+  ok("each entry says whether it writes",
+     cmds.every((x) => typeof x.writes === "boolean" && x.usage && x.what));
+
+  const help = await globalThis.TERM.run("help");
+  ok("help is the same table, for people", help.includes("mint") && help.includes("propose"));
+
+  const supply0 = decUint(await c.read(nft, "totalSupply()"));
+  await globalThis.TERM.run("mint");
+  await nap(30);
+  eq("`mint` minted", decUint(await c.read(nft, "totalSupply()")), supply0 + 1n);
+  await globalThis.TERM.run(`use ${supply0 + 1n}`);
+
+  const commons0 = decUint(await c.read(site.parley, "stateOf(uint256)", [0]), 1);
+  await globalThis.TERM.run("say hello from the terminal");
+  await nap(30);
+  eq("`say` reached the commons", decUint(await c.read(site.parley, "stateOf(uint256)", [0]), 1),
+     commons0 + 1n);
+
+  await globalThis.TERM.run("propose 3 Ship the terminal :: One surface for fingers and models.");
+  await nap(30);
+  eq("`propose` reached the agora", decUint(await c.read(site.agora, "count()")), 1n);
+  await globalThis.TERM.run("vote 0 yes");
+  await nap(30);
+  eq("`vote` counted", decUint(await c.read(site.agora, "proposalAt(uint256)", [0]), 3), 1n);
+  ok("and voting twice is refused by the chain, reported by the terminal",
+     String(await globalThis.TERM.run("vote 0 yes")).length > 0 &&
+     decUint(await c.read(site.agora, "proposalAt(uint256)", [0]), 3) === 1n);
+
+  await globalThis.TERM.run("coin Terminal Coin? no — one word");
+  await globalThis.TERM.run("coin TermCoin TERM 18 1000000000000000000000000");
+  await nap(30);
+  eq("`coin` poured through the foundry", decUint(await c.read(site.foundry, "count()")), 1n);
+
+  const out = await globalThis.TERM.run("coins");
+  ok("`coins` lists the pour with its address", /0x[0-9a-f]{40}/.test(out), out);
+}
+
+head("the new tabs render what the terminal did");
+{
+  const ag = await GET(["agora"]);
+  ok("/agora shows the proposal and its tally",
+     ag.body.includes("Ship the terminal") && ag.body.includes("yes <b>1</b>"));
+  const co = await GET(["coins"]);
+  ok("/coins shows the coin, address first",
+     co.body.includes("TERM") && /0x[0-9a-f]{40}/.test(co.body));
+  ok("with a copy button and a watch button",
+     co.body.includes("class=copy") && co.body.includes("class=watch"));
+  const ga = await GET(["gallery"]);
+  const cells = [...ga.body.matchAll(/class=gcell/g)].length;
+  const supply = Number(decUint(await c.read(nft, "totalSupply()")));
+  eq("/gallery wears one still per token (up to a page)",
+     cells, Math.min(supply, 24));
+  const ch = await GET(["charts"]);
+  ok("/charts says out loud that it leaves the chain",
+     ch.body.includes("talks to somebody") && ch.body.includes("geckoterminal.com"));
+  mount(ch.body);
+  wallet(c);
+  runScripts(ch.body);
+  await nap(30);
+  await byId.get("pEth").fire("click");
+  const frame = byId.get("chart").children.find((k) => k.tagName === "iframe");
+  ok("a preset builds the frame, on demand, on their origin only",
+     !!frame && String(frame.src).startsWith("https://www.geckoterminal.com/"));
+  byId.get("gt").value = "https://evil.example/pools/0x00";
+  await byId.get("go2").fire("click");
+  ok("and anything off that origin is refused",
+     byId.get("chart").children.filter((k) => k.tagName === "iframe").length === 1);
+}
+
 head("driving the holder's side");
 {
   const pg = await GET(["token", String(DRIVEN), "pool"]);
@@ -1300,6 +1401,9 @@ for (const [file, name] of [
       here, not that there is one nobody calls.                          */
   ["src/PageDoor.sol", "PageDoor"], ["src/PageTalk.sol", "PageTalk"],
   ["src/PageRooms.sol", "PageRooms"], ["src/DeskTalk.sol", "DeskTalk"],
+  ["src/PageTerminal.sol", "PageTerminal"], ["src/PageAgora.sol", "PageAgora"],
+  ["src/PageGallery.sol", "PageGallery"], ["src/PageMint.sol", "PageMint"],
+  ["src/PageCharts.sol", "PageCharts"], ["src/DeskTerm.sol", "DeskTerm"],
   ["src/Desk.sol", "Desk"]
 ]) {
   const abi = A(file, name).abi;

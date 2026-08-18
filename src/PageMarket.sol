@@ -74,6 +74,7 @@ contract PageMarket {
             _picker(id),
             m.open ? _card(m) : _shut(t),
             m.open ? _facts(id, m) : "",
+            CHROME.wallet(),
             DESK.core(),
             m.open ? DESK.swap() : "",
             CHROME.foot(msg.sender, block.chainid)

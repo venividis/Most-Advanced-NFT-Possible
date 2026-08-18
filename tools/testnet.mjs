@@ -124,7 +124,7 @@ note(`Ipseity ${nft}`);
 
 /*──────────────── the site ────────────────*/
 head("the site");
-const site = await deploySite(c, A, { hub: nft, pool, lease });
+const site = await deploySite(c, A, { hub: nft, pool, lease, sigil });
 ok("thirteen contracts deployed", (await c.codeSize(site.premises)) > 0);
 note(`Premises ${site.premises}`);
 note(`Parley   ${site.parley}`);

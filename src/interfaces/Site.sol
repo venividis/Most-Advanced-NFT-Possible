@@ -142,6 +142,7 @@ interface ITalkDesk {
 
 interface IChrome {
     function head(string memory title) external pure returns (string memory);
+    function wallet() external pure returns (string memory);
     function tabs(string memory t, uint8 here) external pure returns (string memory);
     function nav(uint256 id, uint8 here) external pure returns (string memory);
     function navTop(uint8 here) external pure returns (string memory);

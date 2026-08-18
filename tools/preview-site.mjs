@@ -99,7 +99,7 @@ await c.exec(pool, "deposit(uint256,uint256,uint256)",
 await c.exec(nft, "setLeaseAgent(uint256,address)", [1, lease]);
 await c.exec(lease, "list(uint256,uint128,uint32,uint32)", [1, 10n ** 16n, 1, 30]);
 
-const site = await deploySite(c, A, { hub: nft, pool, lease });
+const site = await deploySite(c, A, { hub: nft, pool, lease, sigil });
 
 /*  A conversation with something in it. The chat pages read the archive in
     the browser, so a preview opened off disk shows the shell and an empty
@@ -125,6 +125,11 @@ const pages = [
   [["token", "1", "vault"], "token-1-vault.html", "the two hands"],
   [["token", "1", "sigil.svg"], "token-1-sigil.svg", "the still"],
   [["open"], "open.html", "open markets"],
+  [["terminal"], "terminal.html", "every function, one line at a time"],
+  [["agora"], "agora.html", "proposals and votes"],
+  [["gallery"], "gallery.html", "the collection, wearing its stills"],
+  [["coins"], "coins.html", "the foundry's ledger"],
+  [["charts"], "charts.html", "the one tab that leaves the chain"],
   [["chat"], "chat.html", "the commons"],
   [["rooms"], "rooms.html", "the groups"],
   [["room", "1"], "room-1.html", "one group"],
@@ -144,6 +149,12 @@ for (const [route, file, what] of pages) {
     body = body
       .replace(/href="\/"/g, 'href="index.html"')
       .replace(/href="\/open"/g, 'href="open.html"')
+      .replace(/href="\/terminal"/g, 'href="terminal.html"')
+      .replace(/href="\/agora"/g, 'href="agora.html"')
+      .replace(/href="\/gallery\/(\d+)"/g, 'href="gallery.html"')
+      .replace(/href="\/gallery"/g, 'href="gallery.html"')
+      .replace(/href="\/coins"/g, 'href="coins.html"')
+      .replace(/href="\/charts"/g, 'href="charts.html"')
       .replace(/href="\/chat"/g, 'href="chat.html"')
       .replace(/href="\/rooms"/g, 'href="rooms.html"')
       .replace(/href="\/room\/(\d+)"/g, 'href="room-$1.html"')

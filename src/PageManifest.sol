@@ -47,13 +47,18 @@ contract PageManifest {
     ///      — an absent key and a present-but-empty one mean different
     ///      things to a program, and only one of them is the truth.
     IParley    public immutable PARLEY;
+    address    public immutable AGORA;
+    address    public immutable FOUNDRY;
 
     string public constant SCHEMA = "ipseity.services/1";
 
     /// @dev Same window as the directory page, same reason.
     uint256 public constant PAGE = 24;
 
-    constructor(IHub hub, IPoolRead pool, ILeaseRead lease, IParley parley) {
+    constructor(IHub hub, IPoolRead pool, ILeaseRead lease, IParley parley,
+                address agora, address foundry) {
+        AGORA = agora;
+        FOUNDRY = foundry;
         HUB = hub;
         POOL = pool;
         LEASE = lease;
@@ -278,7 +283,9 @@ contract PageManifest {
                 read apart and appending anything here broke the document
                 silently. It terminates its own values now.              */
             "\",\"routes\":", ROUTES,
-            ",\"parley\":", _parley()
+            ",\"parley\":", _parley(),
+            ",\"agora\":\"", LibNum.hexAddr(AGORA),
+            "\",\"foundry\":\"", LibNum.hexAddr(FOUNDRY), "\""
         );
     }
 
@@ -292,10 +299,16 @@ contract PageManifest {
     string internal constant ROUTES =
         "["
         "{\"path\":\"/\",\"is\":\"the door: what you hold, and the way into it\"},"
+        "{\"path\":\"/terminal\",\"is\":\"every function, one line at a time; "
+        "window.TERM.run() for agents\"},"
         "{\"path\":\"/chat\",\"is\":\"the commons: one room, every token\"},"
         "{\"path\":\"/rooms\",\"is\":\"the groups a token has entered\"},"
         "{\"path\":\"/room/<n>\",\"is\":\"one group, numbered from 1\"},"
         "{\"path\":\"/dm/<id>\",\"is\":\"the room two tokens share, derived not founded\"},"
+        "{\"path\":\"/agora\",\"is\":\"proposals and votes; nothing executes\"},"
+        "{\"path\":\"/gallery\",\"is\":\"the collection, wearing its stills\",\"paged\":true},"
+        "{\"path\":\"/coins\",\"is\":\"fixed-supply coins, poured by tokens\"},"
+        "{\"path\":\"/charts\",\"is\":\"external charts, and it says so\"},"
         "{\"path\":\"/open\",\"is\":\"every open market here\",\"paged\":true},"
         "{\"path\":\"/services.json\",\"is\":\"this document\",\"paged\":true}"
         "]";

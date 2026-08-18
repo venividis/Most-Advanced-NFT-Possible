@@ -71,15 +71,23 @@ export const getter = (c, premises) => async (path) =>
  * deploying a new router and pointing a name at it, which is the property
  * that keeps the routes serving the artwork off the mutable path.
  */
-export async function deploySite(c, A, { hub, pool, lease }) {
+export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existingParley }) {
   const chrome = await c.deploy(A("src/Chrome.sol", "Chrome").bytecode, "", "Chrome");
 
   /*  Parley is the protocol, not a page: the rooms, the back-links that
       make a conversation walkable without an indexer, and the check that a
       message signed by an address is a message the token agreed to. It
       reads the collection and nothing reads it back.                     */
-  const parley = await c.deploy(
-    A("src/Parley.sol", "Parley").bytecode, encodeAddressArg(hub), "Parley");
+  /*  The parley is the protocol, and every message ever sent is a log this
+      address emitted — a redeploy of the SITE reuses it, because replacing
+      it would not migrate a conversation, it would end one.             */
+  const parley = existingParley ||
+    await c.deploy(A("src/Parley.sol", "Parley").bytecode, encodeAddressArg(hub), "Parley");
+
+  const agora = await c.deploy(
+    A("src/Agora.sol", "Agora").bytecode, encodeAddressArg(hub), "Agora");
+  const foundry = await c.deploy(
+    A("src/Foundry.sol", "Foundry").bytecode, encodeAddressArg(hub), "Foundry");
 
   /*  Desk holds the application: the config block a page emits and the
       client that reads it. It knows the hub, the pool and the lease because
@@ -118,7 +126,37 @@ export async function deploySite(c, A, { hub, pool, lease }) {
   const pManifest = await c.deploy(
     A("src/PageManifest.sol", "PageManifest").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
-    encodeAddressArg(parley), "PageManifest");
+    encodeAddressArg(parley) + encodeAddressArg(agora) + encodeAddressArg(foundry),
+    "PageManifest");
+
+  const deskTerm = await c.deploy(
+    A("src/DeskTerm.sol", "DeskTerm").bytecode,
+    encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
+    encodeAddressArg(parley) + encodeAddressArg(agora) + encodeAddressArg(foundry),
+    "DeskTerm");
+
+  const pTerminal = await c.deploy(
+    A("src/PageTerminal.sol", "PageTerminal").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskTerm),
+    "PageTerminal");
+
+  const pAgora = await c.deploy(
+    A("src/PageAgora.sol", "PageAgora").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskTalk) +
+    encodeAddressArg(agora), "PageAgora");
+
+  const pGallery = await c.deploy(
+    A("src/PageGallery.sol", "PageGallery").bytecode,
+    encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(pool) +
+    encodeAddressArg(lease) + encodeAddressArg(sigil), "PageGallery");
+
+  const pMint = await c.deploy(
+    A("src/PageMint.sol", "PageMint").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(foundry), "PageMint");
+
+  const pCharts = await c.deploy(
+    A("src/PageCharts.sol", "PageCharts").bytecode,
+    encodeAddressArg(chrome), "PageCharts");
 
   const pDoor = await c.deploy(
     A("src/PageDoor.sol", "PageDoor").bytecode,
@@ -140,11 +178,14 @@ export async function deploySite(c, A, { hub, pool, lease }) {
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(pDoor) +
     encodeAddressArg(pToken) + encodeAddressArg(pMarket) + encodeAddressArg(pPool) +
     encodeAddressArg(pServices) + encodeAddressArg(pManifest) +
-    encodeAddressArg(pTalk) + encodeAddressArg(pRooms),
+    encodeAddressArg(pTalk) + encodeAddressArg(pRooms) +
+    encodeAddressArg(pTerminal) + encodeAddressArg(pAgora) +
+    encodeAddressArg(pGallery) + encodeAddressArg(pMint) + encodeAddressArg(pCharts),
     "Premises");
 
   return {
-    chrome, parley, desk, deskTalk, pDoor, pToken, pMarket, pPool,
-    pServices, pManifest, pTalk, pRooms, premises
+    chrome, parley, agora, foundry, desk, deskTalk, deskTerm,
+    pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
+    pTerminal, pAgora, pGallery, pMint, pCharts, premises
   };
 }

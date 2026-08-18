@@ -84,7 +84,7 @@ const pool = await c.deploy(A("src/Pool.sol", "Pool").bytecode,
 await c.exec(nft, "setPool(address)", [pool]);
 const lease = await c.deploy(A("src/Lease.sol", "Lease").bytecode, encodeAddressArg(nft), "Lease");
 
-const site = await deploySite(c, A, { hub: nft, pool, lease });
+const site = await deploySite(c, A, { hub: nft, pool, lease, sigil });
 const premises = site.premises;
 ok("deployed", (await c.codeSize(premises)) > 0);
 console.log(`      router   ${premises}`);

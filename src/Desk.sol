@@ -213,10 +213,12 @@ contract Desk {
         "window.IP=(()=>{"
         "const E=document.getElementById('D');"
         "const D=E?JSON.parse(E.textContent):{};"
-        "const P=[];addEventListener('eip6963:announceProvider',e=>P.push(e.detail));"
-        "dispatchEvent(new Event('eip6963:requestProvider'));"
-        "const pv=()=>(P[0]&&P[0].provider)||window.ethereum;"
-        "const nm=()=>(P[0]&&P[0].info&&P[0].info.name)||'injected wallet';"
+        /*  The wallet subsystem — EIP-6963 collection, the picker, the
+            remembered choice — lives in Chrome's WALLET_JS, emitted before
+            this script on every page. Desk aliases it so the rest of the
+            client reads the same as it always has.                       */
+        "const IW=window.IPW;"
+        "const pv=IW.pv,nm=IW.nm,pick=IW.pick,ask=IW.ask,wkeep=IW.keep,wdrop=IW.drop;"
         "let A=null;"
         "const $=i=>document.getElementById(i);"
         "const say=(m,c)=>{const s=$('s');if(s){s.textContent=m;s.className=c||''}};"
@@ -303,7 +305,8 @@ contract Desk {
         // usually is not
         "const tryCall=async(to,data,gas)=>{try{return await call(to,data,gas)}catch(e){return null}};"
         "const word=(r,i)=>BigInt('0x'+String(r).slice(2+i*64,66+i*64));"
-        "const connect=async()=>{const p=pv();if(!p)throw new Error('no wallet found');"
+        "const connect=async()=>{const p=await IW.choose();"
+        "if(!p)throw new Error('no wallet found');"
         "const a=await p.request({method:'eth_requestAccounts'});A=a[0];"
         "const c=await p.request({method:'eth_chainId'});"
         "if(BigInt(c)!==BigInt(D.chain))throw new Error("
@@ -323,6 +326,9 @@ contract Desk {
         // odd thing to build when the pair is part of the URL.
         "const M=$('mkt');if(M)M.addEventListener('change',()=>{"
         "location.href='/token/'+M.value+'/market'});"
+        /*  The address chip is also the door back to the picker. */
+        "document.querySelectorAll('.acct').forEach(e=>e.addEventListener('click',()=>{"
+        "IW.drop();connect().catch(er=>say(String(er&&er.message||er),'no'))}));"
         "document.querySelectorAll('[data-call]').forEach(el=>el.addEventListener('click',async()=>{"
         "try{say('\\u2026');let d=el.dataset.call;"
         "for(const f of (el.dataset.args||'').split(',').filter(Boolean)){"

@@ -141,6 +141,12 @@ at all:
 
 ```
 web3://<premises>/                      the door: connect, and what you hold opens
+web3://<premises>/terminal              every function, one line at a time —
+                                        window.TERM.run() for agents
+web3://<premises>/agora                 proposals and votes; nothing executes
+web3://<premises>/gallery               the collection, wearing its stills
+web3://<premises>/coins                 fixed-supply coins, poured by tokens
+web3://<premises>/charts                the one tab that leaves the chain
 web3://<premises>/chat                  the commons: one room, every token in it
 web3://<premises>/rooms                 the groups this token has entered
 web3://<premises>/room/3                one group
@@ -388,7 +394,7 @@ the door.
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and two such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and eight such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1180,7 +1186,7 @@ test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy the collection, load, seal
 script/Site.s.sol       deploy the parley, the desks, the pages and the router
 
-INVARIANTS.md           one hundred and two statements that must hold, and the test for each
+INVARIANTS.md           one hundred and eight statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 

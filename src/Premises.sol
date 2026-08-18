@@ -33,6 +33,12 @@ interface IPagePool {
     function pool(uint256 id) external view returns (string memory);
 }
 
+interface IPageTerminal { function terminal() external view returns (string memory); }
+interface IPageAgora    { function agora() external view returns (string memory); }
+interface IPageGallery  { function gallery(uint256 page) external view returns (string memory); }
+interface IPageMint     { function coins() external view returns (string memory); }
+interface IPageCharts   { function charts() external view returns (string memory); }
+
 interface IPageServices {
     function rent(uint256 id) external view returns (string memory);
     function vault(uint256 id) external view returns (string memory);
@@ -83,6 +89,11 @@ interface IPageManifest {
   ERC-4804 / ERC-6860 client reaches it over `web3://` with no DNS:
 
       /                          the door: connect, and what you hold opens
+      /terminal                  every function, one line at a time
+      /agora                     proposals and votes, one token one voice
+      /gallery  /gallery/<p>     the whole collection, wearing its stills
+      /coins                     fixed-supply coins, poured by tokens
+      /charts                    the one tab that leaves the chain
       /chat                      the commons: one room, every token in it
       /rooms                     the groups this token has entered
       /room/<n>                  one group, numbered from 1
@@ -125,6 +136,11 @@ contract Premises {
     IPageManifest public immutable P_MANIFEST;
     IPageTalk     public immutable P_TALK;
     IPageRooms    public immutable P_ROOMS;
+    IPageTerminal public immutable P_TERMINAL;
+    IPageAgora    public immutable P_AGORA;
+    IPageGallery  public immutable P_GALLERY;
+    IPageMint     public immutable P_MINT;
+    IPageCharts   public immutable P_CHARTS;
 
     struct KeyValue { string key; string value; }
 
@@ -147,7 +163,12 @@ contract Premises {
         IPageServices pServices,
         IPageManifest pManifest,
         IPageTalk pTalk,
-        IPageRooms pRooms
+        IPageRooms pRooms,
+        IPageTerminal pTerminal,
+        IPageAgora pAgora,
+        IPageGallery pGallery,
+        IPageMint pMint,
+        IPageCharts pCharts
     ) {
         HUB = hub;
         CHROME = chrome;
@@ -159,6 +180,11 @@ contract Premises {
         P_MANIFEST = pManifest;
         P_TALK = pTalk;
         P_ROOMS = pRooms;
+        P_TERMINAL = pTerminal;
+        P_AGORA = pAgora;
+        P_GALLERY = pGallery;
+        P_MINT = pMint;
+        P_CHARTS = pCharts;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -237,6 +263,39 @@ contract Premises {
             (bool okD, uint256 other) = _toUint(resource[1]);
             if (!okD || !_exists(other)) return _notFound();
             return (200, P_TALK.dm(other), _headers(HTML));
+        }
+
+        /*───── the tabs ─────*/
+
+        if (_eq(resource[0], "terminal")) {
+            if (n != 1) return _notFound();
+            return (200, P_TERMINAL.terminal(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "agora")) {
+            if (n != 1) return _notFound();
+            return (200, P_AGORA.agora(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "gallery")) {
+            if (n > 2) return _notFound();
+            uint256 page;
+            if (n == 2) {
+                (bool okG, uint256 v) = _toUint(resource[1]);
+                if (!okG) return _notFound();
+                page = v;
+            }
+            return (200, P_GALLERY.gallery(page), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "coins")) {
+            if (n != 1) return _notFound();
+            return (200, P_MINT.coins(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "charts")) {
+            if (n != 1) return _notFound();
+            return (200, P_CHARTS.charts(), _headers(HTML));
         }
 
         /*───── collection-wide ─────*/

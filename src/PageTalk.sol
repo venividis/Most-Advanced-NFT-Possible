@@ -51,6 +51,7 @@ contract PageTalk {
             _live(),
             _how(),
             "<div id=s></div>",
+            CHROME.wallet(),
             DESK.core(),
             TALK.core(),
             CHROME.foot(msg.sender, block.chainid)
@@ -76,6 +77,7 @@ contract PageTalk {
             _live(),
             canSeal ? _sealable(t) : _plain(t),
             "<div id=s></div>",
+            CHROME.wallet(),
             DESK.core(),
             TALK.core(),
             CHROME.foot(msg.sender, block.chainid)

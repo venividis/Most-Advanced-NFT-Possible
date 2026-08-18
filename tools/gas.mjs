@@ -159,7 +159,7 @@ const routes = [];
     [someId, wethAddr, usdcAddr, 30]);
 
   const site = await deploySite(c, (f, n) => artifact(out, f, n),
-    { hub: nft, pool: poolAddr, lease: leaseAddr });
+    { hub: nft, pool: poolAddr, lease: leaseAddr, sigil });
 
   /*  A conversation with something in it, because an empty room is cheap
       and the page that renders one is not the page anybody will load. The
@@ -202,7 +202,12 @@ const routes = [];
     [["chat"], "/chat", "the commons: one room, every token"],
     [["rooms"], "/rooms", "the groups a token has entered"],
     [["room", "1"], "/room/1", "one group"],
-    [["dm", "1"], "/dm/1", "the room two tokens share"]
+    [["dm", "1"], "/dm/1", "the room two tokens share"],
+    [["terminal"], "/terminal", "every function, one line at a time"],
+    [["agora"], "/agora", "proposals and votes"],
+    [["gallery"], "/gallery", "the collection, wearing its stills"],
+    [["coins"], "/coins", "the foundry's ledger"],
+    [["charts"], "/charts", "the one tab that leaves the chain"]
   ]) {
     routes.push({ label, note, ...(await hit(path)) });
   }

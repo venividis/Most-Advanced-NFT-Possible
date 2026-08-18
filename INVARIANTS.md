@@ -520,6 +520,49 @@ topic and the rule for walking backwards — enough to read the whole archive wi
 → `tools/verify-site.mjs` · *"and the topic a program filters on"*, checked against
   the hash of the signature string rather than against the contract's own answer
 
+## The tabs
+
+**94. The terminal is one code path for fingers and for models.**
+`TERM.run(line)` is what the keyboard calls and what an agent calls; the
+suite drives mint, speak, propose, vote and pour through it and asserts
+against the chain, not against the screen. `TERM.commands()` returns the
+whole table as data — usage, description, writes — so a model asks the
+terminal what it can do instead of scraping it.
+→ `tools/verify-site.mjs` · *"driving the terminal"*
+
+**95. The terminal hashes nothing and pads nothing wrong.**
+Every selector arrives from `DeskTerm.config()`, derived on chain from its
+signature string; dynamic arguments are laid out by an encoder that walks
+parameters in signature order and computes every offset before writing one,
+because an offset written while the tail is still growing is a lie.
+→ `src/DeskTerm.sol` · `ENC`, exercised by every string-carrying command in
+  the drive
+
+**96. A vote is one token, one voice, once, and nothing executes.**
+Cast before the close, refused after it, never changed; the Agora holds no
+treasury and calls nothing. The page and the contract say so in the same
+words.
+→ `src/Agora.sol`, `tools/verify-site.mjs` · *"voting twice is refused"*
+
+**97. A poured coin has no owner because its ABI has none.**
+Fixed supply minted once to the pourer; no mint, no pause, no blacklist, no
+upgrade. The guarantee is the absence of the functions, which the compiled
+ABI states machine-checkably.
+→ `src/Foundry.sol`
+
+**98. The one page that leaves the chain says so, and only goes one place.**
+`/charts` names GeckoTerminal as a third party out loud, builds its frame
+only on demand, and refuses any URL off that origin — an iframe src a
+visitor chooses is otherwise an open redirect with a chart's reputation.
+→ `tools/verify-site.mjs` · *"anything off that origin is refused"*
+
+**99. The signing wallet is chosen, never raced.**
+EIP-6963 announcers are collected, not taken first-come; the signing
+identity is the stored choice, the only wallet, or the person's pick from
+a list — and clicking your own address asks again. Reads may use any
+announcer, because a read is just RPC.
+→ `src/Chrome.sol` · `WALLET_JS`
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue
