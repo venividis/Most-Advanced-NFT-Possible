@@ -167,10 +167,26 @@ if (RAW) {
   // the injected state sits between </head> and <body>; lift it back out
   recovered = html.replace(/<script>window\.IPSE=\{[\s\S]*?\}<\/script>/, "");
 } else {
-  const m = html.match(/const D="([A-Za-z0-9+/=]+)"/);
+  const m = html.match(/,"([A-Za-z0-9+/=]+)"\];<\/script>/);
   ok("the loader carries a payload", !!m);
   recovered = zlib.gunzipSync(Buffer.from(m[1], "base64")).toString("utf8");
   ok("the loader calls DecompressionStream", html.includes("DecompressionStream"));
+
+  /*  document.open() clears the document and keeps the Window. Anything the
+      loader declares at the top level is therefore still declared while the
+      engine is being written in - and the engine is minified, so its own
+      top-level names are single letters. A `const D` on both sides is one
+      binding declared twice, and document.write() throws before anything is
+      drawn. The loader must put its payload on a property and read it from
+      inside a function. */
+  const loader = html.slice(html.indexOf("<script>self.$IPSE="));
+  const outside = loader.replace(/\(async\(\)=>\{[\s\S]*\}\)\(\)/, "");
+  ok("the loader hands the payload over on a property, not a global binding",
+     loader.startsWith("<script>self.$IPSE=["));
+  ok("and declares nothing at all in global scope — a name declared here is " +
+     "still declared after document.open(), and would collide with the engine",
+     !/\b(?:const|let|var|function|class)\b/.test(outside),
+     outside.slice(0, 160));
 }
 
 ok("the document that comes back is byte-for-byte the document that went in",
@@ -181,7 +197,7 @@ ok("the document that comes back is byte-for-byte the document that went in",
 head("state injected into the document");
 const stateSrc = RAW
   ? (html.match(/window\.IPSE=\{[\s\S]*?\}<\/script>/) || [])[0]
-  : (html.match(/const S="((?:[^"\\]|\\.)*)"/) || [])[1];
+  : (html.match(/self\.\$IPSE=\["((?:[^"\\]|\\.)*)"/) || [])[1];
 ok("a state block was written into the gap", !!stateSrc);
 
 const stateJson = RAW
@@ -233,7 +249,7 @@ ok("the still image changed too", meta2.image !== meta.image);
 const html2 = Buffer.from(meta2.animation_url.split(",")[1], "base64").toString("utf8");
 const doc2 = RAW
   ? html2.replace(/<script>window\.IPSE=\{[\s\S]*?\}<\/script>/, "")
-  : zlib.gunzipSync(Buffer.from(html2.match(/const D="([A-Za-z0-9+/=]+)"/)[1], "base64")).toString("utf8");
+  : zlib.gunzipSync(Buffer.from(html2.match(/,"([A-Za-z0-9+/=]+)"\];<\/script>/)[1], "base64")).toString("utf8");
 ok("the engine itself did not change — only the state around it", doc2 === DOC);
 
 let badForm = false;
@@ -466,6 +482,20 @@ await c.exec(nft, "sealRenderer()", [], { label: "sealRenderer" });
 let sealed = false;
 try { await c.exec(nft, "setRenderer(address)", [renderer]); } catch { sealed = true; }
 ok("a sealed renderer can never be replaced", sealed);
+
+/*──────────────────── the two formats every label lands in ────────────────────*/
+head("labels are safe in both formats they are written into");
+console.log("      (the notation is dropped into SVG character data and into JSON,");
+console.log("       and neither is escaped on the way out)");
+for (let f = 0; f < 8; f++) {
+  const n = decString(await c.read(sigil, "solidNotation(uint8)", [f]));
+  ok(`solid ${f} · ${n}`, !/[<&]/.test(n),
+     "a bare < or & here is a parse error in the still, not a stray character");
+}
+for (let f = 0; f < 8; f++) {
+  const n = decString(await c.read(sigil, "solidName(uint8)", [f]));
+  ok(`name ${f} · ${n}`, !/[<&"\\]/.test(n), "and this one also lands in a JSON string");
+}
 
 /*──────────────────── the preview ────────────────────*/
 head("artefacts");

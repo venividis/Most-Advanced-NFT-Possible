@@ -339,8 +339,15 @@ contract Sigil {
         "Tesseract", "Hexadecachoron", "Icositetrachoron", "Duocylinder",
         "Clifford torus", "Tiger", "Ditorus", "Quaternion Julia"
     ];
+    /*  These go into SVG text and into JSON, and neither is escaped on the
+        way out, so a character that means something to a parser cannot
+        appear here. "z<-z2+c" did: a bare `<` is not character data, so the
+        eighth solid's image was not an SVG at all - every client that asked
+        for the thumbnail got a parse error. The arrow is the same glyph the
+        instrument uses for the same map, and it is data in both formats. */
     string[8] private SCHLAFLI = [
-        "{4,3,3}", "{3,3,4}", "{3,4,3}", "D2 x D2", "S1 x S1", "((II)(II))", "(((II)I)I)", "z<-z2+c"
+        "{4,3,3}", "{3,3,4}", "{3,4,3}", "D2 x D2", "S1 x S1", "((II)(II))", "(((II)I)I)",
+        unicode"z \u2190 z\u00b2 + c"
     ];
 
     function solidName(uint8 f) external view returns (string memory) {

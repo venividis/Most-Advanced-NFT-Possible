@@ -11,15 +11,18 @@
     "verify": "node tools/verify.mjs",
     "preview": "node tools/preview.mjs",
     "preview:site": "node tools/preview-site.mjs",
+    "gallery": "node tools/gallery.mjs && node tools/gallery-page.mjs",
+    "shots": "node tools/shots.mjs",
     "forge": "node tools/forge.mjs",
     "gas": "node tools/gas.mjs",
-    "check": "node tools/glsl-check.mjs && node tools/selftest.mjs && node tools/build-engine.mjs && node tools/forge.mjs && node tools/gas.mjs && node tools/verify.mjs && node tools/verify-pool.mjs && node tools/verify-vault.mjs && node tools/verify-kernel.mjs && node tools/verify-premises.mjs && node tools/verify-site.mjs && node tools/verify-timelock.mjs && node tools/fuzz.mjs && node tools/verify-findings.mjs && node tools/agents.mjs",
+    "check": "node tools/glsl-check.mjs && node tools/selftest.mjs && node tools/build-engine.mjs && node tools/forge.mjs && node tools/gas.mjs && node tools/verify.mjs && node tools/verify-pool.mjs && node tools/verify-vault.mjs && node tools/verify-kernel.mjs && node tools/verify-premises.mjs && node tools/verify-site.mjs && node tools/verify-parley.mjs && node tools/verify-timelock.mjs && node tools/fuzz.mjs && node tools/verify-findings.mjs && node tools/agents.mjs",
     "verify:pool": "node tools/verify-pool.mjs",
     "verify:timelock": "node tools/verify-timelock.mjs",
     "verify:vault": "node tools/verify-vault.mjs",
     "verify:kernel": "node tools/verify-kernel.mjs",
     "verify:premises": "node tools/verify-premises.mjs",
     "verify:site": "node tools/verify-site.mjs",
+    "verify:parley": "node tools/verify-parley.mjs",
     "fuzz": "node tools/fuzz.mjs",
     "findings": "node tools/verify-findings.mjs",
     "agents": "node tools/agents.mjs"
@@ -35,5 +38,8 @@
     "ethereum-cryptography": "^3.2.0",
     "solc": "^0.8.36",
     "terser": "^5.49.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
   }
 }

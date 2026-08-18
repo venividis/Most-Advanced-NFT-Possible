@@ -36,8 +36,20 @@ contract Renderer {
     ///      DecompressionStream has been in every shipping browser since
     ///      2023; it is part of the platform, not a library, so using it
     ///      fetches nothing.
+    ///
+    ///      The loader declares nothing in global scope, and that is not
+    ///      tidiness. document.open() clears the document but keeps the
+    ///      Window, and a lexical declaration made before the write is
+    ///      still there after it - so a `const D` here and a `const D`
+    ///      anywhere at the top level of the document being written are
+    ///      the same binding, and the write throws before a pixel is
+    ///      drawn. The engine is minified, and a minifier hands out short
+    ///      top-level names; the collision is not hypothetical. Both
+    ///      halves of the payload arrive on one property instead, and the
+    ///      property is deleted as soon as it has been read.
     string internal constant INFLATE =
         '<script>(async()=>{try{'
+        'const[S,D]=self.$IPSE;delete self.$IPSE;'
         'const b=Uint8Array.from(atob(D),c=>c.charCodeAt(0));'
         'const t=await new Response(new Blob([b]).stream()'
         '.pipeThrough(new DecompressionStream("gzip"))).text();'
@@ -76,8 +88,8 @@ contract Renderer {
             // the shards hold gzip; hand the browser its own inflater
             return abi.encodePacked(
                 engine.headBytes(),
-                "<script>const S=", _quote(state), ";const D=\"",
-                Base64.encode(engine.bodyBytes()), "\";</script>",
+                "<script>self.$IPSE=[", _quote(state), ",\"",
+                Base64.encode(engine.bodyBytes()), "\"];</script>",
                 INFLATE
             );
         }
