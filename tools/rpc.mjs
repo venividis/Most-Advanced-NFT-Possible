@@ -46,7 +46,7 @@ const fetcher = async (url) => {
     an RPC error, which is an answer.                                    */
 const call = async (url, method, params = []) => {
   let last;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 7; attempt++) {
     try {
       const f = await fetcher(url);
       const r = await f(url, {
@@ -58,7 +58,11 @@ const call = async (url, method, params = []) => {
       if (j.error) throw Object.assign(new Error(`${method}: ${j.error.message}`), { rpc: true });
       return j.result;
     } catch (e) {
-      if (e.rpc) throw e;
+      /*  A load-balanced public endpoint answers each request from whichever
+          replica the balancer picks, and a replica one block behind reports
+          a pinned read as "header not found". That is lag, not an answer —
+          retry it like a transport error.                               */
+      if (e.rpc && !/not found|header|missing|unknown block/i.test(e.message)) throw e;
       last = e;
       await new Promise((res) => setTimeout(res, 300 * (attempt + 1)));
     }
@@ -140,11 +144,11 @@ export class RpcChain {
     return this.send({ to, data: enc(sig, args), value, label: label || sig });
   }
 
-  async call(to, data, from) {
+  async call(to, data, from, tag = "latest") {
     const r = await this.rpc("eth_call", [{
       from: from || this.from.toString(), to,
       data: data.startsWith("0x") ? data : "0x" + data
-    }, "latest"]);
+    }, tag]);
     return r;
   }
 
@@ -164,7 +168,9 @@ export class RpcChain {
     return other;
   }
 
-  async balanceOf(addr) { return BigInt(await this.rpc("eth_getBalance", [addr, "latest"])); }
+  async balanceOf(addr, tag = "latest") {
+    return BigInt(await this.rpc("eth_getBalance", [addr, tag]));
+  }
 }
 
 /*  The hardhat development mnemonic's first accounts. Printed in every

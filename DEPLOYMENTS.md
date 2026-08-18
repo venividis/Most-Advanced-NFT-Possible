@@ -38,3 +38,29 @@ public RPC's eth_call, so its call ceiling clears the 19.99M read. The
 transaction-shaped ceiling of EIP-7825 still stands as documented in the
 README: readers that cap calls at 2^24 get the instrument via
 `/token/<id>/live` at 4.48M.
+
+### The whole surface, exercised — 2026-08-18
+
+`node tools/exercise.mjs` walked every function of the six contracts on this
+deployment with four accounts (the curator and three fresh keys): **235
+functions — 231 exercised on the live chain, 4 skipped with written reasons,
+zero unaccounted — 159 assertions, 0 failed, 101 transactions.** Refusals were
+proven through `eth_estimateGas`, which replays the revert without spending
+anything; every read was pinned to the newest block a receipt had proven mined,
+because a load-balanced public RPC will otherwise answer from a replica living
+one block in the past.
+
+The skips, in full: `tokenURIs()` (37M gas, past this RPC's call ceiling —
+measured in-suite), `renounceOwnership` / `setRenderer` / `sealRenderer`
+(irreversible or deployment-breaking on a live rehearsal — the seal ceremony
+belongs to mainnet), and `cloneWithKernel`'s enc-path duplicate (exercised
+raw). What the live chain taught that the suite could not: a session grant's
+empty selector list permits nothing — bare value transfers need `bytes4(0)`
+granted like anything else; `guardNFT` refuses a manifest promise about a
+piece the hand does not hold; the verifier really is write-once, curator
+included, across runs; and `status()` on a freshly-rented lease answers
+"occupied," which is the correct answer to a question the test first asked
+wrongly.
+
+Selected transactions in `dist/exercise-log.json` (all 101 hashes there);
+tokens #1–#24 exist, #20 is the fully-exercised one, #23 its kernel clone.
