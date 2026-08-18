@@ -97,6 +97,22 @@ contract Desk {
         );
     }
 
+    /// @notice The same block, for the pages that are about the collection
+    ///         rather than about one token's market. The client only ever
+    ///         needs the chain it is on and the addresses it may call; a
+    ///         page with no market on it should not be reading one.
+    function bare() external view returns (string memory) {
+        return string.concat(
+            "<script type=\"application/json\" id=\"D\">{",
+            "\"chain\":", block.chainid.str(),
+            ",\"id\":0",
+            ",\"hub\":\"", LibNum.hexAddr(address(HUB)),
+            "\",\"pool\":\"", LibNum.hexAddr(address(POOL)),
+            "\",\"sel\":", selectors(),
+            "}</script>"
+        );
+    }
+
     function _asset(address t, uint8 d) private view returns (string memory) {
         return string.concat(
             "{\"a\":\"", LibNum.hexAddr(t),

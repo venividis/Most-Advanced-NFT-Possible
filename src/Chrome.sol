@@ -140,7 +140,40 @@ contract Chrome {
         "border-radius:1px 1px 0 0}"
         ".ch i:hover{background:#2c518f}"
         ".two{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}"
-        "@media(max-width:30rem){.two{grid-template-columns:1fr}}";
+        "@media(max-width:30rem){.two{grid-template-columns:1fr}}"
+        /*  the conversation. Every string in here arrived from a log and is
+            written with textContent, so this sheet is styling text and
+            nothing else — there is no markup from a stranger to contain. */
+        "#log{max-height:34rem;overflow-y:auto;border:1px solid #1a2030;border-radius:.55rem;"
+        "padding:.2rem 1rem 1rem;background:#0a0d14}"
+        ".msg{display:grid;grid-template-columns:auto auto 1fr;gap:0 .55rem;"
+        "align-items:baseline;padding:.5rem 0;border-top:1px solid #121826}"
+        ".msg:first-child{border-top:0}"
+        ".msg b{font:12.5px ui-monospace,monospace;font-weight:500;color:#7fd4ff}"
+        ".msg.me b{color:#7fe0a8}"
+        ".msg .at{color:#4b5468;font-size:.72rem;text-align:right}"
+        ".msg p{grid-column:1/-1;margin:.15rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere}"
+        ".msg .sealed{color:#6c7689;font-style:italic}"
+        ".dmlink{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;"
+        "text-decoration:none;color:#3f4759}"
+        ".dmlink:hover{color:#7fd4ff}"
+        "textarea{width:100%;background:#0c0f16;border:1px solid #232c42;border-radius:.5rem;"
+        "color:#dbe4f5;font:14px/1.5 ui-sans-serif,system-ui,sans-serif;padding:.6rem .75rem;"
+        "min-height:4.4rem;resize:vertical;margin-top:.6rem}"
+        "textarea:focus{outline:none;border-color:#2f3f61}"
+        ".room{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;"
+        "border:1px solid #1a2030;border-radius:.5rem;padding:.6rem .85rem;margin:.4rem 0;"
+        "cursor:pointer}"
+        ".room:hover,.room:focus{border-color:#2a3550;background:#0c1019;outline:none}"
+        ".room b{font-weight:500;color:#dbe4f5}"
+        /*  The gate is a courtesy, not a secret: everything behind it is
+            public data on a public chain. What ownership actually gates is
+            writing, and that is gated by the contract.                    */
+        ".gate{border:1px solid #2a3550;border-radius:.55rem;padding:1rem 1.2rem;"
+        "margin:1.2rem 0;background:#0b0f18}"
+        "body.held .gate{display:none}"
+        "body:not(.held) .only{display:none}"
+        ".asme{font:12.5px ui-monospace,monospace;color:#7fe0a8}";
 
     /*═══════════════════ navigation ═══════════════════*/
 
@@ -156,6 +189,7 @@ contract Chrome {
             _tab(string.concat("/token/", t, "/market"), "market", here == 3),
             _tab(string.concat("/token/", t, "/rent"), "rent", here == 4),
             _tab(string.concat("/token/", t, "/vault"), "vault", here == 5),
+            _tab(string.concat("/dm/", t), "message", here == 18),
             _tab(string.concat("/token/", t, "/services.json"), "json", here == 6),
             "</nav>"
         );
@@ -174,24 +208,16 @@ contract Chrome {
         );
     }
 
-    /// @dev Two groups, in one bar. The Uniswap surfaces first, because a
-    ///      stranger arriving at this site wants to trade something before
-    ///      they want to read about the collection; the collection's own
-    ///      markets after, because that is the thing that is not available
-    ///      anywhere else.
+    /// @dev The site is two things: a place the tokens talk, and the door
+    ///      to the instrument each of them is. The bar says so in that
+    ///      order, and there is nothing else in it.
     function navTop(uint8 here) external pure returns (string memory) {
         return string.concat(
             "<nav>",
-            _tab("/", "index", here == 0),
-            _tab("/swap", "swap", here == 9),
-            _tab("/explore", "explore", here == 11),
-            _tab("/pools", "pools", here == 10),
-            _tab("/limit", "limit", here == 14),
-            _tab("/launch", "launch", here == 15),
-            _tab("/earn", "earn", here == 12),
-            _tab("/vote", "vote", here == 13),
+            _tab("/", "door", here == 0),
+            _tab("/chat", "commons", here == 16),
+            _tab("/rooms", "rooms", here == 17),
             _tab("/open", "markets", here == 7),
-            _tab("/assets", "assets", here == 8),
             _tab("/services.json", "json", here == 6),
             "</nav>"
         );

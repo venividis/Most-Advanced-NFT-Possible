@@ -104,80 +104,40 @@ interface ILeaseRead {
 
 interface IDesk {
     function config(uint256 id) external view returns (string memory);
+    function bare() external view returns (string memory);
     function core() external pure returns (string memory);
     function swap() external pure returns (string memory);
     function pool() external pure returns (string memory);
     function rent() external pure returns (string memory);
 }
 
-/*═══════════════════ the rest of the chain ═══════════════════*/
+/*═══════════════════ where the tokens talk ═══════════════════*/
 
-/*  What a Uniswap v3 pool is, as far as anything here reads it.
-
-    Declared beside MarketView for the same reason MarketView exists: five
-    contracts read this shape and a contract that declares its own copy is a
-    contract that keeps compiling after the shape has changed, and then
-    prints a number that means something else.                            */
-struct Look {
-    bool    found;
-    address pool;
-    uint24  fee;
-    uint128 liquidity;
-    uint160 sqrtPriceX96;
-    int24   tick;
-    /// @dev What one whole unit of the base is worth in the quote's
-    ///      smallest unit. Zero when nothing was found.
-    uint256 spot;
+interface IParley {
+    function COMMONS() external view returns (uint256);
+    function MAX_BODY() external view returns (uint256);
+    function MAX_NAME() external view returns (uint256);
+    function groups() external view returns (uint256);
+    function groupKey(uint256 index) external pure returns (uint256);
+    function pairKey(uint256 a, uint256 b) external pure returns (uint256);
+    function mayActAs(uint256 token, address who) external view returns (bool);
+    function sealX(uint256 token) external view returns (bytes32);
+    function stateOf(uint256 room)
+        external view
+        returns (uint64 last, uint64 count, uint64 opened, uint32 members,
+                 uint8 kind, bool open, uint256 steward, uint256 index, string memory name);
+    function topics()
+        external pure
+        returns (bytes32 said, bytes32 founded, bytes32 entered,
+                 bytes32 departed, bytes32 announced);
 }
 
-struct PoolState {
-    bool    ok;
-    uint160 sqrtPriceX96;
-    int24   tick;
-    uint128 liquidity;
-    address token0;
-    address token1;
-    uint24  fee;
-    int24   spacing;
-    /// @dev How many observations the pool's own oracle keeps. One means it
-    ///      has no history at all, which is the default every pool is
-    ///      created with — and the reason the chart on this site can be
-    ///      empty for a pool that trades constantly.
-    uint16  cardinality;
-}
-
-interface IVenue {
-    function FACTORY() external view returns (address);
-    function QUOTER() external view returns (address);
-    function ROUTER() external view returns (address);
-    function ROUTER_KIND() external view returns (uint8);
-    function POSITIONS() external view returns (address);
-    function WRAPPED() external view returns (address);
-    function GOVERNOR() external view returns (address);
-    function GOV_TOKEN() external view returns (address);
-    function POOL_MANAGER() external view returns (address);
-
-    function present() external view returns (bool);
-    function hasV4() external view returns (bool);
-    function tiers() external pure returns (uint24[4] memory);
-    function enabled(uint24 fee) external view returns (int24);
-    function spacings() external view returns (int24[4] memory);
-
-    function poolAt(address a, address b, uint24 fee) external view returns (address);
-    function best(address base, address quote, uint8 baseDecimals)
-        external view returns (Look memory);
-    function survey(address base, address quote, uint8 baseDecimals)
-        external view returns (Look[4] memory);
-    function state(address pool) external view returns (PoolState memory);
-    function history(address pool, uint32 window, uint8 points)
-        external view returns (bool ok, int24[] memory ticks, uint32 step);
-    function oldest(address pool) external view returns (bool ok, uint32 secondsAgo);
-
-    function sqrtAt(int24 tick) external pure returns (uint160);
-    function priceAt(int24 tick, uint256 unit, bool baseIsToken0)
-        external pure returns (uint256);
-    function spacing(uint24 fee) external pure returns (int24);
-    function usable(int24 tick, int24 sp) external pure returns (int24);
+interface ITalkDesk {
+    function config(uint256 room, uint256 other, uint256 group)
+        external view returns (string memory);
+    function core() external pure returns (string memory);
+    function rooms() external pure returns (string memory);
+    function door() external pure returns (string memory);
 }
 
 interface IChrome {

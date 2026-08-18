@@ -42,69 +42,6 @@ contract PageToken {
 
     /*═══════════════════ / ═══════════════════*/
 
-    function index() external view returns (string memory) {
-        uint256 supply = HUB.totalSupply();
-        return string.concat(
-            CHROME.head("IPSEITY"),
-            CHROME.navTop(0),
-            "<h1>IPSEITY</h1>"
-            "<p class=e>ipseity, n. &mdash; the property of being oneself; selfhood as "
-            "distinct from any of its appearances.</p>"
-            "<p>A four-dimensional solid, and the instrument for turning it, are the same "
-            "token. What a holder sees is a three-dimensional section of a 4-polytope: the "
-            "solid is never on screen, only the 3-space that currently cuts through it.</p>"
-            "<p>Every token returns its own control surface from <code>tokenURI</code> "
-            "&mdash; a WebGL2 engine, a keccak-256, an ABI coder and a wallet client, held "
-            "in this chain's state as contract bytecode. Nothing is fetched, including by "
-            "this page.</p>"
-            "<h2>each one is also a business</h2>"
-            "<p>A token here is not only something to look at. It runs an exchange, holds "
-            "a vault that cannot be emptied, rents itself out by the day, and draws any "
-            "four-dimensional form you hand it. Those are open to anybody &mdash; you do "
-            "not have to own one to use one, and what you pay goes to the token.</p>",
-            _offer(),
-            "<dl><dt>issued</dt><dd>", supply.str(), " of ", HUB.MAX_SUPPLY().str(), "</dd>",
-            "<dt>mint price</dt><dd>", Web.amount(HUB.price(), 18, 4), " ETH</dd>",
-            "<dt>collection</dt><dd><code>", LibNum.hexAddr(address(HUB)), "</code></dd></dl>",
-            "<p><a class=g href=\"/open\">which tokens are open for business &rarr;</a>"
-            "<a class=g href=\"/services.json\">the same thing, for a program &rarr;</a></p>",
-            _roll(supply),
-            CHROME.foot(msg.sender, block.chainid)
-        );
-    }
-
-    function _offer() private pure returns (string memory) {
-        return
-            "<table><tr><th>service</th><th>what a stranger may do</th><th>who is paid</th></tr>"
-            "<tr><td>trade</td><td>swap against the token's own two-asset market</td>"
-            "<td>the token, as a fee</td></tr>"
-            "<tr><td>rent</td><td>operate the instrument by the day &mdash; turn the solid, "
-            "commit orientations &mdash; but never sell it</td><td>the token, as rent</td></tr>"
-            "<tr><td>give</td><td>pay into a vault with no spend function in its bytecode</td>"
-            "<td>the token, permanently</td></tr>"
-            "<tr><td>draw</td><td>call the on-chain 4D projector with any word and any seed"
-            "</td><td>nobody &mdash; it is free</td></tr>"
-            "<tr><td>verify</td><td>check a signature the token made as itself</td>"
-            "<td>nobody &mdash; it is free</td></tr></table>";
-    }
-
-    /// @dev The most recent twelve. An index that lists four thousand tokens
-    ///      in one `eth_call` is an index that stops answering.
-    function _roll(uint256 supply) private view returns (string memory out) {
-        if (supply == 0) return "<p class=e>None issued yet.</p>";
-        uint256 from = supply > 12 ? supply - 11 : 1;
-        out = "<h2>most recent</h2><ul class=r>";
-        for (uint256 id = supply; id >= from; --id) {
-            out = string.concat(
-                out,
-                "<li><a href=\"/token/", id.str(), "\">#", id.str(), "</a> ",
-                "<span class=m>", _form(HUB.sectionOf(id).form()), "</span></li>"
-            );
-            if (id == 1) break;
-        }
-        return string.concat(out, "</ul>");
-    }
-
     /*═══════════════════ /token/<id> ═══════════════════*/
 
     function token(uint256 id) external view returns (string memory) {

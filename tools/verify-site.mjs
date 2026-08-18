@@ -101,12 +101,8 @@ const pool = await c.deploy(A("src/Pool.sol", "Pool").bytecode,
 await c.exec(nft, "setPool(address)", [pool]);
 const lease = await c.deploy(A("src/Lease.sol", "Lease").bytecode, encodeAddressArg(nft), "Lease");
 
-/*──────────────── a Uniswap v3 deployment to point the site at ────────────────
-
-  Every signature and return shape is the real one, and both routers record
-  the struct they decoded rather than merely acting on it — because the two
-  routers' structs differ by one field, the wrong shape does not revert, and
-  a mock that just performed the trade would pass either way.             */
+/*  Two ERC-20s the market pages trade, and nothing else. The site no longer
+    routes anywhere but its own contracts.                                */
 /* constructor(string n, string s, uint8 d, uint256 feeBps, bool silent) */
 const encS = (t) => w(t.length) + Buffer.from(t).toString("hex").padEnd(64, "0");
 const weth = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
@@ -114,66 +110,7 @@ const weth = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
 const usdc = await c.deploy(A("test/mocks/MockERC20.sol", "MockERC20").bytecode,
   w(0xa0) + w(0xe0) + w(6) + w(0) + w(0) + encS("USD Coin") + encS("USDC"), "USDC");
 
-const uniFactory = await c.deploy(A("test/mocks/UniV3.sol", "MockV3Factory").bytecode, "", "v3Factory");
-const uniBook = await c.deploy(A("test/mocks/UniV3.sol", "MockBook").bytecode, "", "book");
-const uniQuoter = await c.deploy(A("test/mocks/UniV3.sol", "MockQuoter").bytecode,
-  encodeAddressArg(uniBook), "QuoterV2");
-const uniRouterV3 = await c.deploy(A("test/mocks/UniV3.sol", "MockRouterV3").bytecode,
-  encodeAddressArg(uniBook), "SwapRouter");
-const uniRouter02 = await c.deploy(A("test/mocks/UniV3.sol", "MockRouter02").bytecode,
-  encodeAddressArg(uniBook), "SwapRouter02");
-
-/*  Two tiers with pools, at different depths, so "quote every tier and take
-    the best" has something to get wrong. The 0.05% pool is shallow and
-    prices worse; the 0.3% pool is deep and prices better.                */
-/*  A pool prices token1 per token0, and token0 is whichever address sorts
-    first — which for two freshly deployed mocks is whichever this run
-    happened to produce. Three thousand USDC per WETH is tick -196256 when
-    WETH is token0 and +196256 when it is not, and hardcoding one of them
-    would give the pool a price that is the reciprocal of the one the test
-    means half the time.                                                  */
-const WETH_FIRST = weth.toLowerCase() < usdc.toLowerCase();
-const POOL_TICK = WETH_FIRST ? -196256n : 196256n;
-await c.exec(uniFactory, "make(address,address,uint24,uint160,int24,uint128)",
-  [weth, usdc, 500n, 1n << 96n, POOL_TICK, 10n ** 6n]);
-await c.exec(uniFactory, "make(address,address,uint24,uint160,int24,uint128)",
-  [weth, usdc, 3000n, 1n << 96n, POOL_TICK, 9n * 10n ** 18n]);
-/* 1 WETH buys 2900 USDC through the shallow pool, 2995 through the deep one */
-await c.exec(uniBook, "set(address,address,uint24,uint256)", [weth, usdc, 500n, 2900n * 10n ** 6n]);
-await c.exec(uniBook, "set(address,address,uint24,uint256)", [weth, usdc, 3000n, 2995n * 10n ** 6n]);
-await c.exec(uniBook, "set(address,address,uint24,uint256)",
-  [usdc, weth, 3000n, 333_000_000_000n]);
-/* the routers pay out of their own inventory */
-await c.exec(usdc, "mint(address,uint256)", [uniRouterV3, 10n ** 15n]);
-await c.exec(usdc, "mint(address,uint256)", [uniRouter02, 10n ** 15n]);
-await c.exec(weth, "mint(address,uint256)", [uniRouterV3, 10n ** 24n]);
-
-const uniPositions = await c.deploy(A("test/mocks/UniV3.sol", "MockPositions").bytecode,
-  "", "NonfungiblePositionManager");
-
-/*  A v4 PoolManager, as far as this site reads one: `hasV4` asks whether
-    the address has code, and the launch page only ever *sends* `initialize`
-    to it — which these tests do not exercise, because a faithful
-    PoolManager is a great deal of contract for one call. What IS exercised
-    is everything the launchpad itself does: the token, the salt search, the
-    hook and its address. Those are this collection's own code.          */
-const uniManager = await c.deploy(A("test/mocks/UniV3.sol", "MockBook").bytecode,
-  "", "PoolManager");
-
-const UNI = {
-  name: "the test chain", factory: uniFactory, quoter: uniQuoter,
-  router: uniRouterV3, routerKind: 0, positions: uniPositions,
-  wrapped: weth,
-  /*  No governor, deliberately. Uniswap's governance lives on Ethereum
-      mainnet and nowhere else, so "this chain has no governor" is the
-      ordinary case and the one the default deployment should exercise.
-      The governance tests stand up their own wiring with a real one.   */
-  governor: "0x0000000000000000000000000000000000000000",
-  govToken: "0x0000000000000000000000000000000000000000",
-  poolManager: uniManager
-};
-
-const site = await deploySite(c, A, { hub: nft, pool, lease, uniswap: UNI });
+const site = await deploySite(c, A, { hub: nft, pool, lease });
 const GET = getter(c, site.premises);
 ok("the site is deployed", (await c.codeSize(site.premises)) > 0);
 
@@ -322,8 +259,9 @@ const routes = [
   [["token", "1", "faces"], "text/html", "/token/1/faces"],
   [["token", "1", "market"], "text/html", "/token/1/market"],
   [["token", "1", "pool"], "text/html", "/token/1/pool"],
-  [["assets"], "text/html", "/assets"],
-  [["assets", "0"], "text/html", "/assets/0"],
+  [["chat"], "text/html", "/chat"],
+  [["rooms"], "text/html", "/rooms"],
+  [["dm", "1"], "text/html", "/dm/1"],
   [["token", "1", "rent"], "text/html", "/token/1/rent"],
   [["token", "1", "vault"], "text/html", "/token/1/vault"],
   [["token", "1", "services.json"], "application/json", "/token/1/services.json"],
@@ -397,39 +335,41 @@ head("and it describes the collection-wide surface too");
 {
   const m = JSON.parse((await GET(["services.json"])).body);
 
-  ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 8,
+  ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 7,
      JSON.stringify(m.routes || null).slice(0, 120));
   const paths = (m.routes || []).map((r) => r.path);
-  for (const p of ["/swap", "/pools", "/limit", "/explore", "/earn", "/vote",
-                   "/launch", "/hook", "/open", "/assets"]) {
+  for (const p of ["/", "/chat", "/rooms", "/room/<n>", "/dm/<id>", "/open",
+                   "/services.json"]) {
     ok(`  ${p} is discoverable`, paths.includes(p), paths.join(" "));
   }
-  ok("the three routes that take an address say so",
-     (m.routes || []).filter((r) => r.takes).length === 3,
-     JSON.stringify((m.routes || []).filter((r) => r.takes)));
 
   /*  Every path the manifest advertises must actually answer. A directory
       that names a route the router does not have is the same defect as one
-      that omits a route the router does have.                            */
+      that omits a route the router does have. The two that take a number
+      are asked for a real one rather than for the placeholder.           */
   for (const r of m.routes || []) {
     if (r.path === "/services.json") continue;
-    const seg = r.path.split("/").filter(Boolean);
+    const seg = r.path === "/room/<n>" ? ["room", "1"]
+              : r.path === "/dm/<id>" ? ["dm", "1"]
+              : r.path.split("/").filter(Boolean);
     const got = await GET(seg);
     ok(`  and ${r.path} actually answers`, got.status === 200, `status ${got.status}`);
   }
 
-  ok("the venue is described rather than left out", m.venue !== undefined);
-  eq("with the factory the site was deployed against",
-     String(m.venue.factory).toLowerCase(), uniFactory.toLowerCase());
-  eq("and the router", String(m.venue.router).toLowerCase(), uniRouterV3.toLowerCase());
-  /*  The field that decides whether a program builds eight words or seven.
-      Without it a caller reading this manifest has an address and no way to
-      know which of the two incompatible structs it takes.               */
-  eq("and the router's calldata shape, which is the part a program needs",
-     m.venue.routerKind, 0);
-  ok("and whether there is a venue there at all", m.venue.present === true);
-  console.log("      a program can now find /swap and know the router takes eight " +
-              "words with a deadline at index 4");
+  /*  The manifest is not a convenience for a browser; it is the instruction
+      manual for replacing one. A program holding the contract, the topic
+      and the walk can read the whole archive with `eth_getLogs` and never
+      load a page of this site.                                           */
+  ok("the place the tokens talk is described rather than left out", m.parley !== undefined);
+  eq("with the contract the site was deployed against",
+     String(m.parley.at).toLowerCase(), site.parley.toLowerCase());
+  ok("and the topic a program filters on",
+     /^0x[0-9a-f]{64}$/.test(String(m.parley.said)), String(m.parley.said));
+  eq("which is the topic the contract itself derives",
+     String(m.parley.said).toLowerCase(),
+     "0x" + Buffer.from(keccak256(Buffer.from(
+       "Said(uint256,uint256,uint64,uint64,uint64,uint8,bytes)"))).toString("hex"));
+  ok("and how to walk backwards through it", /block of the one before/.test(m.parley.walk));
 }
 
 head("the manifest tells a program how to call, not just what exists");
@@ -587,13 +527,6 @@ head("the market picker, and the token list that is not fetched");
   ok("every market it offers is genuinely open", allOpen,
      "the picker listed a market the pool says is closed");
 
-  const as = await GET(["assets"]);
-  eq("the asset index answers", as.status, 200);
-  ok("naming what is actually traded", as.body.includes("WETH") && as.body.includes("DAI"));
-  ok("with the address, so nothing has to be trusted", as.body.includes(weth.slice(2, 12)));
-  ok("and it is derived, not fetched",
-     !/tokenlist|ipfs|https?:\/\//i.test(as.body.replace(/www\.w3\.org/g, "")));
-
   /*  Closing a market has to remove it, or the picker offers a market that
       cannot be traded — which is the exact failure a fetched list has.   */
   await c.exec(pool, "closeMarket(uint256)", [far]);
@@ -609,6 +542,10 @@ head("the app parses as JavaScript");
 const scriptsOf = (body) =>
   [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 for (const [label, body] of [
+  ["the door", (await GET([])).body],
+  ["the commons", (await GET(["chat"])).body],
+  ["the rooms", (await GET(["rooms"])).body],
+  ["a direct message", (await GET(["dm", "1"])).body],
   ["the swap page", mk.body],
   ["the pool page", (await GET(["token", "1", "pool"])).body],
   ["the rent page", (await GET(["token", "1", "rent"])).body],
@@ -622,13 +559,24 @@ for (const [label, body] of [
   ok(`${label} — ${blocks.length} block(s)`, blocks.length > 0 && bad === null,
      bad || "no script blocks found at all");
 }
-/*  And the pages that are documents ship none, which is the right answer
-    rather than an oversight: the index and the counter are links, and a
-    client that does nothing is bytes a node serves for no reason.       */
-for (const [label, path] of [["the index", []], ["the counter", ["token", "1"]]]) {
+/*  The counter still ships none, which is the right answer rather than an
+    oversight: it is a page of links about a token, and a client that does
+    nothing is bytes a node serves for no reason.
+
+    The door does ship one now, and that is the change: it used to be a
+    document about the collection and it is the way in. It reads which
+    tokens the connected wallet holds and hands over the instrument, so it
+    has something to do before anybody clicks a link.                     */
+for (const [label, path] of [["the counter", ["token", "1"]]]) {
   const b = (await GET(path)).body;
   ok(`${label} ships no client, because it has nothing to sign`,
      scriptsOf(b).length === 0, `${scriptsOf(b).length} script block(s)`);
+}
+{
+  const b = (await GET([])).body;
+  ok("the door ships one, because it is the way in",
+     scriptsOf(b).length > 0 && b.includes("balanceOf"),
+     "the door cannot tell you what you hold");
 }
 
 head("the holder's side is on the site too");
@@ -701,11 +649,32 @@ const matches = (el, q) => {
   return el.tagName === q;
 };
 
+let ALL = [];
 const mkEl = (tag, attrs) => {
   const el = {
-    tagName: tag, value: "", textContent: "",
+    tagName: tag, value: "",
     disabled: false, hidden: false, className: "", placeholder: "",
-    dataset: {}, _on: {}, _html: "", _kids: null,
+    href: "", src: "", alt: "", title: "", tabIndex: 0, checked: false,
+    scrollTop: 0, scrollHeight: 0, style: {},
+    dataset: {}, _on: {}, _html: "", _kids: null, _text: "", children: [],
+    /*  Real textContent is the concatenation of every descendant's text,
+        and setting it removes the children. The chat client builds a
+        message out of four elements and never assigns markup, so a shim
+        that treated textContent as a plain string would report the right
+        answer for the wrong reason — and would keep reporting it after
+        somebody switched the client to innerHTML.                       */
+    get textContent() {
+      return this._text + this.children.map((k) => k.textContent).join("");
+    },
+    set textContent(v) { this._text = String(v); this.children.length = 0; },
+    append(...nodes) {
+      for (const n of nodes) {
+        this.children.push(n);
+        if (n && n.tagName) ALL.push(n);
+      }
+    },
+    setAttribute(k, v) { if (k in this) this[k] = v; else this.dataset[k] = v; },
+    getAttribute(k) { return k in this ? this[k] : this.dataset[k]; },
     get innerHTML() { return this._html; },
     set innerHTML(v) { if (v !== this._html) { this._html = String(v); this._kids = null; } },
     querySelectorAll(q) {
@@ -753,6 +722,7 @@ const mkEl = (tag, attrs) => {
 function mount(html) {
   byId = new Map();
   const all = [];
+  ALL = all;
   for (const m of html.matchAll(/<(\w+)([^>]*)>/g)) {
     const el = mkEl(m[1], m[2]);
     all.push(el);
@@ -774,9 +744,25 @@ function mount(html) {
   globalThis.addEventListener = (k, f) => { (listeners[k] = listeners[k] || []).push(f); };
   globalThis.dispatchEvent = (e) => { for (const f of listeners[e.type] || []) f(e); };
   globalThis.Event = class { constructor(t) { this.type = t; } };
+  /*  A body, because the gate is a class on it; a createElement, because
+      the chat client builds every message out of elements rather than out
+      of a string; and a `hidden`, because the poll stops when the tab is
+      not being looked at.                                              */
+  const body = mkEl("body", "");
   globalThis.document = {
+    body: body,
+    hidden: false,
+    createElement: (t) => mkEl(t, ""),
     getElementById: (i) => byId.get(i) || null,
     querySelectorAll: (q) => all.filter((e) => matches(e, q))
+  };
+  /*  Storage exists but forgets between pages, which is what a fresh
+      browser looks like and the harder case for the client.           */
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k)
   };
   return byId;
 }
@@ -786,6 +772,7 @@ const runScripts = (html) => {
 const nap = (ms) => new Promise((r) => setTimeout(r, ms));
 const wallet = (actor) => {
   let n = 0;
+  const filters = [];
   globalThis.window = globalThis;
   globalThis.window.ethereum = {
     request: async ({ method, params }) => {
@@ -794,6 +781,10 @@ const wallet = (actor) => {
         return [actor.from.toString()];
       if (method === "eth_call")
         return c.call(params[0].to, params[0].data, actor.from.toString());
+      /*  The conversation is read from logs, so the provider has to answer
+          for them. The ledger is the same one the transactions above wrote
+          into, filtered the way a node filters.                        */
+      if (method === "eth_getLogs") { filters.push(params[0]); return c.getLogs(params[0]); }
       if (method === "eth_sendTransaction") {
         n++;
         const t = params[0];
@@ -804,7 +795,7 @@ const wallet = (actor) => {
       throw new Error("unexpected method " + method);
     }
   };
-  return { sent: () => n };
+  return { sent: () => n, filters: () => filters };
 };
 
 /*════════════ the app, actually driven ════════════
@@ -919,966 +910,141 @@ head("driving the swap card");
 }
 
 
-/*════════════ the Uniswap card, actually driven ════════════
+/*════════════ the conversation, actually driven ════════════
 
-  This is the section that would catch the one mistake on this whole site
-  that costs somebody money.
+  A page can carry the right topic, the right selectors and a composer that
+  looks like a composer, and still put a stranger's message into the DOM as
+  markup — on the same origin a wallet is injected into. Or read the room
+  with a range query that a public endpoint answers once and then rate-limits
+  for an hour.
 
-  Two Uniswap routers have an `exactInputSingle`. Their params structs
-  differ by exactly one field — the older one carries a `deadline` at index
-  4 and SwapRouter02 does not — and sending one shape to the other router
-  does not revert. It shifts `recipient` and every amount by one word and
-  executes something nobody asked for.
-
-  So the mocks do not merely perform the trade. They decode the struct and
-  record every field, and the assertions below check field by field that the
-  word the client wrote into `amountIn` arrived as `amountIn`. Then the
-  whole thing is done again against a second deployment wired to the other
-  router with the other kind, because a page that is right about one shape
-  and silent about the other is a page that is right by accident.
+  Neither of those is visible in the markup. Both are visible here.
 */
-head("driving the Uniswap card");
+head("driving the commons");
 {
-  const page = await GET(["swap"]);
-  eq("/swap answers 200", page.status, 200);
-
+  const page = await GET(["chat"]);
   mount(page.body);
-  const uniTrader = await c.as("0x" + "55".repeat(32));
-  await c.exec(weth, "mint(address,uint256)", [uniTrader.from.toString(), 10n ** 21n]);
-  const W = wallet(uniTrader);
+  const W = wallet(c);
   runScripts(page.body);
-  await nap(30);
+  await nap(80);
+  ok("the talking client loaded against the page's own config", !!globalThis.IPT);
+
   const $ = (i) => byId.get(i);
+  await $("go").fire("click");
+  await nap(120);
 
-  ok("the shared client loaded", !!globalThis.IP);
-  ok("and the Uniswap client on top of it", !!globalThis.UNI);
+  const me = globalThis.IPT.me();
+  ok("connecting found the tokens this wallet holds",
+     globalThis.IPT.mine().length > 0, "it found none");
+  ok("and it is speaking as one of them", me !== null && me > 0n, String(me));
+  ok("the gate opened", document.body.classList.contains("held"));
+  eq("and the page says which token is speaking",
+     $("as").children.length, globalThis.IPT.mine().length);
 
-  /*──── the config carries the addresses, not a copy of them ────*/
-  const U = globalThis.UNI.U;
-  eq("the factory in the page is the factory the site was deployed with",
-     U.factory.toLowerCase(), uniFactory.toLowerCase());
-  eq("and the router", U.router.toLowerCase(), uniRouterV3.toLowerCase());
-  eq("and the router's calldata shape travels with it", U.kind, 0);
+  /*  The hostile body again, this time all the way through the client. If
+      it ever reaches the DOM as markup it does so on the same origin as
+      /token/<id>/live, where a wallet is injected.                      */
+  const HOSTILE = "</script><img src=x onerror=alert(1)> & <b>bold</b>";
+  const before = decUint(await c.read(site.parley, "stateOf(uint256)", [0]), 1);
+  $("say").value = HOSTILE;
+  await $("send").fire("click");
+  await nap(120);
+  const after = decUint(await c.read(site.parley, "stateOf(uint256)", [0]), 1);
+  eq("pressing send put a message on the chain", after, before + 1n);
 
-  /*  The selectors, checked against keccak here rather than trusted. This
-      is the check a reader can do by hand from the page source.        */
-  const s4 = (sig) => "0x" + Buffer.from(keccak256(Buffer.from(sig, "utf8")))
-    .toString("hex").slice(0, 8);
-  eq("the v3 router selector is the hash of the v3 router's own signature",
-     U.sel.swapV3,
-     s4("exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))"));
-  eq("and SwapRouter02's is a different function entirely",
-     U.sel.swap02,
-     s4("exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))"));
-  ok("which are not the same four bytes", U.sel.swapV3 !== U.sel.swap02);
-  /*  QuoterV2's NatSpec lists its struct fields in a different order from
-      the declaration. The declaration is what the ABI encodes.        */
-  eq("the quoter selector follows the struct declaration, not the comment",
-     U.sel.quote, s4("quoteExactInputSingle((address,address,uint256,uint24,uint160))"));
-  ok("and not the order its own documentation gives",
-     U.sel.quote !== s4("quoteExactInputSingle((address,address,uint24,uint256,uint160))"));
-
-  /*──── the dropdown is derived from the chain ────*/
-  const syms = U.assets.map((a) => a.s);
-  ok("the offered assets were derived from open markets, not fetched",
-     syms.includes("WETH") && syms.includes("USDC"), syms.join(","));
-  ok("and every one of them carries its own decimals",
-     U.assets.every((a) => typeof a.d === "number" && a.d <= 36));
-  ok("the page offers a box for anything not on that list",
-     /paste an address/.test(page.body));
-
-  /*──── a quote, from the tier that prices best ────*/
-  $("ta").value = weth.toLowerCase();
-  await $("ta").fire("change");
-  $("tb").value = usdc.toLowerCase();
-  await $("tb").fire("change");
-  await nap(300);
-
-  $("si").value = "1";
-  await $("si").fire("input");
-  await nap(900);
-
-  const shown = $("so").value.replace(/,/g, "");
-  ok("typing an amount produced a quote", shown.length > 0, "the field stayed empty");
-  ok("and it came from the deepest tier rather than the first one that answered",
-     Math.abs(Number(shown) - 2995) < 0.01,
-     `card says ${shown}, the 0.3% pool pays 2995 and the 0.05% pool pays 2900`);
-  ok("the card names which pool it quoted through",
-     /0\.3%/.test($("det").innerHTML), $("det").innerHTML.slice(0, 200));
-  console.log(`      quoted every tier that had a pool and took ${shown} over 2900`);
-
-
-
-  /*──── approve, then swap ────*/
-  await $("go").fire("click");                       // connects
-  await nap(200);
-  await $("go").fire("click");                       // approves
-  await nap(200);
-  const allow = decUint(await c.read(weth, "allowance(address,address)",
-    [uniTrader.from.toString(), uniRouterV3]));
-  ok("the first press approved the router and nothing else", allow > 0n);
-
-  const usdcBefore = decUint(await c.read(usdc, "balanceOf(address)",
-    [uniTrader.from.toString()]));
-  await $("go").fire("click");                       // swaps
-  await nap(400);
-
-  const seen = await c.read(uniRouterV3, "last()");
-  ok("the swap reached the router", decBool(seen, 0), "it never arrived");
-
-  /*  Field by field. Any one of these being off by a word is the failure
-      the two-router trap produces, and it produces no revert.          */
-  eq("tokenIn arrived as tokenIn", decAddr(seen, 1).toLowerCase(), weth.toLowerCase());
-  eq("tokenOut arrived as tokenOut", decAddr(seen, 2).toLowerCase(), usdc.toLowerCase());
-  eq("the fee tier arrived as the fee tier", decUint(seen, 3), 3000n);
-  eq("the recipient is the person who pressed the button",
-     decAddr(seen, 4).toLowerCase(), uniTrader.from.toString().toLowerCase());
-  ok("the deadline is in the future and not decades away",
-     decUint(seen, 5) > 0n && decUint(seen, 5) < BigInt(Math.floor(Date.now() / 1000)) + 7200n,
-     `deadline ${decUint(seen, 5)}`);
-  eq("one WETH typed as text arrived as one WETH in base units",
-     decUint(seen, 6), WAD);
-  eq("and the floor is the quote less the slippage tolerance, to the wei",
-     decUint(seen, 7), (2995n * 10n ** 6n * 9950n) / 10000n);
-  eq("with no price limit, which is what zero means there", decUint(seen, 8), 0n);
-
-  const usdcAfter = decUint(await c.read(usdc, "balanceOf(address)",
-    [uniTrader.from.toString()]));
-  eq("and the tokens actually moved", usdcAfter - usdcBefore, 2995n * 10n ** 6n);
-
-  /*──── the override, which used to be a highlight and nothing else ────*/
-
-  /*  The page says the tier "can be overridden". Before this it could not:
-      pressing a tier moved a class and `quoteAll` still scanned every pool
-      and took the best, so the trade went where the router wanted while the
-      interface said otherwise. A control that lies about what it does is
-      worse than no control, so this presses the WORSE tier and requires the
-      trade to actually go there.                                          */
-  {
-    const worse = $("rt").querySelectorAll("[data-fee]").find((b) => b.dataset.fee === "500");
-    ok("the shallower tier is offered as a choice", !!worse,
-       $("rt").innerHTML.slice(0, 160));
-    await worse.fire("click");
-    await nap(800);
-    const forced = $("so").value.replace(/,/g, "");
-    ok("choosing it changes the quote to that tier's price",
-       Math.abs(Number(forced) - 2900) < 0.01,
-       `after pressing 0.05% the card says ${forced}, and that tier pays 2900`);
-
-    await $("go").fire("click");
-    await nap(400);
-    const s2 = await c.read(uniRouterV3, "last()");
-    eq("and the trade goes through the tier that was chosen, not the best one",
-       decUint(s2, 3), 500n);
-    console.log(`      pressed 0.05%: quote 2995 -> ${forced}, and the swap went ` +
-                `through the 0.05% pool rather than the 0.3% one`);
+  /*  Two more, in two later blocks, so the walk has somewhere to walk to.
+      One message in one block would let a client that only ever reads the
+      head block pass this section without ever following a pointer.     */
+  for (const text of ["and another", "and one more"]) {
+    evm.roll(evm.BLOCK.header.number + 7n);
+    $("say").value = text;
+    await $("send").fire("click");
+    await nap(120);
   }
 
-  /*──── the sentinel ────*/
-  $("si").value = "0";
-  await $("si").fire("input");
-  await nap(400);
-  ok("an amount of zero cannot be sent",
-     $("go").disabled === true || /Enter an amount/.test($("go").textContent),
-     `button says "${$("go").textContent}", disabled=${$("go").disabled}`);
-  const before0 = W.sent();
-  await $("go").fire("click");
-  await nap(200);
-  eq("and pressing anyway sends nothing", W.sent(), before0);
-  console.log("      zero is CONTRACT_BALANCE on SwapRouter02 — " +
-              "\"swap everything the router holds\", not \"swap nothing\"");
+  await globalThis.IPT.paint();
+  await nap(80);
+  const rows = $("log").children;
+  ok("and the conversation came back onto the page", rows.length > 0,
+     "nothing was rendered");
 
-  /*──── a token nobody vetted ────*/
-  $("ta").value = "?";
-  $("tax").value = nasty;
-  await $("tax").fire("change");
-  await nap(300);
-  const tick = $("ts").textContent;
-  ok("a pasted token's ticker is stripped to something inert",
-     !/[<>&"']/.test(tick), `rendered as ${JSON.stringify(tick)}`);
-  console.log(`      a symbol of "<script>alert(1)</script>" renders as ` +
-              `${JSON.stringify(tick)}`);
+  eq("all three messages are on the page, oldest first", rows.length, 3);
+  const first = rows[0];
+  const body = first.children[first.children.length - 1];
+  eq("the hostile one reads exactly as it was typed", body.textContent, HOSTILE);
+  eq("and the newest is at the bottom",
+     rows[2].children[rows[2].children.length - 1].textContent, "and one more");
+  const last = rows[rows.length - 1];
+  eq("and it is text, not markup — nothing was parsed out of it",
+     body.children.length, 0);
+  ok("because the client never assigned innerHTML to it",
+     body.innerHTML === "", JSON.stringify(body.innerHTML));
+  ok("the sender is named by token, not by address",
+     last.children[0].textContent.startsWith("#"), last.children[0].textContent);
 
-  /*  The same hazard on the collection's own market card, which is where it
-      was found. Token 1's pair is the script-tag token. The JSON escaper
-      stops that symbol ending the config block; it does not stop the string
-      coming back out of JSON.parse with its angle brackets intact, and the
-      quote panel builds itself with innerHTML.                          */
-  const hostile = await GET(["token", "1", "market"]);
-  mount(hostile.body);
-  wallet(uniTrader);
-  runScripts(hostile.body);
-  await nap(30);
-  const sym = globalThis.IP.D.base.s;
-  ok("and the market card's own config is scrubbed the same way",
-     !/[<>&"']/.test(sym), `the client holds ${JSON.stringify(sym)}`);
-  console.log(`      after JSON.parse the raw symbol is back \u2014 so every ` +
-              `ticker in the config is put through the whitelist once, centrally`);
+  /*  And how it was read. One query per block, never a range: `fromBlock`
+      and `toBlock` are the same block every time. A client that scanned
+      would work perfectly here and be refused by every public endpoint in
+      production, which is the kind of defect a test has to look for on
+      purpose.                                                           */
+  const asked = W.filters();
+  ok("the archive was read by following pointers, not by reading one block",
+     asked.length >= 3, `${asked.length} quer(y|ies) for three blocks of messages`);
+  ok("and every one of them asked for exactly one block",
+     asked.every((f) => f.fromBlock === f.toBlock),
+     JSON.stringify(asked.find((f) => f.fromBlock !== f.toBlock)));
+  ok("filtered to the room, by a topic the contract computed",
+     asked.every((f) => f.topics && f.topics.length === 2 &&
+                        String(f.topics[0]).length === 66));
+  console.log(`      ${asked.length} single-block queries, no range scan`);
 }
 
-/*════════════ the other router, the other shape ════════════*/
-head("the same page wired to the other router");
+head("driving a direct message, and the room nobody founded");
 {
-  /*  A whole second front door would be wasteful; the page contract answers
-      directly. What is under test is the calldata, and the calldata comes
-      from the config, and the config comes from the Venue.               */
-  const venue02 = await c.deploy(A("src/Venue.sol", "Venue").bytecode,
-    encodeAddressArg(uniFactory) + encodeAddressArg(uniQuoter) +
-    encodeAddressArg(uniRouter02) + w(1) + encodeAddressArg(uniRouter02) +
-    encodeAddressArg(weth) + w(0) + w(0) + w(0), "Venue02");
-  const deskU02 = await c.deploy(A("src/DeskUni.sol", "DeskUni").bytecode,
-    encodeAddressArg(venue02) + encodeAddressArg(pool), "DeskUni02");
-  const pSwap02 = await c.deploy(A("src/PageSwap.sol", "PageSwap").bytecode,
-    encodeAddressArg(site.chrome) + encodeAddressArg(pool) + encodeAddressArg(site.desk) +
-    encodeAddressArg(deskU02) + encodeAddressArg(site.deskT) + encodeAddressArg(venue02),
-    "PageSwap02");
-
-  const body = decString(await c.read(pSwap02, "swap()"));
-  ok("the page says which router it is wired to and what that costs",
-     /SwapRouter02/.test(body) && /no deadline field/.test(body));
-  ok("rather than showing a deadline box that quietly does nothing",
-     /shown as inert/.test(body));
-
-  mount(body);
-  const t2 = await c.as("0x" + "66".repeat(32));
-  await c.exec(weth, "mint(address,uint256)", [t2.from.toString(), 10n ** 21n]);
-  wallet(t2);
-  runScripts(body);
-  await nap(30);
-  const $ = (i) => byId.get(i);
-  eq("the client picked up the other shape", globalThis.UNI.U.kind, 1);
-
-  $("ta").value = weth.toLowerCase();
-  await $("ta").fire("change");
-  $("tb").value = usdc.toLowerCase();
-  await $("tb").fire("change");
-  await nap(300);
-  $("si").value = "2";
-  await $("si").fire("input");
-  await nap(900);
-
-  await $("go").fire("click");
-  await nap(200);
-  await $("go").fire("click");
-  await nap(200);
-  await $("go").fire("click");
-  await nap(400);
-
-  const seen = await c.read(uniRouter02, "last()");
-  ok("the swap reached SwapRouter02", decBool(seen, 0));
-  eq("tokenIn is still tokenIn with a field removed",
-     decAddr(seen, 1).toLowerCase(), weth.toLowerCase());
-  eq("and the recipient did not shift by a word",
-     decAddr(seen, 4).toLowerCase(), t2.from.toString().toLowerCase());
-  eq("and two WETH is two WETH", decUint(seen, 6), 2n * WAD);
-  console.log("      seven words instead of eight, and every field still " +
-              "landed where its name says");
-
-  /*  The negative control. If the mock accepted anything, every assertion
-      above would be theatre — so the wrong shape is sent deliberately and
-      must arrive wrong.                                                 */
-  const wrong = globalThis.UNI.S.swap02 +
-    encodeAddressArg(weth) + encodeAddressArg(usdc) + w(3000) +
-    encodeAddressArg(t2.from.toString()) +
-    w(Math.floor(Date.now() / 1000) + 600) +          // the extra deadline word
-    w(WAD) + w(0) + w(0);
-  let mangled = false;
-  try {
-    await t2.send({ to: uniRouter02, data: wrong, label: "wrong shape" });
-    const bad = await c.read(uniRouter02, "last()");
-    mangled = decUint(bad, 6) !== WAD;
-  } catch (e) { mangled = true; }
-  ok("sending the eight-word shape to the seven-word router does NOT arrive intact",
-     mangled,
-     "the mock accepted the wrong shape unchanged, so the checks above prove nothing");
-  console.log("      which is exactly why the kind is stored beside the address");
-}
-
-
-/*════════════ liquidity, ranges, and the order without a server ════════════
-
-  The failure this section exists to catch is the signed one. `tickLower`
-  and `tickUpper` are int24, and every pair priced below parity has a
-  negative current tick — so a real range is routinely two negative numbers.
-
-  A client that reinterprets the low 24 bits fails loudly: -201240 becomes
-  16575976, which is not a legal int24 and the decoder rejects it. The
-  failure that is silent is a client that DROPS the sign, sending +201240 —
-  a legal tick roughly nine million times the intended price, minting in a
-  range nobody chose with nothing to complain about.
-
-  So the mock records the ticks it decoded, as signed, and the assertions
-  read them back.
-*/
-head("driving the liquidity page");
-{
-  const page = await GET(["pools"]);
-  eq("/pools answers 200", page.status, 200);
-
-  /*  Both pools for this pair sit at tick -196256, which is where WETH/USDC
-      sits when a whole WETH is worth three thousand USDC. Negative, like
-      almost every real pair.                                             */
+  const page = await GET(["dm", "2"]);
   mount(page.body);
-  const lp = await c.as("0x" + "77".repeat(32));
-  await c.exec(weth, "mint(address,uint256)", [lp.from.toString(), 10n ** 21n]);
-  await c.exec(usdc, "mint(address,uint256)", [lp.from.toString(), 10n ** 12n]);
-  const W = wallet(lp);
+  wallet(c);
   runScripts(page.body);
-  await nap(30);
-  const $ = (i) => byId.get(i);
+  await nap(80);
+  await byId.get("go").fire("click");
+  await nap(140);
 
-  const deepPool0 = decAddr(await c.read(uniFactory, "getPool(address,address,uint24)",
-    [weth, usdc, 3000n]));
-  ok("the liquidity client loaded", !!globalThis.UNI);
-  ok("the page offers the fee tiers this chain has enabled",
-     /fee tier/.test(page.body));
-  ok("and says what withdrawing actually costs in transactions",
-     /two transactions/.test(page.body) && /decreaseLiquidity/.test(page.body));
+  const key = decUint(await c.read(site.parley, "pairKey(uint256,uint256)",
+    [globalThis.IPT.me(), 2]));
+  eq("the client derived the pair room rather than being told it",
+     globalThis.IPT.room(), key);
 
-  $("la").value = weth.toLowerCase();
-  await $("la").fire("change");
-  $("lb").value = usdc.toLowerCase();
-  await $("lb").fire("change");
-  await nap(500);
-
-  /*──── a band around the current price ────*/
-  await $("lt").querySelectorAll("[data-fee]")
-    .find((b) => b.dataset.fee === "3000").fire("click");
-  await nap(400);
-  const spanBtn = globalThis.document.querySelectorAll("[data-span]")
-    .find((b) => b.dataset.span === "10");
-  await spanBtn.fire("click");
-  await nap(500);
-
-  const rng = $("rng").innerHTML;
-  /*  A price AND the ticks behind it, because the tick is what the pool
-      stores and the price is only what it means. A panel showing "0" would
-      mean the exact price came back as sub-unit and got rounded away, which
-      is the bug a price-only panel hides.                                */
-  ok("the range panel names a real price and the ticks behind it",
-     /ticks/.test(rng) && /\d+ \u2026 \d+|-\d+ \u2026/.test(rng.replace(/<[^>]+>/g, "")) &&
-     /[1-9]/.test((rng.match(/range<\/span><b>([^<]*)/) || ["", ""])[1]),
-     rng.slice(0, 240));
-  console.log(`      ${rng.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 130)}`);
-
-  $("a0").value = "1";
-  $("a1").value = "3000";
-  await $("add2").fire("click");         // connect + approve WETH
-  await nap(200);
-  await $("add2").fire("click");         // approve USDC
-  await nap(200);
-  await $("add2").fire("click");         // mint
-  await nap(400);
-
-  const m = await c.read(uniPositions, "last()");
-  ok("the mint reached the position manager", decBool(m, 0), "it never arrived");
-
-  /*  token0 < token1 is required and the client sorts. Which of WETH/USDC
-      is token0 depends on the addresses this run happened to produce, so
-      the assertion is the ordering rule and not a fixed answer.          */
-  const t0 = decAddr(m, 1).toLowerCase(), t1 = decAddr(m, 2).toLowerCase();
-  ok("the pair arrived sorted, which the position manager requires",
-     t0 < t1, `${t0} then ${t1}`);
-  ok("and it is the pair that was chosen",
-     [t0, t1].sort().join() ===
-     [weth.toLowerCase(), usdc.toLowerCase()].sort().join());
-  eq("the fee tier is the one that was pressed", decUint(m, 3), 3000n);
-
-  const sw = (i) => { const v = decUint(m, i); return v >= 1n << 255n ? v - (1n << 256n) : v; };
-  const lo = sw(4), hi = sw(5);
-  /*  The pool sits at ±196256 depending on which token sorted first, and a
-      ±10% band around it stays on the same side of zero. When that side is
-      the negative one — which is the ordinary case for a real pair — a
-      client that dropped the sign would have sent +196256 instead: legal, on
-      the grid, and about nine million times the intended price.          */
-  if (WETH_FIRST) {
-    ok("the lower tick is NEGATIVE and arrived negative",
-       lo < 0n, `tickLower came through as ${lo} — a sign-dropping client sends +196256`);
-    ok("the upper tick too", hi < 0n, `tickUpper ${hi}`);
-  } else {
-    ok("the ticks arrived on the side of zero the pool is actually on",
-       lo > 0n && hi > 0n, `${lo} .. ${hi}`);
-    ok("and round-tripped through a signed encoder without wrapping",
-       lo < 887272n && hi < 887272n, `${lo} .. ${hi}`);
-  }
-  ok("and the range is the right way round", lo < hi, `${lo} .. ${hi}`);
-  ok("both bounds sit on the tier's grid, which is what the pool accepts",
-     lo % 60n === 0n && hi % 60n === 0n, `${lo}, ${hi} at spacing 60`);
-  console.log(`      minted at ticks ${lo} … ${hi}, both multiples of 60, both signed`);
-
-  eq("the recipient is the person who pressed the button",
-     decAddr(m, 10).toLowerCase(), lp.from.toString().toLowerCase());
-  ok("and the deadline is in the future",
-     decUint(m, 11) > BigInt(Math.floor(Date.now() / 1000)) - 60n);
-
-  /*  A range that spans the current price consumes the two tokens in
-      whatever ratio the pool needs, so "at least 99.5% of each" is only
-      satisfiable if the person typed that exact ratio. The first version of
-      this client did exactly that and would have reverted almost every
-      straddling mint.                                                    */
-  ok("a range spanning the price carries no minimum, because none is computable",
-     decUint(m, 8) === 0n && decUint(m, 9) === 0n,
-     `mins came through as ${decUint(m, 8)} / ${decUint(m, 9)}`);
-  ok("and the page says so rather than implying a floor it did not set",
-     /ceiling<\/em> and not a promise|is a <em>ceiling/.test(page.body) ||
-     /No minimum is enforced/.test(page.body));
-
-  /*──── the one-sided case, where a floor IS computable ────*/
-  {
-    /*  A band entirely above the current tick can only be funded with
-        token0 — the pool does not need token1 at that price. That is what
-        makes a range order a range order, and it is the one case where the
-        amount consumed is determined, so a floor is meaningful.        */
-    const d0 = WETH_FIRST ? 18n : 6n, d1 = WETH_FIRST ? 6n : 18n;
-    const px = async (t) => {
-      const r = await c.read(site.venue, "priceAt(int24,uint256,bool)",
-        [t < 0n ? (1n << 256n) + t : t, 10n ** d0, 1n]);
-      return Number(decUint(r)) / Number(10n ** d1);
-    };
-    const above0 = POOL_TICK + 6000n, above1 = POOL_TICK + 7200n;
-    $("pmin").value = String(await px(above0));
-    $("pmax").value = String(await px(above1));
-    await $("rcustom").fire("click");
-    await nap(500);
-
-    // fund only the token that sorted first
-    $(WETH_FIRST ? "a0" : "a1").value = WETH_FIRST ? "1" : "1000";
-    $(WETH_FIRST ? "a1" : "a0").value = "";
-    await $("add2").fire("click");
-    await nap(400);
-
-    const one = await c.read(uniPositions, "last()");
-    const sw2 = (i) => { const v = decUint(one, i);
-      return v >= 1n << 255n ? v - (1n << 256n) : v; };
-    ok("a one-sided range is placed entirely above the current price",
-       sw2(4) > POOL_TICK, `tickLower ${sw2(4)} vs spot ${POOL_TICK}`);
-    ok("funded only on the side the pool can actually take",
-       decUint(one, 7) === 0n, `amount1Desired ${decUint(one, 7)}`);
-    ok("and it DOES carry a floor, because that amount is determined",
-       decUint(one, 8) > 0n && decUint(one, 9) === 0n,
-       `mins ${decUint(one, 8)} / ${decUint(one, 9)}`);
-    ok("the floor is just under the amount entered, not a fraction of it",
-       decUint(one, 8) * 1000n >= decUint(one, 6) * 998n,
-       `${decUint(one, 8)} against ${decUint(one, 6)}`);
-  }
-  console.log("      a straddling mint ships no floor; a one-sided one ships 99.9% " +
-              "of the single token it can consume");
-
-  /*──── the portfolio, with no indexer ────*/
-  const page2 = await GET(["pools"]);
-  mount(page2.body);
-  wallet(lp);
-  runScripts(page2.body);
-  await nap(600);
-  const rows = $("pos").innerHTML;
-  ok("the position just minted is listed, read straight off the manager",
-     /#1/.test(rows) && /collect fees/.test(rows), rows.slice(0, 200));
-
-  /*  Collecting everything is uint128 max, not uint256 max — the fields are
-      uint128 and the ABI decoder rejects a word with high bits set.      */
-  await $("pos").querySelectorAll("[data-take]")[0].fire("click");
-  await nap(300);
-  const col = await c.read(uniPositions, "lastCollect()");
-  eq("collect sweeps with the uint128 sentinel, not the uint256 one",
-     decUint(col, 2), (1n << 128n) - 1n);
-  console.log("      a uint256-max word in a uint128 field is rejected by the " +
-              "decoder, not truncated");
-
-  /*──── creating a pool ────*/
-  /*  A fresh page is a fresh client, and it has no pair chosen — the same
-      as a person arriving at the URL. Choosing it again here is not
-      housekeeping; forgetting to is how the first version of this test
-      "passed" a create-pool button that had never been given a pair.    */
-  $("la").value = weth.toLowerCase();
-  await $("la").fire("change");
-  $("lb").value = usdc.toLowerCase();
-  await $("lb").fire("change");
-  await nap(400);
-  $("p0").value = "3000";
-  await $("mkpool").fire("click");
-  await nap(400);
-  const mp = await c.read(uniPositions, "lastPool()");
-  ok("creating a pool reached the position manager", decBool(mp, 0));
-  ok("with the pair sorted", decAddr(mp, 1).toLowerCase() < decAddr(mp, 2).toLowerCase());
-  ok("and a starting price inside what a pool can represent",
-     decUint(mp, 4) > 4295128739n &&
-     decUint(mp, 4) < 1461446703485210103287273052203988822378723970342n,
-     `sqrtPriceX96 ${decUint(mp, 4)}`);
-
-  /*  And at the price that was actually typed, which is the assertion this
-      test was missing.
-
-      "In range" is true of the reciprocal too, so the check above passes
-      whether the pool is created at 3000 USDC per WETH or at 3000 WETH per
-      USDC — and which of those you get depended on which address happened
-      to sort first. For a real pair that is a factor of nine million, the
-      pool goes live, nothing reverts, and the first arbitrageur empties it.
-
-      The form says "second token per first", meaning the two dropdowns, so
-      3000 typed with WETH first and USDC second must mean 3000 USDC per
-      WETH — tick -196256 when WETH sorted first and +196256 when it did
-      not. The tick is recovered from sqrtPriceX96 by asking the contract
-      for the sqrt of the expected tick and comparing.                    */
-  {
-    const wantTick = WETH_FIRST ? -196256n : 196256n;
-    const wantSqrt = decUint(await c.read(site.venue, "sqrtAt(int24)",
-      [wantTick < 0n ? (1n << 256n) + wantTick : wantTick]));
-    const got = decUint(mp, 4);
-    // one tick of tolerance: the client picks the tick with a logarithm
-    const lo = decUint(await c.read(site.venue, "sqrtAt(int24)",
-      [(wantTick - 60n) < 0n ? (1n << 256n) + (wantTick - 60n) : wantTick - 60n]));
-    const hi = decUint(await c.read(site.venue, "sqrtAt(int24)",
-      [(wantTick + 60n) < 0n ? (1n << 256n) + (wantTick + 60n) : wantTick + 60n]));
-    ok("and at the price that was actually typed, not its reciprocal",
-       got > lo && got < hi,
-       `sqrtPriceX96 ${got}, expected near ${wantSqrt} (tick ${wantTick}) — ` +
-       `a reciprocal would be a factor of ~9,000,000 out`);
-    console.log(`      3000 typed as "second per first" landed on tick ~${wantTick}, ` +
-                `not its reciprocal`);
-  }
+  const before = decUint(await c.read(site.parley, "stateOf(uint256)", [key]), 1);
+  const commonsWas = decUint(await c.read(site.parley, "stateOf(uint256)", [0]), 1);
+  byId.get("say").value = "one to one";
+  await byId.get("send").fire("click");
+  await nap(140);
+  eq("and a whisper lands in it",
+     decUint(await c.read(site.parley, "stateOf(uint256)", [key]), 1), before + 1n);
+  const commonsNow = decUint(await c.read(site.parley, "stateOf(uint256)", [0]), 1);
+  eq("without touching the commons", commonsNow, commonsWas);
 }
 
-head("the order that needs no server");
+head("the door hands over what the wallet holds");
 {
-  const page = await GET(["limit"]);
-  eq("/limit answers 200", page.status, 200);
-  ok("it refuses to call a range order a limit order without saying how it differs",
-     /fills gradually/i.test(page.body) && /un-fills/i.test(page.body) &&
-     /Nothing settles it/i.test(page.body));
-  ok("and says plainly why Uniswap's own limit orders are out of reach",
-     /hosted order book/.test(page.body) && /EIP-712/.test(page.body));
-  ok("it offers the same range controls the liquidity page does",
-     /id=pmin/.test(page.body) && /id=pmax/.test(page.body));
-}
-
-
-/*════════════ the three pages where the honest answer is the answer ════════════*/
-head("explore: a chart drawn by a contract");
-{
-  const idx = await GET(["explore"]);
-  eq("/explore answers 200", idx.status, 200);
-  ok("it does not claim volume or trending it cannot read",
-     /no volume counter|None of that is in chain state|subgraph/i.test(idx.body));
-  ok("and offers a box for any address", /id=xa/.test(idx.body));
-
-  /*  An ordinary token, priced against the chain's wrapped native — which
-      is the shape of every real visit to this page.                      */
-  const one = await GET(["explore", usdc.toLowerCase()]);
-  eq("/explore/<address> answers 200", one.status, 200);
-  ok("it names the token from the token itself", /USDC/.test(one.body));
-  ok("and prints the address beside the ticker",
-     one.body.toLowerCase().includes(usdc.toLowerCase()));
-  ok("it reports every fee tier, including the ones with no pool",
-     /no pool/.test(one.body) && /0\.3/.test(one.body), "tier table missing");
-
-  /*  A pool with no oracle buffer is the ordinary case, and the page has to
-      say so and offer the fix rather than rendering an empty chart.      */
-  ok("a pool with no history says so instead of drawing nothing",
-     /no history to draw/.test(one.body) && /increaseObservationCardinalityNext/.test(one.body));
-
-  /*  Now give the deepest pool a memory and ask again. The chart must
-      appear, and it must appear in the HTML — no script involved.       */
-  const deep = decAddr(await c.read(uniFactory, "getPool(address,address,uint24)",
-    [weth, usdc, 3000n]));
-  await c.exec(deep, "setHistory(uint32,uint16)", [200000n, 300n]);
-  const two = await GET(["explore", usdc.toLowerCase()]);
-  ok("once the pool has a buffer, a chart appears", /class=ch/.test(two.body),
-     "no chart element");
-  const bars = (two.body.match(/<i style="height:/g) || []).length;
-  eq("one bar per interval, drawn in Solidity", bars, 24);
-  ok("and it is in the markup rather than assembled by a script",
-     two.body.indexOf("class=ch") < two.body.indexOf("<script>"),
-     "the chart came after the scripts, which suggests it needs them");
-  ok("with the pool it was read from printed next to it",
-     two.body.toLowerCase().includes(deep.toLowerCase()));
-
-  /*  Which way is up.
-
-      A tick is token1 per token0, so it rises with token0's price and falls
-      with token1's. The high/low list under the chart inverts for that; the
-      bars did not, so for every subject whose address sorts above its quote
-      the chart was drawn upside down against its own labels — a day the
-      token rose rendered as a day it fell.
-
-      The first version of this test looked at one token and passed against
-      the bug, because whichever token that happened to be, half the time it
-      is token0 and the broken branch is never taken. Address order is not
-      something a test may leave to chance when it IS the bug. So both ends
-      of the same pool are checked, one of which is necessarily token1.   */
-  {
-    const bars = (b) => (b.match(/<i style="height:(\d+)%"/g) || [])
-      .map((x) => Number(x.match(/(\d+)%/)[1]));
-
-    // make the recorded price drift, so the series has a direction at all
-    await c.exec(deep, "setSlope(int56)", [2n]);
-
-    const look = async (subject, label) => {
-      const body = (await GET(["explore", subject.toLowerCase()])).body;
-      const q = (body.match(/priced in<\/dt><dd>[^<]*<span class=m><code>(0x[0-9a-f]{40})/) || [])[1];
-      const h = bars(body);
-      return { label, subject, quote: q, h, body };
-    };
-
-    const a = await look(usdc, "USDC");
-    const b = await look(weth, "WETH");
-    let sawToken1 = false;
-
-    for (const r of [a, b]) {
-      if (!r.quote || r.h.length !== 24) {
-        ok(`${r.label}: a chart to check`, false,
-           `quote=${r.quote} bars=${r.h.length}`);
-        continue;
-      }
-      const isToken0 = r.subject.toLowerCase() < r.quote.toLowerCase();
-      if (!isToken0) sawToken1 = true;
-      const rising = r.h[r.h.length - 1] > r.h[0];
-      ok(`${r.label} is token${isToken0 ? 0 : 1} against its quote, so a rising tick ` +
-         `must draw a ${isToken0 ? "RISING" : "FALLING"} chart`,
-         isToken0 ? rising : !rising,
-         `first ${r.h[0]}%, last ${r.h[r.h.length - 1]}%`);
-    }
-
-    /*  And the control for the control: if neither subject came out as
-        token1, this whole block tested the safe branch twice and would
-        pass against the bug it exists to catch.                         */
-    ok("and one of the two really is the token1 case, so the branch was exercised",
-       sawToken1, "both subjects sorted first — the inverted branch never ran");
-
-    const hi = (a.body.match(/<dt>high<\/dt><dd>([\d,.]+)/) || [])[1];
-    const lo2 = (a.body.match(/<dt>low<\/dt><dd>([\d,.]+)/) || [])[1];
-    ok("and the high/low labels are there for the bars to agree with",
-       !!hi && !!lo2 &&
-       Number(String(hi).replace(/,/g, "")) >= Number(String(lo2).replace(/,/g, "")),
-       `high ${hi}, low ${lo2}`);
-
-    await c.exec(deep, "setSlope(int56)", [0n]);
-    console.log("      checked both ends of the same pool, so the inverted branch " +
-                "is exercised whichever way the addresses happened to sort");
-  }
-  console.log(`      ${bars} bars of time-weighted average tick, from the pool's own ` +
-              `ring buffer, with no indexer anywhere`);
-
-  /*  The awkward case: the subject IS the wrapped native, so it cannot be
-      priced against the default and the page has to go looking. The first
-      version searched four candidates out of the first eight markets and
-      reported "no pool at any tier" for the most liquid token on the chain.  */
-  const wrapped = await GET(["explore", weth.toLowerCase()]);
-  ok("the wrapped native token finds something to be priced against",
-     /class=ch/.test(wrapped.body) || /liquidity at tick/.test(wrapped.body));
-  ok("and it is a pair that actually has a pool",
-     !/no pool<\/td>[\s\S]*no pool<\/td>[\s\S]*no pool<\/td>[\s\S]*no pool/.test(wrapped.body),
-     "every tier came back empty, so the candidate search gave up too early");
-}
-
-head("earn: a vault is verified before it is offered");
-{
-  const idx = await GET(["earn"]);
-  eq("/earn answers 200", idx.status, 200);
-  ok("it says plainly that no vault list can exist here",
-     /not enumerable/.test(idx.body));
-  ok("and that APY is unreadable rather than merely omitted",
-     /rate over time/.test(idx.body));
-
-  /*  An address that is not a vault must not get a deposit form. WETH is a
-      real ERC-20 and answers nothing of ERC-4626.                        */
-  const notAVault = await GET(["earn", weth.toLowerCase()]);
-  eq("a non-vault address answers 200", notAVault.status, 200);
-  ok("but gets no deposit button", !/id=vdep/.test(notAVault.body),
-     "a deposit form was rendered for an address that is not a vault");
-  ok("and is told why", /does not answer/.test(notAVault.body));
-
-  const vault = await c.deploy(A("test/mocks/UniV3.sol", "MockVault").bytecode,
-    encodeAddressArg(usdc), "MockVault");
-  const real = await GET(["earn", vault.toLowerCase()]);
-  ok("a real ERC-4626 vault does get one", /id=vdep/.test(real.body));
-  ok("named with the asset the vault itself declares",
-     real.body.includes("USDC") && real.body.toLowerCase().includes(usdc.toLowerCase()));
-  ok("and one share priced in that asset", /one share/.test(real.body));
-  ok("with no yield figure anywhere", !/APY|% per year|annual/i.test(
-     real.body.replace(/APY cannot be read[\s\S]*?<\/p>/g, "")));
-}
-
-head("vote: the numbers, and where the words are not");
-{
-  const g = await c.deploy(A("test/mocks/UniV3.sol", "MockGovernor").bytecode, "", "Governor");
-  const gTok = await c.deploy(A("test/mocks/UniV3.sol", "MockVotes").bytecode, "", "UNI");
-  const venueG = await c.deploy(A("src/Venue.sol", "Venue").bytecode,
-    encodeAddressArg(uniFactory) + encodeAddressArg(uniQuoter) +
-    encodeAddressArg(uniRouterV3) + w(0) + encodeAddressArg(uniPositions) +
-    encodeAddressArg(weth) + encodeAddressArg(g) + encodeAddressArg(gTok) + w(0),
-    "VenueGov");
-  const deskUG = await c.deploy(A("src/DeskUni.sol", "DeskUni").bytecode,
-    encodeAddressArg(venueG) + encodeAddressArg(pool), "DeskUniGov");
-  const pCivicG = await c.deploy(A("src/PageCivic.sol", "PageCivic").bytecode,
-    encodeAddressArg(site.chrome) + encodeAddressArg(pool) + encodeAddressArg(site.desk) +
-    encodeAddressArg(deskUG) + encodeAddressArg(site.deskC) + encodeAddressArg(venueG),
-    "PageCivicGov");
-
-  const body = decString(await c.read(pCivicG, "vote()"));
-  ok("the proposal count came from the governor", /proposals<\/dt><dd>3</.test(body),
-     body.slice(body.indexOf("proposals"), body.indexOf("proposals") + 80));
-  ok("each proposal's state is read, not guessed",
-     /active/.test(body) && /defeated/.test(body), "states missing");
-  ok("the vote counts are there", /1,000/.test(body) || /1,000,000/.test(body));
-  ok("it explains that a proposal's text is structurally unreachable",
-     /no opcode to read past logs/.test(body));
-  ok("and warns that voting power is snapshotted at the start block",
-     /snapshotted at each/.test(body) && /counts zero|counted as nothing|never delegated/i.test(body));
-  ok("castVoteWithReason is not offered rather than being offered broken",
-     !/id=reason/.test(body) && /variant that carries a reason/.test(body));
-
-  /*  The default deployment has no governor, because Uniswap's governance
-      lives on mainnet and nowhere else. That page must say which chain it
-      is on rather than leaving an empty element where the number goes.  */
-  const none = await GET(["vote"]);
-  eq("a chain with no governor answers 200", none.status, 200);
-  ok("and names the chain rather than leaving a hole where the number goes",
-     /No governor is wired up on chain <code>\d+<\/code>/.test(none.body),
-     none.body.slice(none.body.indexOf("No governor"), none.body.indexOf("No governor") + 90));
-  ok("and says why, rather than implying the page is broken",
-     /fact about Uniswap rather than/.test(none.body));
-
-  mount(body);
-  const voter = await c.as("0x" + "88".repeat(32));
-  const W = wallet(voter);
-  runScripts(body);
-  await nap(200);
-  const $ = (i) => byId.get(i);
-
-  /*  No delegation yet, so the vote must be refused before it is sent —
-      not accepted and counted as nothing, which is what the governor
-      itself would do.                                                   */
-  $("pid").value = "3";
-  await globalThis.document.querySelectorAll("[data-support]")
-    .find((b) => b.dataset.support === "1").fire("click");
-  const before = W.sent();
-  await $("cast").fire("click");
-  await nap(200);
-  eq("a vote with no delegated power is refused before it is sent", W.sent(), before);
-
-  await $("gdel").fire("click");
-  await nap(200);
-  ok("delegating to yourself is one transaction", W.sent() > before);
-  eq("and it delegated to the person who pressed it",
-     decAddr(await c.read(gTok, "delegates(address)", [voter.from.toString()])).toLowerCase(),
-     voter.from.toString().toLowerCase());
-
-  await $("cast").fire("click");
-  await nap(300);
-  const cast = await c.read(g, "lastVote()");
-  ok("now the vote reaches the governor", decBool(cast, 0));
-  eq("with the proposal id it was given", decUint(cast, 1), 3n);
-  eq("and the support value that was chosen", decUint(cast, 2), 1n);
-  eq("from the voter, not from any contract here",
-     decAddr(cast, 3).toLowerCase(), voter.from.toString().toLowerCase());
-}
-
-
-/*════════════ the launchpad, and a hook read off its own address ════════════
-
-  The distinctive claim on this page is that a v4 hook's permissions are
-  legible from its address with no call at all — because in v4 those bits are
-  not a description of the hook, they are the mechanism the PoolManager uses
-  to decide what to invoke. So the assertions here are mostly about that: a
-  contract renders the answer, and the answer is right for addresses nobody
-  in this repository chose.
-*/
-head("the launchpad");
-{
-  const page = await GET(["launch"]);
-  eq("/launch answers 200", page.status, 200);
-  ok("it offers the token form", /id=cn/.test(page.body) && /id=cv/.test(page.body));
-  ok("and says what the token deliberately cannot do",
-     /no mint, no pause, no blacklist, no owner/.test(page.body));
-  ok("and explains why mining an address is a read rather than a transaction",
-     /eth_call/.test(page.body) && /reads are free/.test(page.body));
-  ok("and names the step it stops at rather than implying it finishes",
-     /modifyLiquidities/.test(page.body) && /routes v4 liquidity nowhere/.test(page.body));
-
-  /*──── the token factory, driven ────*/
+  const page = await GET([]);
   mount(page.body);
-  const dev = await c.as("0x" + "99".repeat(32));
-  const W = wallet(dev);
+  wallet(c);
   runScripts(page.body);
-  await nap(30);
-  const $ = (i) => byId.get(i);
-  ok("the launch client loaded", !!globalThis.IP);
+  await nap(80);
+  await byId.get("go").fire("click");
+  await nap(140);
 
-  $("cn").value = "Example Coin";
-  $("cs").value = "EXMPL";
-  $("cd").value = "18";
-  $("cv").value = "1000000";
-  $("ck").value = "0x2a";
-
-  await $("cchk").fire("click");
-  await nap(300);
-  const shown = ($("cpre").innerHTML.match(/0x[0-9a-f]{40}/) || [])[0];
-  ok("it says where the token would land before sending anything", !!shown,
-     $("cpre").innerHTML.slice(0, 160));
-  eq("and that read sent no transaction", W.sent(), 0);
-
-  await $("cgo").fire("click");
-  await nap(400);
-  ok("minting sent one transaction", W.sent() >= 1);
-
-  /*  The address it predicted must be the address that appeared — a
-      launchpad that announces an address and produces another has told
-      everybody watching to send funds to the wrong contract.            */
-  const n = decUint(await c.read(site.kiln, "coinCount()"));
-  ok("the launchpad recorded it", n >= 1n, `coinCount ${n}`);
-  const made = decAddr(await c.read(site.kiln, "coins(uint256)", [n - 1n]));
-  eq("and it landed exactly where the page said it would",
-     made.toLowerCase(), String(shown).toLowerCase());
-
-  const sym = decString(await c.read(made, "symbol()"));
-  eq("with the symbol that was typed", sym, "EXMPL");
-  eq("and the supply, scaled by the decimals that were typed",
-     decUint(await c.read(made, "totalSupply()")), 10n ** 24n);
-  eq("all of it held by whoever launched it",
-     decUint(await c.read(made, "balanceOf(address)", [dev.from.toString()])), 10n ** 24n);
-  console.log(`      "Example Coin"/"EXMPL" encoded as two dynamic strings by a ` +
-              `client with no ABI coder, and landed at the predicted address`);
-
-  /*  The two-string encoding is the one place this client does something
-      other than pad and concatenate, so it is worth checking the SECOND
-      string specifically — a wrong offset corrupts the tail, not the head,
-      and the name would look fine while the symbol was gibberish.       */
-  eq("and the second string is intact too, which a wrong offset would ruin",
-     decString(await c.read(made, "name()")), "Example Coin");
-
-  const fresh = await GET(["launch"]);
-  ok("the new token appears in the launchpad's own list",
-     fresh.body.includes(made.slice(2).toLowerCase()) || fresh.body.includes(made),
-     "not listed");
-  ok("and the list says what being on it does and does not mean",
-     /means nothing whatever about whether it is worth anything/.test(fresh.body));
-
-  /*──── the salt search, which is the whole hook story ────*/
-
-  /*  A v4 hook must live at an address whose low fourteen bits ARE its
-      permissions, so deploying one means trying CREATE2 salts until one
-      lands — about sixteen thousand on average. The client has no keccak,
-      so the search is an eth_call against the launchpad and the visitor's
-      own node does it. This drives that from the page and then checks the
-      address the search returned against what CREATE2 actually produces.  */
-  mount(fresh.body);
-  const W2 = wallet(dev);
-  runScripts(fresh.body);
-  await nap(30);
-  const $$ = (i) => byId.get(i);
-
-  $$("ho").value = "0";
-  $$("hl").value = "30";
-  const before = W2.sent();
-  await $$("hmine").fire("click");
-  await nap(3000);
-
-  const out = $$("hmined").innerHTML;
-  const at = (out.match(/0x[0-9a-f]{40}/) || [])[0];
-  ok("the search found an address", !!at, out.slice(0, 220));
-  eq("and searching sent no transaction — it is an eth_call", W2.sent(), before);
-  ok("the page says how many candidates it tried",
-     /tried/.test(out), out.slice(0, 160));
-
-  /*  The bits are the point: the PoolManager tests these to decide what to
-      invoke, so an address one bit off is a hook whose lock is never
-      consulted.                                                          */
-  const GATE = (1 << 9) | (1 << 7);
-  eq("and its low fourteen bits are exactly beforeSwap + beforeRemoveLiquidity",
-     Number(BigInt(at) & 0x3fffn), GATE);
-  console.log(`      the visitor's own node searched CREATE2 salts and found ` +
-              `${at} — low bits 0x${(BigInt(at) & 0x3fffn).toString(16)}`);
-
-  /*  And deploying really lands there. A hook that deploys somewhere other
-      than where the page promised is a hook whose permissions nobody
-      checked.                                                            */
-  await $$("hgo").fire("click");
-  await nap(600);
-  ok("deploying it sent a transaction", W2.sent() > before);
-  const code = await c.codeSize(at);
-  ok("and a contract now exists at exactly that address", code > 0,
-     `no code at ${at}`);
-  eq("which trusts the PoolManager the site was deployed against",
-     decAddr(await c.read(at, "MANAGER()")).toLowerCase(), uniManager.toLowerCase());
-
-  /*  The two timestamps, rather than the gate's current verdict.
-
-      The client computes them from `Date.now()` — the visitor's clock,
-      which on a real chain tracks `block.timestamp` closely and in this
-      harness does not track it at all. So what is checked is what the
-      client actually computed and stored: the interval between them, and
-      that neither has a setter.                                          */
-  const opens = decUint(await c.read(at, "OPENS()"));
-  const unlocks = decUint(await c.read(at, "UNLOCKS()"));
-  eq("liquidity is locked for exactly the thirty days that were typed",
-     unlocks - opens, 30n * 86400n);
-  ok("and trading opens at the moment of deployment, as configured",
-     opens > 0n, `opens ${opens}`);
-  let answered = false;
-  try { await c.call(at, "0x" + "12345678" + "0".repeat(64)); answered = true; }
-  catch (e) { answered = false; }
-  ok("neither timestamp has a setter to move it", !answered,
-     "the hook answered a selector it does not declare");
-  console.log("      trading opens immediately, liquidity locked 30 days — " +
-              "both immutable, enforced by the pool rather than promised");
-}
-
-head("reading a hook off its address");
-{
-  const idx = await GET(["hook"]);
-  eq("/hook answers 200", idx.status, 200);
-
-  /*  Addresses chosen for their low bits, not taken from this repository —
-      the point is that the answer is arithmetic on the address, so it must
-      be right for addresses nobody here picked.                          */
-  const cases = [
-    ["0x00000000000000000000000000000000000000c0", ["beforeSwap", "afterSwap"],
-     ["beforeRemoveLiquidity"]],
-    ["0x0000000000000000000000000000000000000280", ["beforeSwap", "beforeRemoveLiquidity"],
-     ["afterSwap"]],
-    ["0x0000000000000000000000000000000000002000", ["beforeInitialize"], ["beforeSwap"]],
-    ["0x0000000000000000000000000000000000000001",
-     ["afterRemoveLiquidityReturnsDelta"], ["beforeSwap"]]
-  ];
-  for (const [addr, on, off] of cases) {
-    const r = await GET(["hook", addr]);
-    eq(`  /hook/${addr.slice(0, 10)}… answers 200`, r.status, 200);
-    const yes = [...r.body.matchAll(/<b class=ok>yes<\/b><\/td><td><code>(\w+)</g)]
-      .map((m) => m[1]);
-    for (const f of on) {
-      ok(`    ${f} is reported`, yes.includes(f), `saw ${yes.join(",") || "none"}`);
-    }
-    for (const f of off) {
-      ok(`    and ${f} is not`, !yes.includes(f), `saw ${yes.join(",")}`);
-    }
-  }
-
-  /*  The two questions the page answers in prose, which are the ones a
-      person actually has.                                                */
-  const swapping = await GET(["hook", "0x00000000000000000000000000000000000000c0"]);
-  ok("a swap-touching hook is called out as such",
-     /called on every trade/.test(swapping.body));
-  ok("and one that cannot touch withdrawals says liquidity can always leave",
-     /Liquidity can always be/.test(swapping.body));
-
-  const gate = await GET(["hook", "0x0000000000000000000000000000000000000280"]);
-  ok("a hook that can refuse withdrawals is called out",
-     /can refuse it/.test(gate.body));
-  ok("and the page refuses to read that as safety",
-     /how liquidity is trapped/.test(gate.body) &&
-     /cannot tell you which/.test(gate.body));
-
-  const inert = await GET(["hook", "0x1111111111111111111111111111111100000000"]);
-  ok("an address with no flag bits is not called a hook",
-     /not a hook/.test(inert.body) && /never hand it a callback/.test(inert.body));
-  console.log("      the answer is arithmetic on the address — no call, no ABI, " +
-              "and nothing the hook's author can misstate");
-
-  /*  And it is rendered by the contract, so it survives with scripting off.  */
-  ok("the answer is in the markup rather than assembled by a script",
-     gate.body.indexOf("beforeRemoveLiquidity") < (gate.body.indexOf("<script>") === -1
-       ? Infinity : gate.body.indexOf("<script>")),
-     "the table came after the scripts");
+  const yours = byId.get("yours");
+  ok("the door listed the tokens this wallet holds", yours.children.length > 0,
+     "it listed none");
+  const row = yours.children[0];
+  const links = row.children.filter((k) => k.tagName === "span")
+    .flatMap((k) => k.children).filter((k) => k.tagName === "a");
+  ok("each one offers its instrument", links.some((a) => /\/live$/.test(a.href)),
+     links.map((a) => a.href).join(" "));
+  ok("its counter", links.some((a) => /^\/token\/\d+$/.test(a.href)));
+  ok("and its messages", links.some((a) => /^\/dm\/\d+$/.test(a.href)));
 }
 
 head("driving the holder's side");
@@ -2121,15 +1287,13 @@ for (const [file, name] of [
   ["src/PageToken.sol", "PageToken"], ["src/PageMarket.sol", "PageMarket"],
   ["src/PageServices.sol", "PageServices"], ["src/PageManifest.sol", "PageManifest"],
   ["src/Chrome.sol", "Chrome"], ["src/Premises.sol", "Premises"],
-  /*  And every contract on the Uniswap side. `Venue` is the one that
-      matters most: it holds the router's address and does all the reading,
-      so it is the obvious place for a function that stands in the middle of
-      somebody's money — and the claim the pages make is that there is no
-      such function anywhere here, not that there is one nobody calls.   */
-  ["src/PageSwap.sol", "PageSwap"], ["src/PagePools.sol", "PagePools"],
-  ["src/PageExplore.sol", "PageExplore"], ["src/PageCivic.sol", "PageCivic"],
-  ["src/Venue.sol", "Venue"], ["src/DeskUni.sol", "DeskUni"],
-  ["src/DeskTrade.sol", "DeskTrade"], ["src/DeskCivic.sol", "DeskCivic"],
+  /*  And every contract that renders the conversation. `DeskTalk` is the
+      one that matters most: it holds the client, so it is the obvious place
+      for a function that stands between a person and their wallet — and the
+      claim these pages make is that there is no such function anywhere
+      here, not that there is one nobody calls.                          */
+  ["src/PageDoor.sol", "PageDoor"], ["src/PageTalk.sol", "PageTalk"],
+  ["src/PageRooms.sol", "PageRooms"], ["src/DeskTalk.sol", "DeskTalk"],
   ["src/Desk.sol", "Desk"]
 ]) {
   const abi = A(file, name).abi;

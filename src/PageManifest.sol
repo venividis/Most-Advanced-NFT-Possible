@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {LibNum} from "./lib/LibNum.sol";
 import {Web} from "./lib/Web.sol";
-import {IHub, IPoolRead, ILeaseRead, IRendererDoc, IVenue, MarketView}
+import {IHub, IPoolRead, ILeaseRead, IRendererDoc, IParley, MarketView}
     from "./interfaces/Site.sol";
 
 /*───────────────────────────────────────────────────────────────────────────
@@ -46,18 +46,18 @@ contract PageManifest {
     ///      no venue, and the manifest says so rather than omitting the key
     ///      — an absent key and a present-but-empty one mean different
     ///      things to a program, and only one of them is the truth.
-    IVenue     public immutable VENUE;
+    IParley    public immutable PARLEY;
 
     string public constant SCHEMA = "ipseity.services/1";
 
     /// @dev Same window as the directory page, same reason.
     uint256 public constant PAGE = 24;
 
-    constructor(IHub hub, IPoolRead pool, ILeaseRead lease, IVenue venue) {
+    constructor(IHub hub, IPoolRead pool, ILeaseRead lease, IParley parley) {
         HUB = hub;
         POOL = pool;
         LEASE = lease;
-        VENUE = venue;
+        PARLEY = parley;
     }
 
     /*═══════════════════ /token/<id>/services.json ═══════════════════*/
@@ -278,7 +278,7 @@ contract PageManifest {
                 read apart and appending anything here broke the document
                 silently. It terminates its own values now.              */
             "\",\"routes\":", ROUTES,
-            ",\"venue\":", _venue()
+            ",\"parley\":", _parley()
         );
     }
 
@@ -286,52 +286,39 @@ contract PageManifest {
 
         Without these a program reading this manifest would conclude the
         site was a token directory and nothing else — it lists what each
-        token offers and, until now, said nothing about the eight pages that
-        serve the rest of the chain. An index that is silently partial is
-        worse than one that is obviously small.                          */
+        token offers and would say nothing about the place they all talk.
+        An index that is silently partial is worse than one that is
+        obviously small.                                                 */
     string internal constant ROUTES =
         "["
-        "{\"path\":\"/\",\"is\":\"the collection\"},"
+        "{\"path\":\"/\",\"is\":\"the door: what you hold, and the way into it\"},"
+        "{\"path\":\"/chat\",\"is\":\"the commons: one room, every token\"},"
+        "{\"path\":\"/rooms\",\"is\":\"the groups a token has entered\"},"
+        "{\"path\":\"/room/<n>\",\"is\":\"one group, numbered from 1\"},"
+        "{\"path\":\"/dm/<id>\",\"is\":\"the room two tokens share, derived not founded\"},"
         "{\"path\":\"/open\",\"is\":\"every open market here\",\"paged\":true},"
-        "{\"path\":\"/assets\",\"is\":\"every asset those markets trade\",\"paged\":true},"
-        "{\"path\":\"/swap\",\"is\":\"any ERC-20 pair, on Uniswap v3\"},"
-        "{\"path\":\"/pools\",\"is\":\"liquidity at a range you choose\"},"
-        "{\"path\":\"/limit\",\"is\":\"a one-sided position: an order with no server\"},"
-        "{\"path\":\"/explore\",\"is\":\"a token's pools and its own price history\","
-        "\"takes\":\"/explore/<erc20>\"},"
-        "{\"path\":\"/earn\",\"is\":\"an ERC-4626 vault, verified before it is offered\","
-        "\"takes\":\"/earn/<vault>\"},"
-        "{\"path\":\"/vote\",\"is\":\"governance, read from the governor\"},"
-        "{\"path\":\"/launch\",\"is\":\"a launchpad: a token with no owner, a v4 "
-        "hook, a pool\"},"
-        "{\"path\":\"/hook\",\"is\":\"which callbacks a v4 hook's address says it "
-        "receives\",\"takes\":\"/hook/<address>\"},"
         "{\"path\":\"/services.json\",\"is\":\"this document\",\"paged\":true}"
         "]";
 
-    /*  Where those pages send, so a program can check the addresses against
-        Uniswap's published deployments rather than against this contract.
+    /*  Where the conversation is, and the numbers a program needs to read
+        it without this site.
 
-        `routerKind` is the field that matters and it is here for the same
-        reason it is on the page: two Uniswap routers have an
-        `exactInputSingle` whose structs differ by one field, the wrong shape
-        does not revert, and a program building calldata from this manifest
-        needs to know which one it is talking to. 0 is the v3-periphery
-        SwapRouter — eight words, deadline at index 4. 1 is SwapRouter02 —
-        seven words, no deadline.                                         */
-    function _venue() private view returns (string memory) {
-        if (address(VENUE) == address(0)) return "null";
+        `said` is the topic0 of the message event and it is the field that
+        matters: with it, the contract address and the room key, anything
+        that can call `eth_getLogs` can walk the whole archive. This
+        manifest is not a convenience for a browser — it is the instruction
+        manual for replacing the browser.                                */
+    function _parley() private view returns (string memory) {
+        if (address(PARLEY) == address(0)) return "null";
+        (bytes32 said,,,,) = PARLEY.topics();
         return string.concat(
-            "{\"at\":\"", LibNum.hexAddr(address(VENUE)),
-            "\",\"present\":", VENUE.present() ? "true" : "false",
-            ",\"factory\":\"", LibNum.hexAddr(VENUE.FACTORY()),
-            "\",\"quoter\":\"", LibNum.hexAddr(VENUE.QUOTER()),
-            "\",\"router\":\"", LibNum.hexAddr(VENUE.ROUTER()),
-            "\",\"routerKind\":", uint256(VENUE.ROUTER_KIND()).str(),
-            ",\"positions\":\"", LibNum.hexAddr(VENUE.POSITIONS()),
-            "\",\"wrapped\":\"", LibNum.hexAddr(VENUE.WRAPPED()),
-            "\",\"governor\":\"", LibNum.hexAddr(VENUE.GOVERNOR()),
-            "\",\"govToken\":\"", LibNum.hexAddr(VENUE.GOV_TOKEN()), "\"}"
+            "{\"at\":\"", LibNum.hexAddr(address(PARLEY)),
+            "\",\"commons\":", PARLEY.COMMONS().str(),
+            ",\"groups\":", PARLEY.groups().str(),
+            ",\"maxBody\":", PARLEY.MAX_BODY().str(),
+            ",\"said\":\"", LibNum.hex32(said),
+            "\",\"walk\":\"stateOf(room).last is the block of the newest message; "
+            "each message carries the block of the one before it\"}"
         );
     }
 

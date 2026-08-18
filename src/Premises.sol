@@ -5,8 +5,11 @@ import {IHub, IRendererDoc, ISigilDraw, IChrome} from "./interfaces/Site.sol";
 import {LibNum} from "./lib/LibNum.sol";
 import {TokenView} from "./lib/Types.sol";
 
+interface IPageDoor {
+    function door() external view returns (string memory);
+}
+
 interface IPageToken {
-    function index() external view returns (string memory);
     function token(uint256 id) external view returns (string memory);
     function faces(uint256 id) external view returns (string memory);
 }
@@ -16,31 +19,14 @@ interface IPageMarket {
     function open(uint256 page) external view returns (string memory);
 }
 
-interface IPageSwap {
-    function swap() external view returns (string memory);
-    function assets(uint256 page) external view returns (string memory);
+interface IPageTalk {
+    function chat() external view returns (string memory);
+    function dm(uint256 other) external view returns (string memory);
 }
 
-interface IPagePools {
-    function pools() external view returns (string memory);
-    function limit() external view returns (string memory);
-}
-
-interface IPageExplore {
-    function explore(address token) external view returns (string memory);
-}
-
-interface IPageLaunch {
-    function launch() external view returns (string memory);
-}
-
-interface IPageHook {
-    function hook(address at) external view returns (string memory);
-}
-
-interface IPageCivic {
-    function earn(address vault) external view returns (string memory);
-    function vote() external view returns (string memory);
+interface IPageRooms {
+    function rooms() external view returns (string memory);
+    function room(uint256 index) external view returns (string memory);
 }
 
 interface IPagePool {
@@ -96,17 +82,12 @@ interface IPageManifest {
   `request(resource, params)` is an HTTP handler written in Solidity. An
   ERC-4804 / ERC-6860 client reaches it over `web3://` with no DNS:
 
-      /                          the collection, and what it offers
-      /swap                      any pair of ERC-20s, on Uniswap v3
-      /pools                     liquidity, at a range you choose
-      /limit                     a range order: an order without a server
-      /explore  /explore/<token>  what a token trades at, and its own chart
-      /earn  /earn/<vault>        an ERC-4626 vault, verified before it is used
-      /vote                       Uniswap governance, from the governor itself
-      /launch                     a launchpad: a token, a hook, a pool
-      /hook  /hook/<address>      what a v4 hook's address says it may do
+      /                          the door: connect, and what you hold opens
+      /chat                      the commons: one room, every token in it
+      /rooms                     the groups this token has entered
+      /room/<n>                  one group, numbered from 1
+      /dm/<id>                   the room two tokens share
       /open  /open/<n>           every market that exists, from the pool's own list
-      /assets  /assets/<n>        every asset any of those markets trades
       /services.json  /services.json/<n>    the same, for a program
       /token/<id>                one token's counter
       /token/<id>/live           the instrument, on a real origin
@@ -130,17 +111,14 @@ interface IPageManifest {
 contract Premises {
     IHub          public immutable HUB;
     IChrome       public immutable CHROME;
+    IPageDoor     public immutable P_DOOR;
     IPageToken    public immutable P_TOKEN;
     IPageMarket   public immutable P_MARKET;
     IPagePool     public immutable P_POOL;
     IPageServices public immutable P_SERVICES;
     IPageManifest public immutable P_MANIFEST;
-    IPageSwap     public immutable P_SWAP;
-    IPagePools    public immutable P_POOLS;
-    IPageCivic    public immutable P_CIVIC;
-    IPageExplore  public immutable P_EXPLORE;
-    IPageLaunch   public immutable P_LAUNCH;
-    IPageHook     public immutable P_HOOK;
+    IPageTalk     public immutable P_TALK;
+    IPageRooms    public immutable P_ROOMS;
 
     struct KeyValue { string key; string value; }
 
@@ -156,31 +134,25 @@ contract Premises {
     constructor(
         IHub hub,
         IChrome chrome,
+        IPageDoor pDoor,
         IPageToken pToken,
         IPageMarket pMarket,
         IPagePool pPool,
         IPageServices pServices,
         IPageManifest pManifest,
-        IPageSwap pSwap,
-        IPagePools pPools,
-        IPageCivic pCivic,
-        IPageExplore pExplore,
-        IPageLaunch pLaunch,
-        IPageHook pHook
+        IPageTalk pTalk,
+        IPageRooms pRooms
     ) {
         HUB = hub;
         CHROME = chrome;
+        P_DOOR = pDoor;
         P_TOKEN = pToken;
         P_MARKET = pMarket;
         P_POOL = pPool;
         P_SERVICES = pServices;
         P_MANIFEST = pManifest;
-        P_SWAP = pSwap;
-        P_POOLS = pPools;
-        P_CIVIC = pCivic;
-        P_EXPLORE = pExplore;
-        P_LAUNCH = pLaunch;
-        P_HOOK = pHook;
+        P_TALK = pTalk;
+        P_ROOMS = pRooms;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -223,7 +195,42 @@ contract Premises {
         if (n > 0 && bytes(resource[n - 1]).length == 0) --n;
 
         if (n == 0) {
-            return (200, P_TOKEN.index(), _headers(HTML));
+            return (200, P_DOOR.door(), _headers(HTML));
+        }
+
+        /*───── where the tokens talk ─────*/
+
+        if (_eq(resource[0], "chat")) {
+            if (n != 1) return _notFound();
+            return (200, P_TALK.chat(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "rooms")) {
+            if (n != 1) return _notFound();
+            return (200, P_ROOMS.rooms(), _headers(HTML));
+        }
+
+        /*  A group is numbered, so its URL is short. `stateOf` on a number
+            nobody has founded returns a room of kind 0, and the page says
+            so — which is a 200 describing an absence rather than a 404,
+            because "there is no room 9 yet" is a true answer about a room
+            that can exist tomorrow.                                      */
+        if (_eq(resource[0], "room")) {
+            if (n != 2) return _notFound();
+            (bool okR, uint256 index) = _toUint(resource[1]);
+            if (!okR || index == 0) return _notFound();
+            return (200, P_ROOMS.room(index), _headers(HTML));
+        }
+
+        /*  A pair room is not founded and has no number of its own — it is
+            derived from two token ids, and this contract only knows one of
+            them. The page is about the far side; the client supplies the
+            near side once a wallet has said which token it is.           */
+        if (_eq(resource[0], "dm")) {
+            if (n != 2) return _notFound();
+            (bool okD, uint256 other) = _toUint(resource[1]);
+            if (!okD || !_exists(other)) return _notFound();
+            return (200, P_TALK.dm(other), _headers(HTML));
         }
 
         /*───── collection-wide ─────*/
@@ -237,85 +244,6 @@ contract Premises {
                 page = v;
             }
             return (200, P_MARKET.open(page), _headers(HTML));
-        }
-
-        if (_eq(resource[0], "assets")) {
-            if (n > 2) return _notFound();
-            uint256 page;
-            if (n == 2) {
-                (bool ok, uint256 v) = _toUint(resource[1]);
-                if (!ok) return _notFound();
-                page = v;
-            }
-            return (200, P_SWAP.assets(page), _headers(HTML));
-        }
-
-        /*───── the rest of the chain ─────*/
-
-        if (_eq(resource[0], "swap")) {
-            if (n != 1) return _notFound();
-            return (200, P_SWAP.swap(), _headers(HTML));
-        }
-
-        if (_eq(resource[0], "pools")) {
-            if (n != 1) return _notFound();
-            return (200, P_POOLS.pools(), _headers(HTML));
-        }
-
-        /*  Governance is about the collection's chain, not about an address
-            you name, so it takes no segment — and it is routed on its own
-            rather than folded in with the two that do.
-
-            It was folded in, and that was the exact failure the length
-            gates above exist to prevent: `vote()` ignores its argument, so
-            every one of 2^160 `/vote/<address>` URLs answered 200 with a
-            byte-identical document. Every response here carries a
-            Cache-Control, so "the same page at any address you like" is an
-            invitation to fill a gateway's cache with distinct entries for
-            one document until the real ones are evicted.                 */
-        if (_eq(resource[0], "vote")) {
-            if (n != 1) return _notFound();
-            return (200, P_CIVIC.vote(), _headers(HTML));
-        }
-
-        if (_eq(resource[0], "launch")) {
-            if (n != 1) return _notFound();
-            return (200, P_LAUNCH.launch(), _headers(HTML));
-        }
-
-        /*  Three routes that take an optional contract address. With none
-            they are an index; with one they are a page about that address,
-            rendered here rather than fetched by a script — which is why
-            `/explore/<token>` works in a client with JavaScript switched
-            off entirely.                                                 */
-        if (_eq(resource[0], "explore") || _eq(resource[0], "earn")
-            || _eq(resource[0], "hook")) {
-            if (n > 2) return _notFound();
-            address subject;
-            if (n == 2) {
-                (bool okA, address v, bool canon) = _toAddr(resource[1]);
-                if (!okA) return _notFound();
-                /*  One resource, one URL — so one spelling. An address
-                    pasted from a block explorer is EIP-55 mixed case and is
-                    a perfectly good address; it is just not this document's
-                    address. Sent there rather than refused.              */
-                if (!canon) {
-                    return _moved(string.concat("/", resource[0], "/", LibNum.hexAddr(v)));
-                }
-                subject = v;
-            }
-            if (_eq(resource[0], "explore")) {
-                return (200, P_EXPLORE.explore(subject), _headers(HTML));
-            }
-            if (_eq(resource[0], "hook")) {
-                return (200, P_HOOK.hook(subject), _headers(HTML));
-            }
-            return (200, P_CIVIC.earn(subject), _headers(HTML));
-        }
-
-        if (_eq(resource[0], "limit")) {
-            if (n != 1) return _notFound();
-            return (200, P_POOLS.limit(), _headers(HTML));
         }
 
         if (_eq(resource[0], "services.json")) {
@@ -447,29 +375,6 @@ contract Premises {
         );
     }
 
-    /// @dev A 301 to the canonical spelling. Cached hard, because where a
-    ///      resource lives does not change and a gateway that re-asked on
-    ///      every request would have turned a de-duplication into a second
-    ///      round trip.
-    function _moved(string memory to)
-        private pure returns (uint16, string memory, KeyValue[] memory)
-    {
-        KeyValue[] memory h = new KeyValue[](3);
-        h[0] = KeyValue("Content-Type", HTML);
-        h[1] = KeyValue("Cache-Control", "public, max-age=86400");
-        h[2] = KeyValue("Location", to);
-        return (
-            301,
-            string.concat(
-                "<!doctype html><meta charset=utf-8><title>moved</title>"
-                "<body style=\"background:#07080c;color:#8b95ad;"
-                "font:14px ui-monospace,monospace;padding:3rem\">"
-                "<p>That is the right address, written a different way.</p>"
-                "<p><a style=\"color:#7fd4ff\" href=\"", to, "\">", to, "</a></p>"),
-            h
-        );
-    }
-
     function _headers(string memory contentType) private pure returns (KeyValue[] memory h) {
         h = new KeyValue[](2);
         h[0] = KeyValue("Content-Type", contentType);
@@ -486,55 +391,6 @@ contract Premises {
 
     function _eq(string memory a, string memory b) private pure returns (bool) {
         return keccak256(bytes(a)) == keccak256(bytes(b));
-    }
-
-    /*  A path segment that names a contract.
-
-        `/explore/0xC02aaA39...` renders a whole token page — its pools, its
-        depth at each fee tier, and a price chart out of the pool's own
-        oracle — with no JavaScript involved at all. That is only possible
-        if an address can be a resource, so it is parsed here with the same
-        strictness the numeric parser has: exactly forty hex digits after
-        `0x`, one canonical spelling, and anything else is a 404 rather than
-        a revert.
-
-        One spelling, for the same reason `_toUint` refuses a leading zero:
-        the file above argues that one resource must have one URL because
-        every response carries a Cache-Control, and `/explore/0xABC…` and
-        `/explore/0xabc…` are the same resource. Mixed case is *accepted* —
-        refusing an address pasted from a block explorer would be refusing
-        the common case — but it is not a second address: the canonical form
-        is lower case with a lower-case `0x`, and anything else is redirected
-        there rather than served in place.
-
-        A checksum is deliberately not enforced. It would catch a mistyped
-        address, which is worth something, but this parser is mostly reached
-        by links the page itself wrote, and a page that 404s a valid address
-        because its capitalisation is unfashionable is worse. The page prints
-        back the address it read, which is the check that actually helps. */
-    /// @return ok    whether it is an address at all
-    /// @return a     the address
-    /// @return canon whether it was written the one way this site writes it:
-    ///               lower-case `0x`, lower-case digits. Anything else is a
-    ///               different URL for the same document, and gets a 301.
-    function _toAddr(string memory s)
-        private pure returns (bool ok, address a, bool canon)
-    {
-        bytes memory b = bytes(s);
-        if (b.length != 42 || b[0] != "0") return (false, address(0), false);
-        if (b[1] != "x" && b[1] != "X") return (false, address(0), false);
-        canon = b[1] == "x";
-        uint256 v;
-        for (uint256 i = 2; i < 42; ++i) {
-            uint8 ch = uint8(b[i]);
-            uint256 d;
-            if (ch >= 0x30 && ch <= 0x39) d = ch - 0x30;
-            else if (ch >= 0x61 && ch <= 0x66) d = ch - 0x61 + 10;
-            else if (ch >= 0x41 && ch <= 0x46) { d = ch - 0x41 + 10; canon = false; }
-            else return (false, address(0), false);
-            v = v * 16 + d;
-        }
-        return (true, address(uint160(v)), canon);
     }
 
     /// @dev A path segment is text. Anything that is not a plain decimal

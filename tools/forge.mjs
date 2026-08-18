@@ -119,6 +119,7 @@ interface Vm {
     function expectRevert(bytes4) external;
     function expectRevert(bytes calldata) external;
     function warp(uint256) external;
+    function roll(uint256) external;
     function deal(address, uint256) external;
     function etch(address, bytes calldata) external;
     function prevrandao(bytes32) external;
@@ -239,6 +240,7 @@ const CHEATS = {
   [sel("expectRevert(bytes4)")]: "expectRevert4",
   [sel("expectRevert(bytes)")]: "expectRevertBytes",
   [sel("warp(uint256)")]: "warp",
+  [sel("roll(uint256)")]: "roll",
   [sel("deal(address,uint256)")]: "deal",
   [sel("etch(address,bytes)")]: "etch",
   [sel("prevrandao(bytes32)")]: "prevrandao",
@@ -303,6 +305,11 @@ async function freshWorld() {
           state.expect = { any: true }; state.expectSatisfied = false; return done;
         case "warp":
           block.header.timestamp = BigInt(word(0)); return done;
+        /*  The same unfrozen header the clock moves in. A protocol whose
+            archive is a chain of block numbers has tests that need more
+            than one block to happen in.                                 */
+        case "roll":
+          block.header.number = BigInt(word(0)); return done;
         case "prevrandao":
           // prevRandao is a getter over mixHash post-merge; setting the
           // storage field is what moves what PREVRANDAO reads.
@@ -614,6 +621,10 @@ async function selfCheck() {
   const t0 = block.header.timestamp;
   await call(createAddressFromString(VM_ADDR), sel("warp(uint256)") + W(t0 + 999n));
   if (block.header.timestamp !== t0 + 999n) bad.push("vm.warp did not move the clock");
+
+  const n0 = block.header.number;
+  await call(createAddressFromString(VM_ADDR), sel("roll(uint256)") + W(n0 + 7n));
+  if (block.header.number !== n0 + 7n) bad.push("vm.roll did not move the block number");
 
   await call(createAddressFromString(VM_ADDR), sel("assume(bool)") + W(0));
   if (!state.assumeFailed) bad.push("vm.assume(false) did not mark the run discarded");

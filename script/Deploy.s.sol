@@ -9,7 +9,6 @@ import {Renderer} from "../src/Renderer.sol";
 import {Ipseity, IRenderer} from "../src/Ipseity.sol";
 import {IpseityAccount} from "../src/IpseityAccount.sol";
 import {GripVault} from "../src/GripVault.sol";
-import {Premises, IIpseityIndex} from "../src/Premises.sol";
 
 /*───────────────────────────────────────────────────────────────────────────
   Deploying IPSEITY
@@ -23,6 +22,11 @@ import {Premises, IIpseityIndex} from "../src/Premises.sol";
   that comes back is byte for byte the document that went in. Everything
   below is irreversible once freeze() and sealRenderer() are called, and
   the failure this catches is silent.
+
+  The site is not deployed here. It reads a Pool and a Lease that this
+  script does not create, and it holds none of the artwork — every token
+  renders identically whether the site exists, is abandoned, or is
+  replaced. `script/Site.s.sol` deploys it once those addresses exist.
 
   The load loop below sends one transaction per shard. Each full shard
   deposits about 20 KB of code at 200 gas a byte, so budget ~4.4M gas per
@@ -61,11 +65,6 @@ contract Deploy is Script {
             IRenderer(address(renderer)), address(reachImpl), address(gripImpl)
         );
 
-        // the front door. Deliberately last and deliberately optional: it
-        // holds none of the artwork, so the collection is complete without
-        // it and every token renders identically if it is never deployed.
-        Premises premises = new Premises(IIpseityIndex(address(token)));
-
         for (uint256 i; i < headCount; ++i) {
             engine.loadHead(plan.readBytes(string.concat(".head[", vm.toString(i), "].data")));
         }
@@ -84,7 +83,6 @@ contract Deploy is Script {
         console.log("Ipseity       ", address(token));
         console.log("Reach impl    ", address(reachImpl));
         console.log("Grip impl     ", address(gripImpl));
-        console.log("Premises      ", address(premises));
         console.log("");
         console.log("head bytes    ", h);
         console.log("body bytes    ", b);

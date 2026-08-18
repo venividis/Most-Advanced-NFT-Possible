@@ -145,46 +145,32 @@ const routes = [];
   await c.exec(nft, "setPool(address)", [poolAddr]);
   const leaseAddr = await c.deploy(artifact(out, "src/Lease.sol", "Lease").bytecode,
     encodeAddressArg(nft), "Lease");
-  /*  A venue with real pools behind it, because the pages that read Uniswap
-      are cheap when there is nothing to read. Measuring them against the
-      zero address would measure the "no venue" notice and report that the
-      swap card costs nothing.                                            */
   const M = (f, n) => artifact(out, `test/mocks/${f}`, n).bytecode;
-  const uniF = await c.deploy(M("UniV3.sol", "MockV3Factory"), "", "v3Factory");
-  const book = await c.deploy(M("UniV3.sol", "MockBook"), "", "book");
-  const quoter = await c.deploy(M("UniV3.sol", "MockQuoter"), encodeAddressArg(book), "Quoter");
-  const router = await c.deploy(M("UniV3.sol", "MockRouterV3"), encodeAddressArg(book), "Router");
-  const npm = await c.deploy(M("UniV3.sol", "MockPositions"), "", "Positions");
-  const gov = await c.deploy(M("UniV3.sol", "MockGovernor"), "", "Governor");
-  const govTok = await c.deploy(M("UniV3.sol", "MockVotes"), "", "UNI");
-
   const encS = (t) => W(t.length) + Buffer.from(t).toString("hex").padEnd(64, "0");
   const wethAddr = await c.deploy(M("MockERC20.sol", "MockERC20"),
     W(0xa0) + W(0xe0) + W(18) + W(0) + W(0) + encS("Wrapped Ether") + encS("WETH"), "WETH");
   const usdcAddr = await c.deploy(M("MockERC20.sol", "MockERC20"),
     W(0xa0) + W(0xe0) + W(6) + W(0) + W(0) + encS("USD Coin") + encS("USDC"), "USDC");
 
-  const tk = wethAddr.toLowerCase() < usdcAddr.toLowerCase() ? -196256n : 196256n;
-  for (const [fee, liq] of [[500n, 10n ** 6n], [3000n, 9n * 10n ** 18n]]) {
-    await c.exec(uniF, "make(address,address,uint24,uint160,int24,uint128)",
-      [wethAddr, usdcAddr, fee, 1n << 96n, tk, liq]);
-  }
-  /*  And a pool with a real oracle buffer, so `/explore/<token>` is measured
-      with the chart present rather than with the "no history" notice.    */
-  const deepPool = decAddr(await c.read(uniF, "getPool(address,address,uint24)",
-    [wethAddr, usdcAddr, 3000n]));
-  await c.exec(deepPool, "setHistory(uint32,uint16)", [200000n, 300n]);
-
-  /* one market, so the derived asset list is not empty */
+  /* one market, so the directory is not empty */
   await c.exec(nft, "mint()", [], { value: 10n ** 16n });
   const someId = decUint(await c.read(nft, "totalSupply()"));
   await c.exec(poolAddr, "openMarket(uint256,address,address,uint16)",
     [someId, wethAddr, usdcAddr, 30]);
 
   const site = await deploySite(c, (f, n) => artifact(out, f, n),
-    { hub: nft, pool: poolAddr, lease: leaseAddr,
-      uniswap: { name: "measured", factory: uniF, quoter, router, routerKind: 0,
-                 positions: npm, wrapped: wethAddr, governor: gov, govToken: govTok } });
+    { hub: nft, pool: poolAddr, lease: leaseAddr });
+
+  /*  A conversation with something in it, because an empty room is cheap
+      and the page that renders one is not the page anybody will load. The
+      rooms are read by the client rather than by the contract, so what is
+      measured here is the shell — which is the point: the shell is what a
+      node has to serve, and the archive is what a node already has.    */
+  const parley = site.parley;
+  await c.exec(parley, "speak(uint256,uint256,uint8,bytes)",
+    [0, someId, 0, "0x" + Buffer.from("measuring the room").toString("hex")], { label: "speak" });
+  await c.exec(parley, "found(uint256,string,bool)", [someId, "the workshop", true],
+    { label: "found" });
 
   const { BLOCK } = await import("./evm.mjs");
   const hit = async (path) => {
@@ -207,25 +193,16 @@ const routes = [];
     [["token", "1", "vault"], "/token/1/vault", "the two hands, give, draw, verify"],
     [["token", "1", "services.json"], "/token/1/services.json", "the same, machine-readable"],
     [["open"], "/open", "every token open for business (24 at a time)"],
-    [["assets"], "/assets", "every asset any market here trades"],
     [["services.json"], "/services.json", "the directory, machine-readable"],
-    /*  The Uniswap side. `/explore/<token>` is the one worth watching: when
-        the subject cannot be priced against the wrapped native it walks
-        candidates asking the factory for a pool, and the chart is 25
-        observations out of the pool's own ring buffer on top of that. If any
-        page on this site is going to outgrow a cautious node's eth_call cap
-        it is that one, so it is measured rather than assumed.            */
-    [["swap"], "/swap", "any pair of ERC-20s, on Uniswap v3"],
-    [["pools"], "/pools", "liquidity at a range you choose"],
-    [["limit"], "/limit", "a range order: an order without a server"],
-    [["explore"], "/explore", "a few tokens to start from"],
-    [["explore", wethAddr.toLowerCase()], "/explore/<token>",
-     "one token: every tier, and a chart from the pool's own oracle"],
-    [["earn"], "/earn", "an ERC-4626 vault, once you bring one"],
-    [["vote"], "/vote", "governance, read from the governor"],
-    [["launch"], "/launch", "a launchpad: a token, a hook, a pool"],
-    [["hook", "0x0000000000000000000000000000000000000280"], "/hook/<address>",
-     "what a hook's address says it may do"]
+    /*  Where the tokens talk. These are the cheapest pages on the site and
+        that is the design rather than an accident: the conversation is in
+        the logs, which a node already has indexed, so the contract renders
+        a shell and the client does the reading. A chat that cost a node
+        what a chart costs would be a chat nobody could host.           */
+    [["chat"], "/chat", "the commons: one room, every token"],
+    [["rooms"], "/rooms", "the groups a token has entered"],
+    [["room", "1"], "/room/1", "one group"],
+    [["dm", "1"], "/dm/1", "the room two tokens share"]
   ]) {
     routes.push({ label, note, ...(await hit(path)) });
   }

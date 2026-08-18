@@ -130,21 +130,22 @@ the first-depositor attack, at the honest cost of not aggregating deep liquidity
 oracle or TWAP (a curve its owner can move has no business being read as a price feed),
 no flash loans.
 
-## Every token has a website, and the website is a shop
+## The website is the door, and the door is the token's
 
 `tokenURI` was always a website — a whole WebGL2 application in a `data:` URI.
-What was missing is somewhere a **stranger** can stand: a place to see that each
-of these objects runs an exchange, rents itself out, holds a vault nobody can
-empty, and draws any four-dimensional form it is handed — and then to actually
-use one, without permission, without an account, without a server.
+What was missing is somewhere to **stand**: a place to open the instrument you
+own, and a place where the objects can talk to each other.
 
 `Premises` is an ERC-5219 contract, so a `web3://` client reaches it with no DNS
 at all:
 
 ```
-web3://<premises>/                      the collection, and what it offers
+web3://<premises>/                      the door: connect, and what you hold opens
+web3://<premises>/chat                  the commons: one room, every token in it
+web3://<premises>/rooms                 the groups this token has entered
+web3://<premises>/room/3                one group
+web3://<premises>/dm/42                 the room two tokens share
 web3://<premises>/open                  every market that exists, from the pool's list
-web3://<premises>/assets                every asset any of those markets trades
 web3://<premises>/token/42              one token's counter
 web3://<premises>/token/42/market       the swap card
 web3://<premises>/token/42/pool         the holder's side: inventory, fee, bond
@@ -157,6 +158,20 @@ web3://<premises>/token/42/services.json  all of it, machine-readable
 Point an ENS `contenthash` at it and a name resolves natively. A gateway is a
 convenience for everyone else, and stays a convenience: when it is down, the
 tokens are unaffected.
+
+**The door.** Open it in a browser with a wallet, press connect, and the page
+reads `balanceOf` and walks `tokenOfOwnerByIndex` — so it learns what you hold
+from the collection rather than from a list somebody keeps. Every token it finds
+gets a row: open its instrument, open its counter, open its messages. `/live`
+exists precisely so that instrument runs on a real origin, where EIP-6963
+discovery works and the wallet injects — a `data:` frame has an opaque origin and
+can be looked at but not used.
+
+The gate in front of the composer is a **courtesy, not a lock**, and the page
+says so. Everything behind it is a log on a public chain; there is no version of
+this where holding a token is what lets you *read*. What holding a token buys is
+the right to *write*, and that is enforced in a contract, where enforcement means
+something, rather than in a page, where it would mean a CSS class.
 
 ### What one token will do for a stranger
 
@@ -246,341 +261,127 @@ and ends a lease properly. The holder's controls render for everyone and are
 refused by the contract for everyone else — hiding them would mean the page never
 told you the instrument has an owner who decides these things.
 
-### The rest of the chain: nine things a modern exchange offers
+## The tokens talk to each other
 
-The collection's own markets are the point — every token *is* an exchange, and
-its holder takes the fee. But a person who arrives at one of these sites wants
-to trade things that are not in the collection, and Uniswap v3 is where that
-liquidity is. So the site has a second half, and building it meant answering a
-question feature by feature: **what is actually on chain here, and what is a web
-server?**
+Every other messaging system for NFTs is a server with a wallet button on it. The
+message goes to a database, the database decides who may read it, and the token
+is a login. Turn the database off and the conversation was never there.
 
-Uniswap's interface is a React application behind a domain name behind a
-registrar. The contracts underneath it are none of those things. What the hosted
-app adds is a token list, a routing engine, a subgraph and an order book — real
-work, all of it off chain. The honest form of "use Uniswap's infrastructure with
-our own GUI" is not to reimplement those badly. It is to serve the parts that
-are genuinely on chain, from contract code with no server anywhere, and to say
-plainly which parts are not.
+`Parley` has no database. A message is a log, the log is the archive, and the
+archive is wherever the chain is. There are three kinds of room:
 
-| | | |
+| room | key | who may write |
 |---|---|---|
-| **Swap tokens** | **built** — `/swap` | Quotes every fee tier that has a pool, one `eth_call` to QuoterV2 each, and takes the best. Single hop; a multi-hop path is a packed `bytes` argument and this client has no ABI coder, so it says where it looked rather than implying it searched. |
-| **Provide liquidity** | **built** — `/pools` | `NonfungiblePositionManager.mint`, eleven flat words. Your positions are enumerated straight off the manager — `balanceOf`, then `tokenOfOwnerByIndex`, then `positions` — with no indexer. |
-| **Concentrated liquidity** | **built** — `/pools` | The same transaction with the bounds pulled in. Full range, a band around spot, or two prices you type. |
-| **Create markets** | **built** — `/pools` | `createAndInitializePoolIfNecessary`, four words, permissionless. The pair is sorted before it is sent, because the position manager does not sort for you and an unsorted pair derives an address with no pool at it. |
-| **Limit orders** | **substituted** — `/limit` | Uniswap's are an EIP-712 signature POSTed to a hosted order book; there is no contract to call and no registry to read. What *is* on chain is the **range order**: a one-sided position that the AMM converts as the price crosses it. See below. |
-| **Token discovery** | **partly** — `/explore` | No volume, no TVL, no trending, no launches — none of that is in chain state and none of it is invented here. What is here is a real price chart out of the pool's own oracle. See below. |
-| **Earn yield** | **built, without the list** — `/earn` | Which vaults exist is not enumerable and APY is a rate over time, so neither is faked. Bring an ERC-4626 address and the page verifies it against itself before it will show you a deposit button. |
-| **Vote on governance** | **built** — `/vote` | Proposal counts, states, vote tallies and quorum read straight from Governor Bravo; `castVote` is two flat words. The proposal *text* is unreachable — see below. |
-| **Cross-chain swaps** | **not built** | The hosted piece sequences steps across two chains, waiting for finality on one before releasing the other. There is no Uniswap bridge contract to call, and a browser client speaks to one wallet on one chain. Attempting it would be pretending. |
+| **the commons** | `0` | every token in the collection |
+| **a group** | `keccak(1, n)` | its members; founded by a token, joined by invitation or an open door |
+| **a pair** | `keccak(2, min, max)` | exactly those two tokens — never founded, it exists the moment either uses it |
 
-Eight of nine are reachable; the ninth is not, and the two marked *substituted*
-and *partly* are worth their own paragraphs because in both cases what remains
-after the server is removed is arguably better than what it replaced.
+### The part that is actually hard
 
-**A range order is not a limit order, and the page says so four times.** Put
-liquidity in a narrow band entirely on one side of the current price and the
-pool will only accept one of the two tokens — at that price it does not need the
-other. As the price crosses your band the pool converts what you deposited. That
-is a sale at a price you chose, settled by the AMM, with no counterparty, no
-relayer, no signature and nobody's permission. It also **fills gradually** across
-the band rather than at one price, **un-fills** if the price comes back through,
-**earns fees** the whole time it is working, and **never settles itself** — the
-proceeds sit in the position until you return, in two transactions. Those four
-differences are on the page, because they are the sort a person otherwise finds
-out about afterwards.
+Logs are cheap to write and famously miserable to read. `eth_getLogs` over a
+range wide enough to hold a conversation is the first request a public endpoint
+rate-limits, and the usual answer is an indexer — a server, which is the thing
+this collection exists not to need.
 
-**The chart has no indexer behind it and cannot be forged.** Every v3 pool has
-been accumulating a cumulative tick since the day it was created. The difference
-between two of those readings divided by the seconds between them is the
-time-weighted average price over that interval, computed by the pool. So
-`/explore/<address>` draws a real price history read from the same contract that
-would execute your trade — and the page contract renders it as HTML, a row of
-divs with percentage heights, so **the chart is there with JavaScript switched
-off entirely**. The catch is on the page: a pool is created with room for exactly
-*one* observation, so most pools have no history. Anyone may pay to lengthen the
-buffer, permanently, for everyone, and the page offers that button rather than
-treating "no memory" as an excuse.
+So **every message carries the block number of the message before it**, and the
+room stores where the newest one is. A client reads `last`, asks for exactly that
+one block, gets the message and the pointer to the block before, and walks.
 
-**A proposal's text is structurally unreachable, and that is not a shortcut.**
-`propose()` takes a human-readable description and does exactly one thing with
-it: emits it in an event. The stored proposal has no description field. Reading
-an event needs `eth_getLogs`, and the EVM gives contracts *no opcode to read past
-logs at all* — so no Solidity anywhere can put those words on the page. It shows
-the numbers, which are the part that is not somebody's summary, and says where
-the words are. It also warns, before you can vote, that **voting power is
-snapshotted at each proposal's start block**: delegating today does nothing for a
-proposal that opened yesterday, the vote is accepted, it counts zero, and nothing
-tells you.
+```
+stateOf(room).last ──▶ block 21_000_405 ──▶ prev 21_000_005 ──▶ prev 21_000_000 ──▶ 0
+```
 
-### The launchpad, and the one thing an address can prove
+Forty messages is forty **single-block** queries — the narrowest request
+`eth_getLogs` accepts — and no range scan at any point. The chain is the index.
+It costs one `SSTORE` to a warm slot per message to make it so. The harness
+measures this rather than asserting it: 405 blocks of history, read in three
+queries, and every query in the shipped client checked to have `fromBlock ==
+toBlock`.
 
-`/launch` is a launchpad: mint a token, choose what may intercept its pool,
-create the pool, seed it. Everything worth varying is a real parameter of one of
-those four — supply, decimals, the split, the starting price, the range, the fee
-tier or a dynamic fee, the tick spacing, and the hook.
+The same back-link runs through a token — `lastSpoke[id]`, and `prevFrom` in the
+event — so "everything this token has ever said, anywhere" is the same walk down
+a different chain.
 
-The reason it is worth having rather than being one more form is **Uniswap v4
-puts a hook's permissions in its address.** The PoolManager decides whether to
-call `beforeSwap` by testing one bit of the hook's own address — fourteen
-callbacks, the low fourteen bits. So:
+**The guard that makes it terminate.** Two messages in one block is the case that
+breaks a naive walker: the second one's pointer *is* its own block, because the
+head had already moved, and a client that followed it asks the node for the same
+block forever. The walk follows the **oldest** log in a block, whose pointer is
+necessarily earlier. `tools/verify-parley.mjs` asserts that it terminates *and*
+runs the naive version to watch it loop, because a rule nobody has seen fail is a
+rule nobody knows they need.
 
-**Paste any hook address at `/hook/<address>` and the page says exactly what it
-will be allowed to do to you, with no call, no ABI, no source, and nothing its
-author can misstate** — because those bits are not a description of the hook,
-they are the mechanism that invokes it. A hook cannot carry the swap bit and not
-intercept swaps. That is a stronger guarantee than reading verified source,
-which tells you what the code says rather than what the pool will do. It is
-rendered by the page contract, so it is there with JavaScript switched off, and
-it is a link you can send to somebody.
+### Who is allowed to be a token
 
-The page says the other half every single time, because it is the half people
-skip: **these are exactly the bits a trap has.** A hook that refuses withdrawals
-until Friday and one that refuses them forever have identical address shapes.
-The bits prove a power exists. Nothing about them proves it will be used well.
-What the page produces is a list of what to go and read.
+The owner, and the token's own ERC-6551 account. **Not the renter.** Leasing the
+instrument buys its use for a while; it does not buy the right to speak in its
+name, and a reputation is not a thing you can hand back at the end of the day.
+The bound account is included because it is the token acting for itself — its
+session keys are the owner's own delegation, made narrowly and revocably.
 
-**And the search is a read.** A hook must *live at* an address carrying its bits,
-which means trying CREATE2 salts until one lands — about 2^14 on average. The
-client here has no keccak-256, on purpose. So `Kiln.mine` is a `view` function
-and the visitor's own node walks the salts under `eth_call`: it executes, returns
-the first that matches, and commits nothing. The expensive, keccak-shaped part of
-deploying a hook turns out to be free. That is the whole reason a launchpad with
-hooks can exist on a page with no server.
+### A list a stranger can grow is a list a stranger can fill
 
-`Gate`, the one hook shipped, holds `beforeSwap` and `beforeRemoveLiquidity`, so
-"trading opens at X" and "liquidity locked until Y" are enforced by the pool
-rather than promised by a locker — both timestamps immutable, no setter, no
-owner. The tokens the launchpad mints have no owner and a fixed supply, which is
-a deliberate limit rather than a missing feature: every omitted lever is one a
-deployer could pull against the people who bought.
+`roomsOf(token)` is the only unbounded array in the protocol, and the reason it
+is safe is a design choice rather than a limit: an invitation **records
+permission**, and joining is the token's own transaction. A steward cannot push a
+token into a room. Nothing anybody else does makes your list longer.
 
-What it will not do is seed a **v4** pool with liquidity. Creating one is
-reachable — `PoolKey` is five static fields, so `initialize` is six flat words —
-but adding liquidity goes through `modifyLiquidities(bytes,uint256)`, a dynamic
-array of dynamic bytes behind a decoder that rejects non-canonical encoding, and
-this client has no ABI coder. It could be built, since the page contract has
-`abi.encode` and could hand the browser finished calldata. It is not built, and
-until it is the page routes v4 liquidity nowhere rather than somewhere
-plausible. A hookless launch finishes end to end on v3.
+Eviction is the matching restraint in the other direction. A steward can show a
+token the door, and cannot delete a message, edit one, or stop anyone reading —
+those are not powers this contract has to give.
 
-Every v4 fact here was read from source in the session that wrote it — the flag
-values, `PoolKey`'s layout, the dynamic-fee flag, and the exact `IHooks`
-signatures including `ModifyLiquidityParams` and `SwapParams`. The load-bearing
-test hashes those signature strings and compares against `Gate`'s selectors,
-because a callback differing by one field type is a function the PoolManager
-calls and the hook does not have.
+### Addressed is not private
 
-### The thing most likely to have lost somebody money
+A pair room is derived from two token ids, so anyone who knows two numbers can
+read every byte of it. That is what a public chain is, and the page says so in
+those words rather than calling it a DM and hoping.
 
-Two Uniswap routers have an `exactInputSingle`, and their params structs differ
-by exactly one field:
+`announce(token, x, y)` is the answer: a token publishes a P-256 point, and a
+client that finds one on both sides of a pair derives a shared secret with ECDH
+in the browser, seals the body with AES-GCM, and sends ciphertext. `kind` says
+the body is sealed; the contract cannot read it, and neither can anybody else
+with a node. **The registry is deployed and the sealing client is not yet
+written** — so today a message marked sealed is one this client will not pretend
+to render, and every plain message is exactly as public as the chain it is on.
 
-| router | struct | selector |
-|---|---|---|
-| v3-periphery `SwapRouter` | 8 fields, **`deadline` at index 4** | `0x414bf389` |
-| `SwapRouter02` | 7 fields, **no deadline anywhere** | `0x04e45aaf` |
+### What the client will not do
 
-Send one shape to the other router and it does not revert. It shifts `recipient`
-and every amount by one word and executes something nobody asked for. So the
-router's *kind* is an immutable stored beside its address in `Venue`, the
-constructor refuses a kind it does not understand, the selector is derived from
-that kind's own signature string, and the page prints both. Neither router is
-"the safe one" — SwapRouter02 is what Uniswap's interface uses, and the older one
-is the only one whose deadline a client with no ABI coder can reach, because
-SwapRouter02's lives behind `multicall(uint256,bytes[])`. Base has no
-v3-periphery SwapRouter at all. It is a deployment choice, and the page says
-which was made and what was given up.
+Three refusals, each for a reason:
 
-The test for this does not merely perform a trade. The mock routers **decode the
-struct and record every field**, and the suite asserts field by field that the
-word the client wrote into `amountIn` arrived as `amountIn` — then does the whole
-thing again against a second deployment wired to the other router, and finally
-sends the wrong shape deliberately to prove the mock would have noticed.
+**No keccak.** A page that hashes its own event signatures is a page you have to
+audit a hash function in. `Parley.topics()` returns them, derived on chain from
+the same signature strings the compiler hashes, and they arrive in the config
+block already computed. Same for every selector.
 
-Three more traps, each of which produces a wrong answer rather than a failure:
+**No `innerHTML` for anything that came off the chain.** A room name and a
+message body are chosen by whoever sent them, and these pages run on the same
+origin as `/token/<id>/live`, where a wallet is injected. Every string that came
+from a log or a call reaches the DOM through `textContent`. There is no escaping
+function to get wrong, because there is no place a mistake could be made — and
+the site verifier sends `</script><img src=x onerror=alert(1)>` through the real
+client and checks that the element it lands in has no children and was never
+assigned markup.
 
-- **QuoterV2's NatSpec lists its struct fields in a different order from the
-  declaration.** The declaration is what the ABI encodes. Hashing the comment's
-  order gives a selector for a function that does not exist; getting the selector
-  right but the words in the comment's order gives a silent quote at
-  `fee = 1000000000`.
-- **Ticks are signed**, and the way that bites is narrower than it first looks
-  — which is worth stating precisely, because the version of this paragraph
-  that shipped first was wrong. Reinterpreting `-201240` as an unsigned 24-bit
-  value gives `16575976`, and that is *not* a legal `int24` (the maximum is
-  `8388607`), so solc's decoder rejects it and the call reverts. The client
-  here would not even get that far: `I.W(-201240)` calls
-  `BigInt(-201240).toString(16)`, which is `"-31218"`, and the hex whitelist
-  refuses the minus sign and throws. Both of those are loud.
+**No range scans**, for the reason above.
 
-  The failure that is silent is a client that **drops** the sign rather than
-  mangling it — sending `+201240`, a perfectly legal tick roughly nine million
-  times the intended price. That mints in a range nobody chose, and nothing
-  reverts, because nothing is wrong with the number. `I.S` two's-complements
-  instead, and the mock position manager records the ticks it decoded *as
-  signed* so the test reads them back and would see either mistake.
-- **`amountIn == 0` is not an empty trade on SwapRouter02.** `CONTRACT_BALANCE`
-  is zero, so it means "swap this router's entire balance". It is refused in the
-  client and in the mock.
+### What this replaced
 
-Finding the third of those changed the test harness, not just the code. The
-runner's fuzzer drew `int24` as a 24-bit *unsigned* value — so every draw above
-8,388,607 was not a valid `int24` and solc's decoder rejected it with an empty
-revert, reported as a failing test with no message, while the entire negative
-half of the domain was never generated once. Every tick fuzzer was exercising the
-easy half and reporting full coverage. The generator now draws signed types
-signed, and the runner's self-check refuses to report on the suite at all if the
-fuzzer stops producing negative values.
+An earlier version of this site was a Uniswap front end: swap, pools, limit
+orders as range orders, an explore page with a chart drawn in Solidity, an
+ERC-4626 vault reader, a governance page, and a v4 launchpad that mined hook
+addresses with a `view` function. All of it worked and all of it is in this
+repository's history.
 
-### What an adversarial review of it found
-
-The Uniswap surface was then put under six independent reviewers — one each on
-the calldata, the client as a program, the Solidity reads, the tick arithmetic,
-the factual claims in the prose, and the routing — with every finding handed to
-a separate agent whose only job was to refute it from source. Eight of the
-thirty-seven raised did not survive that. The rest were real, and they were
-mostly of one kind: **a plausible wrong answer, not a failure.**
-
-- **A pool created at the reciprocal price.** The create-pool field says "second
-  token per first", meaning the two dropdowns. A pool says token1 per token0,
-  meaning address order. Those agree exactly half the time. The half where they
-  did not was a factor of nine million for WETH/USDC — the pool goes live at
-  that price, nothing reverts, and the first person to notice empties it. The
-  test that was supposed to cover this asserted only that `sqrtPriceX96` was in
-  representable range, which is true of the reciprocal too.
-- **A chart drawn upside down** for every token that sorts after its quote,
-  contradicting the high/low figures printed directly beneath it. A day the
-  token rose rendered as a day it fell.
-- **A fee-tier control that moved a highlight and nothing else** — the trade
-  always went to the best-quoting tier — while the page said it could be
-  overridden.
-- **A failed read rendered as a zero.** `totalAssets`, `convertToAssets`,
-  `quorumVotes` and `state` all answered zero for "reverted", "ran out of
-  stipend" and "really is zero" alike. The worst was `state`: the
-  `ProposalState` enum's zero is `Pending`, so a failed read showed a defeated
-  proposal as one that had not opened yet.
-- **`/vote` served the same document at 2^160 URLs**, having been folded in with
-  the two routes that take an address — the exact failure the router's own
-  comments say its length gates exist to prevent.
-- **The last bar of every chart was scaled by a remainder** whenever the window
-  did not divide evenly by the number of bars.
-- **Four prose claims that were simply wrong**, including the headline one in
-  this README — see the tick paragraph above, which now says what actually
-  happens rather than what sounded alarming.
-
-Two of the fixes needed the *tests* fixed first. The chart-orientation test
-passed against the reintroduced bug, because whichever single token it looked
-at was token0 half the time and the broken branch never ran; it now checks both
-ends of the same pool and carries a control asserting that the token1 branch was
-actually exercised. And the DOM shim turned out to lack `classList.toggle`,
-which every browser has — a stub that is missing something is worse than one
-that is small, because the failure points at the wrong file.
-
-### The token dropdown, and what it can honestly contain
-
-Uniswap's dropdown is two things: a **token list** — a JSON file fetched from
-tokenlists.org over HTTP or IPFS — and a **router** that finds a path across
-thousands of pools. Neither exists here, and copying them literally would be
-wrong twice over. Fetching a hosted list breaks the one property this whole
-collection is built on. And a dropdown offering ten thousand tokens of which
-four can be traded is not a convenience; it is a lie told 9,996 times.
-
-A market here has **one pair**, fixed by its holder when they call `openMarket`.
-So the choice a person actually has is not "which token" but "which market" — and
-that is a list the chain can answer completely. The picker above the swap card
-enumerates every id with an open market, read from the pool itself, and choosing
-one goes there. Everything it offers can be traded, because it was read from the
-contract that would execute the trade.
-
-`/assets` is the token list, derived rather than fetched: every ERC-20 that some
-market here actually holds, with the markets that trade it. Nothing appears that
-cannot be traded, nothing is curated by anybody, and there is no file on a server
-whose disappearance empties the dropdown.
-
-On `/swap` the same derivation seeds the dropdown, and beside it is a box for any
-address at all — which is the honest answer to "will it show every token Uniswap
-shows?" **No, and nothing that runs without a server can.** What it does instead
-is drop the middleman rather than reproduce it. Paste an address and the page
-asks the token what it is, asks the factory which of the four fee tiers has a
-pool for it, and asks each of those pools how deep it is at the current tick.
-So: *anything Uniswap can trade, this page can trade*, because it checks the pool
-rather than checking a list. A token list tells you a ticker. This tells you
-whether the trade fills.
-
-That check also has to be done carefully, and one of its failures was found by
-the test suite rather than by reasoning. A symbol read off an unvetted token is
-a string the token's deployer chose. The config block is written with the JSON
-escaper, so a symbol of `</script>` cannot end the block — but JSON escaping is
-not HTML escaping, and `\u003cscript\u003e` comes back out of `JSON.parse` as a
-literal `<script>`. Any page that then interpolates it into `innerHTML`, which
-the quote panel does on every card here, has put attacker-chosen text into the
-DOM of a page a wallet is injected into. Escaping at each point of use would mean
-getting it right at every point of use forever; instead every ticker in the
-config passes through one whitelist, once, in the shared client — the same one
-applied to symbols the client reads for itself.
-
-Building it exposed a real defect in the directory that shipped before it.
-`/open` walked *token ids* — so a collection with markets on tokens 3000, 3500
-and 4000 showed nothing for its first hundred and twenty pages, and a reader
-concluded there was no market anywhere. Not a slow answer; a wrong one. `Pool`
-now keeps an enumerable set of open markets, maintained in the two places
-membership changes, so the directory walks markets instead of guessing where they
-might be. Closing one moves the last entry into its place, so a reader paging
-through while that happens can miss an entry — the standard cost of swap-and-pop,
-worth it here, and printed on the page rather than left to be discovered.
-
-**The browser still computes almost nothing.** Building a transaction normally
-means shipping an ABI coder and a keccak-256. Not here: the page is generated by
-a contract, and Solidity has keccak, so every selector arrives in a JSON block
-the page carries and the client's whole encoding job is padding a number to
-thirty-two bytes. You can read the selectors in the page source and check them
-against the ABI.
-
-**And no floating point.** Every amount is parsed from decimal text into a BigInt
-of base units and formatted back the same way. A front end that multiplies a
-token balance by `1e18` in a double has already lost the last three digits of an
-eighteen-decimal balance, and the number it then asks you to sign is not the
-number you read.
-
-The client is executed against the real contracts on every run — a DOM shim, a
-provider wired to an in-process EVM, and a driver that types an amount, checks
-the quote against `Pool.quote`, presses approve, presses swap, and asserts the
-trader's balance moved by what the card promised. That test found a null
-dereference in `paint()` on its first run: the client wrote to an element the
-markup did not contain, which in a browser throws before a single listener is
-attached. The page renders perfectly and the whole card is dead. Nothing short
-of running it would have found that.
-
-### Two things measurement decided
-
-**The counter page cost 21M gas and was showing something unusable.** It embedded
-the whole instrument in an iframe, which is 21M of `eth_call` against 0.2M for
-every other page on the site — to display a preview a visitor cannot interact
-with, because a `data:` document gets an opaque origin and no wallet extension
-will inject into one. Strictly worse on both axes than the link beside it. The
-still is now its own request (`/token/42/sigil.svg`) and the page is **0.16M**.
-Every route on the site is now servable by any node, including the most cautious
-hosted RPC.
-
-**Four missing bytes made the whole thing unreachable.** ERC-6860 resolves a
-contract's mode by calling `resolveMode()` and treating a revert as *auto* mode
-— in which `web3://<addr>/` is an empty call to a contract with no fallback, and
-`/token/1` is a call to a method named `token`. Both revert. Without
-`resolveMode()` returning `"5219"`, the claim that a name pointed here resolves
-in any web3://-aware client is simply false, and the site is reachable only from
-a gateway that hard-codes ERC-5219 for that address — which is a server, which
-is the thing this contract exists not to need. An adversarial review found it;
-nothing else would have, because it fails silently and only in a conformant
-client.
-
----
+It was the wrong site. A collection whose thesis is that *each token is its own
+exchange* does not need to be a worse front end for somebody else's, and a
+website whose job is to be the door to an instrument should not spend nine tenths
+of itself on trading pairs the instrument has nothing to do with. What the tokens
+did not have was a way to reach each other. Now they have one, and the site is
+the door.
 
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and seven such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and two such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1050,15 +851,15 @@ apart from a broken token.
 if any of them goes over 50M. It runs in `npm run check`.
 
 ```
-tokenURI()                   19.98M gas   103,744 B    the pinned face
-tokenURIAt(id, 0)            19.93M gas   103,744 B    the instrument: the whole GUI
-tokenURIAt(id, 1)             2.55M gas     8,096 B    the still: one sigil
+tokenURI()                   19.99M gas   103,808 B    the pinned face
+tokenURIAt(id, 0)            19.94M gas   103,808 B    the instrument: the whole GUI
+tokenURIAt(id, 1)             3.32M gas     8,096 B    the still: one sigil
 tokenURIAt(id, 2)            13.72M gas    17,056 B    the quartet: four sigils
-tokenURIs()                  37.05M gas   129,024 B    ERC-7160: every face at once
+tokenURIs()                  37.06M gas   129,088 B    ERC-7160: every face at once
 contractURI()                 0.28M gas     2,720 B
 viewOf()                      0.01M gas       544 B
 
-Premises /token/1/live        4.49M gas    54,400 B    the same page, over ERC-5219
+Premises /token/1/live        4.48M gas    54,432 B    the same page, over ERC-5219
 ```
 
 Two things in that table are worth saying plainly.
@@ -1066,11 +867,11 @@ Two things in that table are worth saying plainly.
 **`tokenURIs()` was broken and nobody knew.** It cost 55.19M — above the 50M that
 geth, erigon and reth all use by default, which means the ERC-7160 function that
 returns every face was not callable on a correctly configured archive node, let
-alone a hosted one. It is 37.05M now. The fix was not a smaller document; it was
+alone a hosted one. It is 37.06M now. The fix was not a smaller document; it was
 three pieces of arithmetic that were being redone for no reason, described below.
 
 **The cheapest route to the artwork is not `tokenURI`.** `Premises` serves the
-identical page over ERC-5219 for 4.49M — under a fifth of the `tokenURI` cost, and
+identical page over ERC-5219 for 4.48M — under a fifth of the `tokenURI` cost, and
 under every cap in the table including the cautious 10M one, because it hands over
 the document itself instead of a base64 data URI nested inside a base64 JSON
 envelope. A `web3://` gateway or a 5219-aware wallet takes that route already.
@@ -1093,7 +894,7 @@ Base64 wrote four characters with four mstore8                  -6.6M
   where one shifted mstore places the same four
 ```
 
-**The `tokenURI` read is still the budget that binds.** 19.98M leaves 30M of headroom
+**The `tokenURI` read is still the budget that binds.** 19.99M leaves 30M of headroom
 against the default cap, and every feature added to `engine/ipseity.html` spends
 some of it. When it runs out the answer is not a bigger cap, it is a smaller
 document.
@@ -1101,25 +902,30 @@ document.
 Deployed bytecode, against the 24,576-byte EIP-170 ceiling:
 
 ```
-Desk             21,456 B   87%    the application, held as contract code
-PageToken        20,740 B   84%    the index and each token's counter
-Renderer         20,707 B   84%
+Desk             23,284 B   95%    the application, held as contract code
+Renderer         20,747 B   84%
 Ipseity          18,718 B   76%
+PageMarket       18,254 B   74%    the swap card, and the directory
 PageServices     17,594 B   72%    renting, and the two hands
-PageMarket       15,357 B   63%    the swap card, and the directory
+DeskTalk         16,383 B   67%    the messaging client
+PageToken        16,273 B   66%    each token's counter
+PageManifest     15,321 B   62%    the machine-readable shopfront
 Sigil            14,477 B   59%
-PageManifest     13,436 B   55%    the machine-readable shopfront
+Chrome           13,816 B   56%    the stylesheet, nav and footer
 IpseityAccount   12,315 B   50%    the Reach
 PagePool         11,882 B   48%    the holder's side
-Chrome           10,743 B   44%    the stylesheet, nav and footer
-Pool              8,939 B   36%
-Premises          7,495 B   31%    the ERC-5219 router
+PageDoor          9,919 B   40%    the way in
+Pool              9,619 B   39%
+PageTalk          8,959 B   36%    the commons, and one token to another
+Premises          8,598 B   35%    the ERC-5219 router
+PageRooms         8,513 B   35%    the groups
 Lease             6,764 B   28%
+Parley            6,069 B   25%    the protocol the tokens talk over
 Engine            2,724 B   11%
 GripVault         1,933 B    8%    the Grip
 ```
 
-There are eleven contracts serving the site rather than one because EIP-170 is
+There are nine contracts serving the site rather than one because EIP-170 is
 24,576 bytes and the site is not. The split is not arbitrary: `Premises` routes
 and answers the four routes that hand over the artwork itself, and every page
 contract is an immutable constructor argument, so the routes where being wrong
@@ -1133,28 +939,22 @@ the Reach spends 7,302 policing a capability it has.
 
 ---
 
-The Uniswap pages were measured the same way, against a venue with real pools
-behind it rather than against the zero address — measuring them with nothing to
-read would have measured the "no venue" notice and reported that the swap card
-costs nothing:
+Where the tokens talk is the cheapest part of the site, and that is the design
+rather than an accident. The conversation is in the logs — which a node already
+has indexed — so the contract renders a shell and the browser does the reading:
 
 ```
-/swap                0.62M    any pair of ERC-20s, on Uniswap v3
-/pools               0.54M    liquidity at a range you choose
-/limit               0.54M    a range order: an order without a server
-/explore             0.46M    a few tokens to start from
-/explore/<token>     0.81M    every tier, and a chart from the pool's own oracle
-/earn                0.41M    an ERC-4626 vault, once you bring one
-/vote                0.51M    governance, read from the governor
-/assets              0.11M    every asset any market here trades
+/chat                0.23M    the commons: one room, every token
+/rooms               0.24M    the groups a token has entered
+/room/1              0.29M    one group
+/dm/1                0.24M    the room two tokens share
+/                    0.31M    the door
 ```
 
-`/explore/<token>` is the one worth watching and the reason it is in the budget
-at all: when a token cannot be priced against the wrapped native it walks
-candidate assets asking the factory for a pool, and the chart is twenty-five
-observations out of the pool's own ring buffer on top of that. At 0.81M it is
-still comfortably inside the most cautious hosted RPC's ceiling — but it is the
-page that would leave first, so it is measured on every run rather than assumed.
+A chat that cost a node what a chart costs would be a chat nobody could host. The
+expensive read on this site is still `/token/<id>/live` at 4.48M — the whole
+instrument in one `eth_call` — and it is expensive on purpose and only when
+somebody asks for it.
 
 ## Building it
 
@@ -1165,6 +965,11 @@ node tools/selftest.mjs         # the engine's own keccak, ABI coder, EIP-712, C
 node tools/build-engine.mjs     # minify, gzip, shard  → dist/shards.json
 node tools/verify.mjs           # deploy on a real EVM and read it all back
 node tools/preview.mjs          # dist/preview.html — open it in a browser
+
+npm run gallery                 # mint eight solids, pull every facet back off the
+                                # chain, bind them into dist/gallery/gallery.html
+npm run shots                   # open those documents in a real browser and
+                                # require them to draw  → dist/gallery/shots/
 ```
 
 `selftest.mjs` lifts the chain half of the engine straight out of
@@ -1179,6 +984,33 @@ The document that comes back must be **byte for byte** the document that went in
 the state written into the gap must be the state the contract actually holds. Then it
 commits a new orientation and checks that everything downstream moved and the engine
 itself did not.
+
+`shots.mjs` is the only tool in here that renders anything; everything else reads
+bytes. It launches Chromium, opens the document the chain returned, and refuses to
+pass unless a WebGL2 context exists on `#field` and the body has come up — because
+"the bytes round-tripped" and "the token draws" are two different claims, and for a
+while only the first one was being made.
+
+The second claim was false. `document.open()` clears the document but keeps the
+Window, so every lexical declaration made before the write survives it — and the
+loader was handing the payload over as `const S` and `const D` at global scope while
+the minified engine, whose top-level names a minifier had shortened to single
+letters, declared its own `const D={}`. One binding, declared twice, and
+`document.write()` threw before a pixel was drawn. Every packed token was a black
+rectangle in Chrome, and nine hundred passing assertions had nothing to say about it,
+because not one of them had ever run the page. The loader now hands both halves over
+on one property and reads them from inside a function, so it declares nothing at all;
+`verify.mjs` asserts that, and `shots.mjs` asserts the consequence.
+
+It found a second one on the same run. The eighth solid's notation was written
+`z<-z2+c`, and that string is dropped straight into SVG character data — where a bare
+`<` is markup, not a character. The still for every Quaternion Julia token was
+therefore not an SVG at all but a parse error, and the *thumbnail* is the face most
+clients show. It is the arrow the instrument uses now, which is data in SVG and in
+JSON both; `verify.mjs` checks all sixteen labels for characters that mean something
+to either parser, and `shots.mjs` calls `decode()` on every image the page holds,
+because an image that will not parse is still an `<img>` in the DOM and every
+assertion that counted elements was perfectly happy about it.
 
 That check found a real bug. The SSTORE2 init code carried the wrong `CODECOPY`
 source offset — `PUSH1 10` where the prologue is 12 bytes long — so every shard came
@@ -1224,17 +1056,16 @@ src/
   Desk.sol              the application for the collection's own markets
   PageToken.sol         PageMarket.sol  PagePool.sol  PageServices.sol
   PageManifest.sol      the same, for programs
-  Venue.sol             the one contract that knows Uniswap exists — reads only
-  DeskUni.sol           its data: addresses, derived assets, every selector
-  DeskTrade.sol         the swap and liquidity clients
-  DeskCivic.sol         the vault and governance clients
-  PageSwap.sol          /swap and /assets
-  PagePools.sol         /pools and /limit — liquidity, ranges, range orders
-  PageExplore.sol       /explore — a price chart drawn by a contract
-  PageCivic.sol         /earn and /vote
+  Parley.sol            the protocol the tokens talk over — rooms, and the
+                        back-links that make an archive walkable with no index
+  DeskTalk.sol          the messaging client: the walk, the calldata, and the
+                        rule that nothing off the wire becomes markup
+  PageDoor.sol          / — connect, and what you hold opens
+  PageTalk.sol          /chat and /dm/<id>
+  PageRooms.sol         /rooms and /room/<n>
   IpseityAccount.sol    the Reach — the ERC-6551 vault, sealable and measured
   GripVault.sol         the Grip — the second account, which cannot spend
-  lib/                  SSTORE2, Base64, Trig, Curve, Timelock, Mul, Tick, Assets
+  lib/                  SSTORE2, Base64, Trig, Curve, Timelock, Mul, Web
   interfaces/           every standard, with the reasoning
 tools/
   glsl-check.mjs        every shader parses and type-checks
@@ -1247,14 +1078,19 @@ tools/
   verify-premises.mjs   prove the index cannot touch the artwork
   verify-timelock.mjs   try to escape the delay
   verify-site.mjs       run the contract's own client against the contracts
+  verify-parley.mjs     read a conversation back with a second, independent
+                        reader, and count the queries it took
+  gallery.mjs           mint one token per solid and pull every facet off chain
+  shots.mjs             open those documents in a browser and require them to draw
   forge.mjs             the Foundry suite, without Foundry
   fuzz.mjs              the stated properties, under seeded random attack
   preview.mjs           dist/preview.html
   evm.mjs, compile.mjs  the harness
 test/                   Foundry unit, property and fuzz tests
-script/Deploy.s.sol     deploy, load, seal
+script/Deploy.s.sol     deploy the collection, load, seal
+script/Site.s.sol       deploy the parley, the desks, the pages and the router
 
-INVARIANTS.md           one hundred and seven statements that must hold, and the test for each
+INVARIANTS.md           one hundred and two statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 
@@ -1313,18 +1149,37 @@ tested; the signer is specified and not written.
 
 ---
 
-**The Uniswap side was run against mocks, not against Uniswap.** Every signature
-and return shape in `test/mocks/UniV3.sol` was read from Uniswap's own source and
-cross-checked against the deployed mainnet ABIs, and the mocks are faithful in
-the ways that decide whether the real thing works — `slot0` returns all seven
-values, `observe` returns two arrays, `getPool` is symmetric and returns zero for
-a pair with no pool, `QuoterV2` is deliberately *not* `view`, `proposals()`
-returns the ten static words the auto-generated getter actually returns, and both
-routers decode their struct and record every field. But a mock is a mock. The
-addresses in `tools/site.mjs` were read from Uniswap's published deployment docs
-and none of them was confirmed against live chain state, because there is no RPC
-in this environment. **Check every address on a block explorer before deploying
-anywhere that matters.**
+**The conversation was read back by two independent readers.** The one that ships
+lives in `DeskTalk.sol` and is driven by `tools/verify-site.mjs` against a DOM
+shim and a provider wired to the same in-process EVM — so a message typed into
+the box on the page is a log emitted by the contract, and the message that comes
+back onto the page is that log, decoded. The second lives in
+`tools/verify-parley.mjs` and was written as if it had never seen the first. Two
+readers of one archive have to agree, and if they ever stop, one of them is wrong
+in a way a single reader could never have reported.
+
+Neither has been run against a real node. `eth_getLogs` here is a ledger the
+harness keeps, filtered the way a node filters — inclusive block bounds,
+positional topic matching, an array for "any of these" — and the shape of the
+answer is the shape `eth_getLogs` returns. What it cannot model is reorgs, log
+pruning on an archive-less node, or an endpoint that refuses a query for its own
+reasons. **The claim that this reads a conversation without an indexer is a claim
+about the number and narrowness of the queries, which is measured; it is not a
+claim that every endpoint will answer them.**
+
+---
+
+**A test failed against a correct contract, and the reason is worth writing
+down.** `test_aTokenRemembersWhereItLastSpokeWhoeverElseHasSpoken` captured
+`block.number` into a local, called `vm.roll`, and compared. It failed. The
+contract was right and the test was wrong, in a way that has nothing to do with
+either: within one transaction `block.number` cannot change, so the optimiser is
+entitled to read `NUMBER` once and reuse it — and it sinks that read to the first
+*use*, which was after the roll. The local captured "before" held the value from
+after. A cheatcode that moves the block mid-call is outside the language's model
+of the machine, and anything that has to straddle one now reads its evidence out
+of storage instead. Real Foundry has the same hazard for the same reason.
+
 
 
 ## Tradeoffs worth knowing
@@ -1345,7 +1200,7 @@ the 50M `eth_call` cap that geth, erigon and reth use by default, and both are
 outside the 10M some hosted providers impose — so on a cautious provider the token
 renders nothing, and the caller is told "out of gas" rather than "ask elsewhere".
 `tokenURIAt(id, index)` exists so a client that wants one face does not pull all
-three, and `Premises` serves the identical page over ERC-5219 for 4.49M, which is
+three, and `Premises` serves the identical page over ERC-5219 for 4.48M, which is
 under every cap. `tools/gas.mjs` measures all of it on every run and fails the build
 before a regression can ship.
 

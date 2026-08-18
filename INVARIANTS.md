@@ -18,6 +18,26 @@ Every byte of `tokenURI`'s `animation_url`, after base64 → JSON → base64 →
 equals the source. Nothing in the pipeline may quietly alter the engine.
 → `tools/verify.mjs` · *"the document that comes back is byte-for-byte the document that went in"*
 
+**1b. The loader declares nothing in global scope.**
+`document.open()` clears the document and keeps the Window, so any binding the
+loader declares is still declared while the engine is being written in. The
+engine is minified and its top-level names are single letters, so a `const D` on
+both sides is one binding declared twice and the write throws. The payload
+crosses on a property, read from inside a function.
+→ `tools/verify.mjs` · *"and declares nothing at all in global scope"*
+
+**1c. The document the chain returns draws.**
+Not "round-trips" — draws: a WebGL2 context on `#field` and a body that has come
+up, in Chromium, for every one of the eight solids.
+→ `tools/shots.mjs`
+
+**1d. Every label a contract writes is data in both formats it lands in.**
+The solid names and notations are dropped unescaped into SVG character data
+and into JSON strings. `<` and `&` are markup in the first; `"` and `\` are
+structure in the second. None of the sixteen strings may contain any of them.
+→ `tools/verify.mjs` · *"labels are safe in both formats they are written into"*,
+  `tools/gallery.mjs` (the whole still, scanned), `tools/shots.mjs` (it decodes)
+
 **2. A shard round-trips exactly.**
 `SSTORE2.read(SSTORE2.write(x)) == x` for any non-empty `x` under 24,575 bytes,
 and the deployed runtime always begins with `STOP`.
@@ -400,213 +420,105 @@ seven days as anything else.
 
 ---
 
-## The rest of the chain
+## Where the tokens talk
 
-Everything under `/swap`, `/pools`, `/limit`, `/explore`, `/earn` and `/vote`
-sends the visitor's wallet straight to a Uniswap or ERC-4626 contract. Nothing
-in this collection is on that path, and nothing in it could be: `Venue` has no
-function that moves anything, and every page contract has zero state-changing
-functions. So these invariants are about what the pages *say* and what the
-client *sends*, which is where being wrong would cost somebody money.
+**79. A message is signed by the token, not by an address.**
+`speak`, `whisper`, `found`, `join`, `leave`, `invite`, `evict` and `announce`
+all go through `mayActAs`, which admits the owner and the token's own ERC-6551
+account and nobody else. Not the renter: a lease buys the instrument's use, not
+the right to speak in its name.
+→ `test/Parley.t.sol::test_onlyTheHolderSpeaksAsATheirToken`,
+  `test_theBoundAccountMaySpeakAndTheRenterMayNot`
+→ `tools/verify-parley.mjs` · *"a wallet cannot speak as a token it does not hold"*
 
-**79. A router's calldata shape travels with its address.**
-`Venue` stores `ROUTER_KIND` beside `ROUTER`, refuses a kind it does not
-understand at deployment, and the client derives the selector from that kind's
-own signature string. The two Uniswap routers' `exactInputSingle` structs differ
-by one field and the wrong one does not revert — it shifts `recipient` and every
-amount by a word.
-→ `test/Venue.t.sol::test_aRouterKindNobodyCheckedIsRefused`, `test_bothRealRouterKindsAreAccepted`
-→ `tools/verify-site.mjs` · *"driving the Uniswap card"*, *"the same page wired to the other router"* — every field asserted by name against a mock that records what it decoded, both shapes, plus the wrong shape sent deliberately
+**80. The walk always goes backwards, so a client always stops.**
+Every message carries the block of the message before it, and the room stores
+where the newest one is. Two messages in one block is the case that breaks a
+naive reader — the second one's pointer is its own block — so the walk follows
+the *oldest* log in a block, whose pointer is necessarily earlier.
+→ `tools/verify-parley.mjs` · *"two messages in one block do not send the walk in
+  a circle"*, with the naive version run alongside it and watched to loop
 
-**80. Every tick the client sends is sign-extended.**
-A tick is `int24` and negative for any pair priced below parity. Two things
-could go wrong with that and only one of them is silent, which the first
-version of this entry got backwards. *Reinterpreting* the low 24 bits of
-`-201240` gives `16575976`, which is not a legal `int24` at all — the maximum
-is `8388607` — so solc's decoder rejects it and the call reverts; and the
-client here would throw before that, because `BigInt(-201240).toString(16)`
-is `"-31218"` and the hex whitelist refuses the sign. Both loud.
+**81. Reading a conversation is one query per block that has one.**
+Never a range. `eth_getLogs` over a wide range is the first request a public
+endpoint refuses, and a client that needed one would work in every test and fail
+in production.
+→ `tools/verify-parley.mjs` · *405 blocks of history, read in three queries*
+→ `tools/verify-site.mjs` · *"and every one of them asked for exactly one block"* —
+  measured on the shipped client, not on a copy of it
 
-The silent one is a client that *drops* the sign and sends `+201240` — a
-perfectly legal tick, roughly nine million times the intended price, minting
-in a range nobody chose with nothing to complain about. `I.S`
-two's-complements, and the mock position manager records the ticks it decoded
-as signed so either mistake is visible.
-→ `tools/verify-site.mjs` · *"driving the liquidity page"* — the mock records ticks as signed and the assertion reads them back
-→ `tools/forge.mjs::selfCheck` refuses to report on the suite at all if the fuzzer stops generating negative `int24` values
+**82. Every room is a different room.**
+A group key is `keccak(1, index)` and a pair key is `keccak(2, min, max)`, hashed
+over different lengths, and a pair is the same room from both sides.
+→ `test/Parley.t.sol::test_aGroupKeyIsNeverAPairKey`, `test_aPairIsTheSameRoomFromBothSides`
 
-**81. No page ever interpolates an unescaped ticker.**
-A symbol is a string chosen by whoever deployed the token. On-chain JSON escaping
-stops it ending the config block; it does not survive `JSON.parse`, which returns
-the raw characters. Every ticker in the config passes through one whitelist,
-once, in the shared client — the same one applied to symbols the client reads
-itself.
-→ `tools/verify-site.mjs` · *"a pasted token's ticker is stripped to something inert"*, *"and the market card's own config is scrubbed the same way"*
+**83. A pair room is reachable only through the derivation.**
+The derivation is the membership proof, so `speak` refuses a pair key outright
+rather than checking a membership it would have to store. A token genuinely in
+that room still cannot post to it that way.
+→ `test/Parley.t.sol::test_aPairRoomCannotBePostedToThroughSpeak`
 
-**82. An amount of zero is never sent to a router.**
-`Constants.CONTRACT_BALANCE == 0`, so on SwapRouter02 a zero `amountIn` means
-"swap this router's entire balance", not "swap nothing".
-→ `tools/verify-site.mjs` · *"an amount of zero cannot be sent"*, *"and pressing anyway sends nothing"*
+**84. A room nobody founded is not a room.**
+→ `test/Parley.t.sol::test_anUnfoundedRoomIsNotARoom`
 
-**83. A fee tier is never offered unless the factory says it exists.**
-The v3 factory's constructor enables 500, 3000 and 10000. The 0.01% tier exists
-only where an owner later called `enableFeeAmount`, so it is read per chain
-rather than assumed.
-→ `test/Venue.t.sol::test_theHundredthTierIsNotAssumedToExist`, `test_aTierEnabledLaterIsSeen`
+**85. Nobody can lengthen somebody else's room list.**
+An invitation records permission; joining is the token's own transaction. The
+only unbounded array in the protocol can be grown by exactly one party, and it
+is the party who pays for it.
+→ `test/Parley.t.sol::test_nobodyCanLengthenSomebodyElsesRoomList`
+→ `tools/verify-parley.mjs` · *"an invitation alone still adds nothing to it"*
 
-**84. An address is never described as a Uniswap pool on its own say-so.**
-`Venue.state` asks the pool which factory it belongs to and refuses it if the
-answer is not the factory the page prints at the bottom.
-→ `test/Venue.t.sol::test_anImpostorPoolIsNotDescribedAsAPool`, with `test_aRealPoolIsDescribedAsOne` as the control
+**86. Leaving is remembered without erasing anything.**
+The room stays on the token's list marked "left", because the list is what is
+worth asking about and `inRoom` is the authority on membership. Rejoining does
+not duplicate the entry.
+→ `test/Parley.t.sol::test_leavingIsRememberedWithoutErasingTheRoom`,
+  `test_rejoiningDoesNotDuplicateTheEntry`
 
-**85. A misbehaving external address cannot switch a page off.**
-Every read into Uniswap is a raw `staticcall` with a gas stipend and a length
-check. A factory that reverts, returns a codeless address, or burns every drop of
-gas it is handed produces "no venue" and a page that still renders.
-→ `test/Venue.t.sol::test_aFactoryThatRevertsDoesNotTakeThePageWithIt`, `test_aFactoryPointingAtNothingIsNotFollowed`, `test_aFactoryThatBurnsEveryDropOfGasStillLeavesEnoughToRender`, `test_aPoolThatAnswersHalfTheReadsPricesNothing`
+**87. A steward can close a door and cannot close a mouth.**
+Only the steward invites and evicts, and eviction changes no message and no
+count. There is no delete, no edit, and no way to stop anyone reading.
+→ `test/Parley.t.sol::test_onlyTheStewardInvitesAndEvicts`, `test_evictionCannotUnsayAnything`
 
-**86. A pool with no oracle history says so rather than reverting or drawing
-nothing.**
-Every v3 pool is created with room for one observation and `observe` reverts
-`OLD` past what it holds — the common case, not a malfunction. The page offers
-`increaseObservationCardinalityNext` instead.
-→ `test/Venue.t.sol::test_aFreshPoolHasNoHistoryAndSaysSoRatherThanReverting`, `test_aPoolWithMemoryDrawsAChart`
-→ `tools/verify-site.mjs` · *"a pool with no history says so instead of drawing nothing"*, *"once the pool has a buffer, a chart appears"*
+**88. A body has both ends, and a kind this contract does not know is refused.**
+Empty is refused, `MAX_BODY` is accepted, one byte past it is refused, and only
+`PLAIN` and `SEALED` are kinds.
+→ `test/Parley.t.sol::test_aBodyHasBothEnds`, `test_aKindThisContractDoesNotKnowIsRefused`
 
-**87. A time-weighted mean tick always rounds toward negative infinity.**
-Integer division truncates toward zero, so a negative mean rounds *up* and every
-point on a chart below parity sits one tick too high.
-→ `test/Venue.t.sol::test_aNegativeMeanRoundsTowardNegativeInfinity`
+**89. A body is bytes and stays the bytes it was.**
+Round-tripped byte for byte, including one that is markup and one that is not
+ASCII. A sealed body is flagged rather than interpreted.
+→ `tools/verify-parley.mjs` · *"byte for byte"*
 
-**88. The chart is in the markup, not assembled by a script.**
-A row of divs with percentage heights, computed in Solidity from the pool's own
-ring buffer. It renders with JavaScript switched off.
-→ `tools/verify-site.mjs` · *"one bar per interval, drawn in Solidity"*, *"and it is in the markup rather than assembled by a script"*
+**90. Nothing that came off the chain becomes markup.**
+Every string from a log or a call reaches the DOM through `textContent`. The site
+verifier sends `</script><img src=x onerror=alert(1)>` through the real client
+and asserts the element it lands in has no children and was never assigned
+`innerHTML` — on the same origin `/token/<id>/live` is served from, where a
+wallet is injected.
+→ `tools/verify-site.mjs` · *"because the client never assigned innerHTML to it"*
 
-**89. No deposit form is rendered for an address that has not answered as a
-vault.**
-`/earn` calls `asset()` first and refuses the form outright when it does not
-answer — a stronger check than appearing on a hosted list.
-→ `tools/verify-site.mjs` · *"but gets no deposit button"*, with *"a real ERC-4626 vault does get one"* as the control
+**91. The client computes no hashes.**
+Every event topic and every selector arrives already derived, from
+`Parley.topics()` and from signature strings hashed on chain. A topic written
+down by hand would match nothing, and a chat that matched nothing looks exactly
+like a chat nobody has used.
+→ `test/Parley.t.sol::test_theTopicsAreDerivedFromTheSignaturesThemselves`
+→ `tools/verify-site.mjs` · *"filtered to the room, by a topic the contract computed"*
 
-**90. No yield figure is ever printed.**
-APY is a rate over time; one `eth_call` sees one moment. A number the page cannot
-check is a number it does not show.
-→ `tools/verify-site.mjs` · *"with no yield figure anywhere"*
+**92. Every page contract is read-only.**
+`PageDoor`, `PageTalk`, `PageRooms` and `DeskTalk` have zero state-changing
+functions in their compiled ABIs. `DeskTalk` is the one that matters most: it
+holds the client, so it is the obvious place for a function that stands between
+a person and their wallet.
+→ `tools/verify-site.mjs` · *read off the compiled ABI*
 
-**91. A vote is refused before it is sent when the voter has no delegated power.**
-The governor would accept it and count it as nothing.
-→ `tools/verify-site.mjs` · *"a vote with no delegated power is refused before it is sent"*, then *"now the vote reaches the governor"* once delegated
-
-**92. `proposals()` is decoded as the ten static words the auto-generated getter
-returns.**
-The struct also holds four dynamic arrays and a receipts mapping, and the getter
-omits all of them. Reading word 5 as `forVotes` is only correct because of that.
-→ `tools/verify-site.mjs` · *"the vote counts are there"*, against a mock that returns exactly the getter's shape
-
-**93. The manifest names every route the router serves, and no route it does not.**
-`/services.json` lists the collection-wide surface as well as the per-token
-services, and the suite fetches every path the manifest advertises and requires
-a 200. A directory that names a route the front door does not have is the same
-defect as one that omits a route it does.
-→ `tools/verify-site.mjs` · *"and it describes the collection-wide surface too"* — every advertised path is fetched
-
-**94. The manifest carries the router's calldata shape, not only its address.**
-A program building a swap from this document has an address and, without
-`routerKind`, no way to know whether it takes eight words or seven — the two
-structs are incompatible and the wrong one does not revert.
-→ `tools/verify-site.mjs` · *"and the router's calldata shape, which is the part a program needs"*
-
-**95. A price typed into a form means what the form says, not what the pool says.**
-The create-pool field is labelled "second token per first", meaning the two
-dropdowns; a pool says token1 per token0, meaning address order. Those agree
-half the time, and the half where they do not is a reciprocal — a factor of
-nine million for a real pair, live on chain, with nothing reverting. The client
-maps between the two and echoes the resulting tick's actual worth before
-sending.
-→ `tools/verify-site.mjs` · *"and at the price that was actually typed, not its reciprocal"*
-
-**96. A chart is oriented by the token being priced, not by the raw tick.**
-A tick rises with token0's price and falls with token1's, so bars drawn
-straight from the tick are upside down for every subject that sorts after its
-quote — against the high/low labels printed directly beneath them.
-→ `tools/verify-site.mjs` · *"…so a rising tick must draw a RISING/FALLING chart"*, checked at **both** ends of one pool, plus a control asserting the token1 branch was actually exercised
-
-**97. A control that appears to choose something chooses it.**
-Pressing a fee tier changes the tier the quote comes from and the tier the
-trade is sent to — not only the highlight.
-→ `tools/verify-site.mjs` · *"and the trade goes through the tier that was chosen, not the best one"*
-
-**98. A failed read is never rendered as a zero.**
-`totalAssets`, `convertToAssets`, `quorumVotes` and `state` all report whether
-they answered, separately from what they answered. The last of those mattered
-most: `ProposalState.Pending` is zero, so a failed `state()` used to render as
-a specific, wrong, plausible answer.
-→ `src/PageCivic.sol` — every one returns `(bool, uint256)` and the page prints "would not answer"
-
-**99. One resource, one URL — including the spelling of an address.**
-`/vote` takes no segment and no longer accepts a discarded one. `/explore` and
-`/earn` accept a mixed-case address, because that is what a block explorer
-gives you, but redirect it to the canonical lower-case form with a 301 rather
-than serving the same document at both.
-→ `src/Premises.sol::_toAddr` returns a `canon` flag; `_moved` answers 301 with a `Location`
-
-**100. A chart covers a whole number of its own intervals.**
-`window` is trimmed to `step × points`, because the last interval used to span
-`step + (window % points)` seconds while still being divided by `step` — so the
-most recent bar, the one a reader looks at first, was scaled by the remainder.
-→ `src/Venue.sol::history`
-
-## The launchpad
-
-**101. A hook's declared callbacks equal the low fourteen bits of its address.**
-`Kiln.deployHook` refuses to hand back an address whose bits differ from what
-the recipe declares. A hook missing one of its bits is one whose callback the
-PoolManager never invokes — nothing reverts, nothing warns, and a lock that is
-never consulted looks exactly like a lock.
-→ `test/Kiln.t.sol::test_aSaltThatLandsWrongIsRefusedRatherThanDeployed`, `test_aMinedSaltDeploysAHookThatTheManagerWillCall`
-→ `tools/verify-site.mjs` · *"and its low fourteen bits are exactly beforeSwap + beforeRemoveLiquidity"*
-
-**102. A hook's callback signatures are the ones v4 actually calls.**
-Matched by selector, which is the hash of the whole signature. One field's type
-wrong and the PoolManager calls a function the hook does not have — with no
-fallback, that reverts every swap and every withdrawal on any pool that trusted
-it, while the code compiles and verifies.
-→ `test/Kiln.t.sol::test_theHookSelectorsAreTheOnesV4Calls`, hashed from the canonical strings, with `test_aNearlyRightSignatureIsADifferentFunction` as the control
-
-**103. A token this launchpad deploys has no owner and a fixed supply.**
-No mint, no pause, no blacklist, no upgrade path. Customisation lives in the
-launch — supply, split, price, range, fee, tick spacing, hook — not in the token
-as a permission somebody can exercise later.
-→ `test/Kiln.t.sol::test_theSupplyIsFixedAndNobodyCanAddToIt`, `testFuzz_transfersConserveTheSupply`
-
-**104. A launch lands at the address it was promised.**
-`CREATE2`, with the launcher mixed into the salt — so an address can be
-announced before it exists, and cannot be taken by somebody re-sending the same
-call with more gas.
-→ `test/Kiln.t.sol::test_aLaunchLandsWhereItSaidItWould`, `test_twoPeopleMayUseTheSameSalt`
-→ `tools/verify-site.mjs` · *"and it landed exactly where the page said it would"*
-
-**105. Searching for a hook address sends nothing.**
-`mine` is a `view`, so the visitor's own node walks CREATE2 salts under
-`eth_call` and commits nothing. It is bounded and reports failure rather than
-running past an `eth_call`'s gas ceiling with no partial answer.
-→ `test/Kiln.t.sol::test_miningReportsFailureRatherThanRunningForever`, `test_movingTheWindowAlongContinuesTheSearch`
-→ `tools/verify-site.mjs` · *"and searching sent no transaction — it is an eth_call"*
-
-**106. What a hook may do is read from its address, not from its claims.**
-`/hook/<address>` answers with arithmetic on the address. Nothing is called, so
-there is nothing for the hook's author to misstate — the PoolManager tests these
-very bits to decide what to invoke.
-→ `tools/verify-site.mjs` · *"reading a hook off its address"*, four addresses chosen for their low bits and not taken from this repository
-
-**107. The page never reads a hook's address as safety.**
-The bits that enforce a lock are the bits that spring a trap; a hook that
-unlocks on Friday and one that never unlocks have identical address shapes.
-Every rendering of a withdrawal-guarding hook says so.
-→ `tools/verify-site.mjs` · *"and the page refuses to read that as safety"*
-
----
+**93. The manifest is the instruction manual for replacing the browser.**
+`/services.json` carries the parley's address, the commons key, the message
+topic and the rule for walking backwards — enough to read the whole archive with
+`eth_getLogs` and never load a page of this site.
+→ `tools/verify-site.mjs` · *"and the topic a program filters on"*, checked against
+  the hash of the signature string rather than against the contract's own answer
 
 ## Found by adversarial review, and fixed
 

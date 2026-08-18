@@ -37,6 +37,15 @@ export const GENESIS_TIME = 1_733_000_000n;
    module namespace see the change without re-importing. */
 export let BLOCK = mkBlock(21_000_000n, GENESIS_TIME);
 
+/// @notice Move the chain to an absolute block number.
+/// @dev    Twelve seconds a block, so a harness that rolls and a harness
+///         that warps do not disagree about what time it is.
+export function roll(number) {
+  const n = BigInt(number);
+  BLOCK = mkBlock(n, GENESIS_TIME + (n - 21_000_000n) * 12n);
+  return BLOCK;
+}
+
 /// @notice Move the chain clock to an absolute timestamp.
 export function warp(timestamp) {
   const t = BigInt(timestamp);
@@ -136,6 +145,9 @@ export class Chain {
     this.from = createAddressFromPrivateKey(key);
     this.nonce = 0n;
     this.gas = {};
+    /*  Shared with every actor `as()` mints, because a conversation with
+        two people in it is one archive and not two.                     */
+    this.log = [];
   }
 
   static async open() {
@@ -165,6 +177,7 @@ export class Chain {
   async as(keyHex, wei = 10n ** 22n) {
     const other = new Chain(this.vm, hexToBytes(keyHex));
     other.gas = this.gas;
+    other.log = this.log;
     await this.fund(other.from.toString(), wei);
     return other;
   }
@@ -202,12 +215,61 @@ export class Chain {
       );
     }
     if (label) this.gas[label] = (this.gas[label] || 0n) + res.totalGasSpent;
+    this._record(res, tx);
     return {
       gas: res.totalGasSpent,
       address: res.createdAddress ? res.createdAddress.toString() : null,
       ret: bytesToHex(res.execResult.returnValue || new Uint8Array()),
       logs: res.execResult.logs || []
     };
+  }
+
+  /*  A log ledger.
+
+      The client this collection ships reads a conversation by walking logs
+      one block at a time, and a harness with no logs in it cannot tell
+      whether that walk terminates — which is the only property of the walk
+      that matters, because the failure is a browser asking somebody's node
+      for the same block forever.
+
+      So every transaction's logs are kept with the block they landed in,
+      and `getLogs` answers the shape and the filter rules a node answers
+      with: inclusive block bounds, positional topic matching, null for
+      "any", and an array for "any of these".                            */
+  _record(res, tx) {
+    const n = BLOCK.header.number;
+    const hex = (u) => "0x" + Buffer.from(u).toString("hex");
+    for (const l of res.execResult.logs || []) {
+      const [addr, topics, data] = l;
+      this.log.push({
+        address: hex(addr),
+        topics: topics.map(hex),
+        data: hex(data),
+        blockNumber: "0x" + n.toString(16),
+        logIndex: "0x" + this.log.length.toString(16),
+        transactionHash: hex(tx.hash())
+      });
+    }
+  }
+
+  getLogs({ address, fromBlock, toBlock, topics } = {}) {
+    const at = (v, d) => (v == null || v === "latest" || v === "pending" ? d : BigInt(v));
+    const lo = at(fromBlock, 0n);
+    const hi = at(toBlock, BLOCK.header.number);
+    const want = String(address || "").toLowerCase();
+    return this.log.filter((l) => {
+      const n = BigInt(l.blockNumber);
+      if (n < lo || n > hi) return false;
+      if (want && l.address.toLowerCase() !== want) return false;
+      for (let i = 0; i < (topics || []).length; ++i) {
+        const t = topics[i];
+        if (t == null) continue;
+        const set = Array.isArray(t) ? t : [t];
+        const got = String(l.topics[i] || "").toLowerCase();
+        if (!set.some((x) => String(x).toLowerCase() === got)) return false;
+      }
+      return true;
+    });
   }
 
   async deploy(bytecode, args = "", label = "") {
