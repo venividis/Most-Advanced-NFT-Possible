@@ -16,6 +16,30 @@ import { createCustomCommon, Mainnet, Hardfork } from "@ethereumjs/common";
 import { hexToBytes, bytesToHex, privateToAddress } from "@ethereumjs/util";
 import { enc } from "./evm.mjs";
 
+/*  Node's global fetch does not read HTTP(S)_PROXY, so in an environment
+    whose only road out is a proxy, a request to a public endpoint dies at
+    the front door while localhost works perfectly — the exact shape of bug
+    that passes every local test. For non-local URLs, route through the
+    proxy with undici's own fetch and trust the environment's CA bundle,
+    which is how the proxy signs what it carries.                        */
+let proxied = null;
+const fetcher = async (url) => {
+  const host = new URL(url).hostname;
+  const proxy = process.env.HTTPS_PROXY || process.env.https_proxy
+    || process.env.HTTP_PROXY || process.env.http_proxy;
+  if (!proxy || host === "127.0.0.1" || host === "localhost" || host === "::1")
+    return fetch;
+  if (!proxied) {
+    const { fetch: ufetch, ProxyAgent } = await import("undici");
+    const fs = await import("node:fs");
+    const caPath = process.env.NODE_EXTRA_CA_CERTS || "/root/.ccr/ca-bundle.crt";
+    const requestTls = fs.existsSync(caPath) ? { ca: fs.readFileSync(caPath) } : undefined;
+    const agent = new ProxyAgent({ uri: proxy, requestTls });
+    proxied = (u, opts) => ufetch(u, { ...opts, dispatcher: agent });
+  }
+  return proxied;
+};
+
 /*  A kept-alive socket the node closed during a long local pause (solc
     compiling, mostly) surfaces as "other side closed" on the next request.
     That is not the node failing — retry on transport errors only, never on
@@ -24,7 +48,8 @@ const call = async (url, method, params = []) => {
   let last;
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      const r = await fetch(url, {
+      const f = await fetcher(url);
+      const r = await f(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
