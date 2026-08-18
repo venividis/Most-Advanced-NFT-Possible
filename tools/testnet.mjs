@@ -60,7 +60,18 @@ const bal = await c.balanceOf(c.from.toString());
 console.log(`      ${RPC}`);
 console.log(`      chain ${chainId} · deployer ${c.from.toString()}`);
 console.log(`      balance ${(Number(bal) / 1e18).toFixed(4)} ETH`);
-if (bal < 10n ** 17n) throw new Error("fund the deployer first — this run costs ~30M gas");
+
+/*  What this run actually needs, priced at this chain's own gas: two mints
+    at 0.01 ether each, ~70M gas of deployment with a 3x margin for fee
+    drift and any L2's data fee. On Base Sepolia at its usual fraction of a
+    gwei that lands near 0.021 ETH, almost all of it the mint value.     */
+const gasPrice = BigInt(await c.rpc("eth_gasPrice"));
+const need = 2n * 10n ** 16n + 100_000_000n * gasPrice * 3n;
+if (bal < need) {
+  throw new Error(
+    `fund the deployer first: it needs about ${(Number(need) / 1e18).toFixed(4)} ETH ` +
+    `on chain ${chainId} and holds ${(Number(bal) / 1e18).toFixed(4)}`);
+}
 
 const local = chainId === 31337;
 const bob = local ? await c.as(DEV_KEYS[1]) : null;
