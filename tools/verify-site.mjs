@@ -279,9 +279,15 @@ for (const [path, type, label] of routes) {
 
 /*════════════════ ERC-6860: how a client finds any of this ════════════════*/
 head("the four bytes that make web3:// resolve at all");
+/*  ERC-6944 does not ask for a word that starts with "5219"; it asks for
+    exactly this word. Checking the first four bytes would pass a return
+    with anything at all in the other twenty-eight, and a strict client
+    comparing the whole word would then read the site as an unsupported
+    mode — which looks like the contract not existing.                  */
 const mode = await c.read(site.premises, "resolveMode()");
-eq("resolveMode() declares 5219",
-   Buffer.from(mode.replace(/^0x/, ""), "hex").subarray(0, 4).toString("utf8"), "5219");
+eq("resolveMode() returns the exact word ERC-6944 specifies",
+   String(mode).toLowerCase(),
+   "0x3532313900000000000000000000000000000000000000000000000000000000");
 console.log("      without it ERC-6860 falls back to auto mode, where web3://<addr>/");
 console.log("      is an empty call to a contract with no fallback, and /token/1 is a");
 console.log("      call to a method named `token` — both revert, and the site is");

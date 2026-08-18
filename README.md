@@ -155,9 +155,16 @@ web3://<premises>/token/42/live         the instrument, on a real origin
 web3://<premises>/token/42/services.json  all of it, machine-readable
 ```
 
-Point an ENS `contenthash` at it and a name resolves natively. A gateway is a
-convenience for everyone else, and stays a convenience: when it is down, the
-tokens are unaffected.
+A name resolves to it through ERC-6821: set the **`contentcontract` TEXT
+record** on the ENS resolver to the Premises address — plain `0x…`, or ERC-3770
+chain-scoped as `eth:0x…` — and `web3://ipseity.eth/chat` reaches this contract
+with no DNS in the path. Not `contenthash`: ERC-6821 deliberately uses a text
+record you can read off a block explorer. With the record unset a client falls
+back to the name's ordinary ERC-137 address, so pointing the name straight at
+the contract works too.
+
+A gateway is a convenience for everyone else, and stays a convenience: when it
+is down, the tokens are unaffected.
 
 **The door.** Open it in a browser with a wallet, press connect, and the page
 reads `balanceOf` and walks `tokenOfOwnerByIndex` — so it learns what you hold
@@ -637,7 +644,7 @@ web3://<premises>/token/42/raw   that token's tokenURI, plain
 web3://<premises>/token/42/live  the instrument, on its own origin
 ```
 
-— and an ENS `contenthash` makes that a name. An HTTP gateway is a convenience
+— and an ERC-6821 `contentcontract` record makes that a name. An HTTP gateway is a convenience
 for everyone else, and a convenience is exactly what it should be.
 
 **The constraint is the design.** Premises never serves the artwork. It serves

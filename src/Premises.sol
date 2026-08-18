@@ -101,8 +101,14 @@ interface IPageManifest {
       /token/<id>/vault          the two hands, give, draw, verify
       /token/<id>/services.json  everything above, machine-readable
 
-  Point an ENS `contenthash` here and a name resolves natively in any
-  web3://-aware client. An HTTP gateway is a convenience for everyone else,
+  A name resolves to this address through ERC-6821: the `contentcontract`
+  TEXT record on the ENS resolver, holding either a plain `0x…` address or
+  an ERC-3770 chain-scoped one like `eth:0x…`. If that record is unset the
+  client falls back to the name's ordinary ERC-137 `addr()`. It is
+  deliberately *not* `contenthash` — 6821 chose a human-readable text record
+  over a codec nobody can read off a block explorer.
+
+  An HTTP gateway is a convenience for everyone else,
   and a convenience is exactly what it should be: when the gateway is down
   the tokens are unaffected, which is the property a hostname compiled into
   bytecode can never have.

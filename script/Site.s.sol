@@ -40,8 +40,9 @@ import {
               property that keeps the two routes serving the artwork off the
               mutable path.
 
-  Point an ENS `contenthash` at the Premises address and the whole thing
-  resolves natively in any web3://-aware client, with no DNS and no server.
+  Set the ENS `contentcontract` TEXT record to the Premises address — the
+  ERC-6821 record, not `contenthash` — and the whole thing resolves natively
+  in any web3://-aware client, with no DNS and no server.
 ───────────────────────────────────────────────────────────────────────────*/
 contract DeploySite is Script {
     function run() external {
@@ -101,6 +102,7 @@ contract DeploySite is Script {
         console.log("");
         console.log("Premises      ", address(premises));
         console.log("");
-        console.log("Point an ENS contenthash at the Premises address.");
+        console.log("Set the ENS contentcontract TEXT record to the Premises");
+        console.log("address (ERC-6821). Then web3://<name>/ reaches it.");
     }
 }
