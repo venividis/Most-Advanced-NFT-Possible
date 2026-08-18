@@ -13,6 +13,9 @@
     "preview:site": "node tools/preview-site.mjs",
     "gallery": "node tools/gallery.mjs && node tools/gallery-page.mjs",
     "shots": "node tools/shots.mjs",
+    "testnet": "node tools/testnet.mjs",
+    "gateway": "node tools/gateway.mjs",
+    "testnet:drive": "node tools/testnet-drive.mjs",
     "forge": "node tools/forge.mjs",
     "gas": "node tools/gas.mjs",
     "check": "node tools/glsl-check.mjs && node tools/selftest.mjs && node tools/build-engine.mjs && node tools/forge.mjs && node tools/gas.mjs && node tools/verify.mjs && node tools/verify-pool.mjs && node tools/verify-vault.mjs && node tools/verify-kernel.mjs && node tools/verify-premises.mjs && node tools/verify-site.mjs && node tools/verify-parley.mjs && node tools/verify-timelock.mjs && node tools/fuzz.mjs && node tools/verify-findings.mjs && node tools/agents.mjs",
@@ -40,6 +43,7 @@
     "terser": "^5.49.0"
   },
   "devDependencies": {
+    "hardhat": "^2.29.1",
     "playwright": "^1.62.1"
   }
 }

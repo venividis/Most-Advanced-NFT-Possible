@@ -906,6 +906,19 @@ against the default cap, and every feature added to `engine/ipseity.html` spends
 some of it. When it runs out the answer is not a bigger cap, it is a smaller
 document.
 
+**And EIP-7825 moved the ground.** The Fusaka transaction cap is 2^24 =
+16,777,216 gas, and `tokenURI()` at 19.99M does not fit inside it. That was
+found by running, not reading: hardhat's node under its default (Osaka) rules
+applies the cap to `eth_call` too, and the first testnet deploy watched every
+page of the site answer while `tokenURI()` alone failed with a bare revert.
+Whether a given mainnet node applies the transaction cap to view calls is node
+policy — geth's `--rpc.gascap` is a separate knob — but any client that does
+cannot serve `tokenURI()`, ever, at any setting. The Premises route is the
+answer and was already the recommendation: `/token/<id>/live` at 4.48M fits
+under the transaction cap itself with 3.7× headroom, so the instrument stays
+reachable even by the strictest reader. `tokenURI` remains what marketplaces
+call, and on nodes with the ordinary 50M call ceiling it works as measured.
+
 Deployed bytecode, against the 24,576-byte EIP-170 ceiling:
 
 ```
@@ -1044,6 +1057,50 @@ Before broadcasting to a live chain, **re-verify the ERC-6551 registry and accou
 implementation addresses on that chain**. They are baked into an immutable contract,
 and passing the wrong implementation yields a different, valid-looking, entirely
 broken account address.
+
+---
+
+### Running it on a testnet
+
+The suite runs an EVM in-process, which proves the contracts and cannot prove
+the wire. `tools/testnet.mjs` deploys everything — engine, shards, collection,
+Parley, all thirteen site contracts — over JSON-RPC with signed transactions and
+mined blocks, seeds a real conversation between two holders, and then reads it
+all back through the same `eth_call` and `eth_getLogs` a stranger's browser
+would use. Nothing in that file touches an in-process EVM; if the node lies, it
+fails.
+
+```bash
+npx hardhat node                 # a local testnet: real blocks, real logs
+node tools/testnet.mjs           # deploy + seed + verify over the wire
+node tools/gateway.mjs           # http://localhost:8080 — GET /chat is an eth_call
+node tools/testnet-drive.mjs     # Chromium + an injected wallet walks the whole site
+```
+
+The drive is the last gap between "the suite passes" and "a person used it":
+Chromium loads `/chat` from the gateway, a wallet-shaped provider is injected
+the way an extension injects one, the page recognises the wallet as holder of
+#1, a message typed into the composer is signed, mined, and comes back off the
+chain onto the page as text. A second browser answers as the holder of #2. Then
+`/token/1/live` — served by the chain, on a real origin — draws, injects, and
+connects: the instrument's own corner reads *Connected as 0xf39F…2266 on
+Chain 31337*.
+
+The same script deploys to a public testnet — about 35 transactions and ~69M
+gas, so bring funded testnet ether:
+
+```bash
+RPC_URL=https://ethereum-sepolia-rpc.publicnode.com \
+PRIVATE_KEY=0x… \
+  node tools/testnet.mjs
+```
+
+On a public chain the ERC-6551 registry is expected at its canonical address
+(it is deployed on every serious network); locally it is placed there with
+`hardhat_setCode`, exactly as the in-process suite places it. The gateway's
+`/__wallet` signer refuses any chain that is not 31337 — a signer that would
+sign for a live chain with publicly-printed development keys is a wallet-shaped
+hole.
 
 ---
 
