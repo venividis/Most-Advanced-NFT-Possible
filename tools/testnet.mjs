@@ -66,7 +66,9 @@ console.log(`      balance ${(Number(bal) / 1e18).toFixed(4)} ETH`);
     drift and any L2's data fee. On Base Sepolia at its usual fraction of a
     gwei that lands near 0.021 ETH, almost all of it the mint value.     */
 const gasPrice = BigInt(await c.rpc("eth_gasPrice"));
-const need = 2n * 10n ** 16n + 100_000_000n * gasPrice * 3n;
+/*  1.5x on the gas half: enough for fee drift without demanding a faucet
+    grant three times the run. The two seed mints dominate anyway.       */
+const need = 2n * 10n ** 16n + (90_000_000n * gasPrice * 15n) / 10n;
 if (bal < need) {
   throw new Error(
     `fund the deployer first: it needs about ${(Number(need) / 1e18).toFixed(4)} ETH ` +
@@ -266,6 +268,14 @@ const record = {
 };
 fs.mkdirSync(path.join(ROOT, "dist"), { recursive: true });
 fs.writeFileSync(path.join(ROOT, "dist/testnet.json"), JSON.stringify(record, null, 1));
+/*  And a per-chain record that survives in the repository, so a clone can
+    point the gateway at a deployment nobody has to redo.                */
+const SLUGS = { 84532: "base-sepolia", 11155111: "eth-sepolia" };
+if (SLUGS[chainId]) {
+  fs.mkdirSync(path.join(ROOT, "deployments"), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, `deployments/${SLUGS[chainId]}.json`),
+    JSON.stringify(record, null, 1));
+}
 
 head("gas, as the node metered it");
 for (const [k, v] of Object.entries(c.gas).sort((a, b) => Number(b[1] - a[1])))

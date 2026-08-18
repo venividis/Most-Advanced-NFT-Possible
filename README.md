@@ -1104,6 +1104,32 @@ hole.
 
 ---
 
+### Opening the live deployment yourself
+
+The collection is live on **Base Sepolia** (see DEPLOYMENTS.md). To stand in
+front of it:
+
+```bash
+git clone <this repo> && cd Most-Advanced-NFT-Possible && npm install
+node tools/gateway.mjs          # serves the deployed contract at localhost:8080
+```
+
+A fresh clone serves the committed Base Sepolia deployment with no other setup
+— the gateway holds no content, every page is an `eth_call` made when you ask.
+Then, in the browser you opened it with, point MetaMask at Base Sepolia
+(chain id **84532**, RPC `https://sepolia.base.org`, currency ETH, explorer
+`https://sepolia.basescan.org`) and press connect: the door reads what your
+wallet holds and opens it — the instrument at `/token/<id>/live` runs on a real
+origin, so the wallet injects and the token's controls actually work. To see
+the tokens in the wallet itself, import NFT
+`0x13ed99319101cbc2bc09e3849af5462dae283f5d` with your token id.
+
+The public `web3://` gateways are the zero-install route
+(`https://<premises-address>.<chain>.w3link.io/…`) — at the time of writing
+w3link's Base Sepolia backend is down while its Ethereum Sepolia one answers,
+which is a fact about a gateway, not about the site: the contract serves either
+way, and any 5219 gateway pointed at chain 84532 works.
+
 ## Layout
 
 ```
