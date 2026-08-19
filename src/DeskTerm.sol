@@ -33,12 +33,13 @@ contract DeskTerm {
     address public immutable POOL;
     address public immutable LEASE;
     address public immutable PARLEY;
-    address public immutable FOUNDRY;
+    address public immutable KILN;
+    address public immutable LOCKER;
 
     constructor(address hub, address pool, address lease,
-                address parley, address foundry) {
+                address parley, address kiln, address locker) {
         HUB = hub; POOL = pool; LEASE = lease;
-        PARLEY = parley; FOUNDRY = foundry;
+        PARLEY = parley; KILN = kiln; LOCKER = locker;
     }
 
     /*═══════════════════ the data the terminal runs on ═══════════════════*/
@@ -50,7 +51,8 @@ contract DeskTerm {
             "\",\"pool\":\"", LibNum.hexAddr(POOL),
             "\",\"lease\":\"", LibNum.hexAddr(LEASE),
             "\",\"parley\":\"", LibNum.hexAddr(PARLEY),
-            "\",\"foundry\":\"", LibNum.hexAddr(FOUNDRY),
+            "\",\"kiln\":\"", LibNum.hexAddr(KILN),
+            "\",\"locker\":\"", LibNum.hexAddr(LOCKER),
             "\",\"sel\":{", _sel1(), _sel2(), "}}</script>"
         );
     }
@@ -104,8 +106,14 @@ contract DeskTerm {
             "\",\"join\":\"",   _s("join(uint256,uint256)"),
             "\",\"leave\":\"",  _s("leave(uint256,uint256)"),
             "\",\"gkey\":\"",   _s("groupKey(uint256)"),
-            "\",\"pour\":\"",   _s("pour(uint256,string,string,uint8,uint256)"),
-            "\",\"recent\":\"", _s("recent(uint256,uint256)"), "\""
+            "\",\"launch\":\"",_s("launch(uint256,string,string,uint8,uint256,bytes32)"),
+            "\",\"recent\":\"", _s("recent(uint256,uint256)"),
+            "\",\"vlock\":\"",  _s("lock(address,uint256,uint64)"),
+            "\",\"vof\":\"",    _s("locksOf(address)"),
+            "\",\"vat\":\"",    _s("lockAt(uint256)"),
+            "\",\"vclaim\":\"", _s("claim(uint256)"),
+            "\",\"vext\":\"",   _s("extend(uint256,uint64)"),
+            "\",\"allow\":\"",  _s("allowance(address,address)"), "\""
         );
     }
 
@@ -281,17 +289,42 @@ contract DeskTerm {
         "await I.send(X.pool,S.mdep+I.W(id)+I.W(BigInt(a[0]))+I.W(BigInt(a[1])));"
         "return'deposited'});"
 
-        "def('coin','coin <name> <sym> <decimals> <supply>',1,"
-        "'pour a fixed-supply coin, all of it to you',async(a)=>{"
-        "const id=await need();const[nm,sy,de,su]=a;"
-        "await I.send(X.foundry,ENC(S.pour,[{w:I.W(id)},{d:H(nm)},{d:H(sy)},"
-        "{w:I.W(de)},{w:I.W(BigInt(su))}]));"
-        "return'poured \u2014 open /coins for the address'});"
-        "def('coins','coins',0,'the latest launches',async()=>{"
-        "const r=await I.call(X.foundry,S.recent+I.W(0)+I.W(8));"
-        "const d=String(r).slice(2);const n=Number(BigInt('0x'+d.slice(128,192)));"
-        "let o=n+' recent coin(s)';for(let i=0;i<n;i++){"
-        "o+='\\n0x'+d.slice(192+i*64+24,256+i*64)}return o||'none yet'});"
+        "def('launch','launch <name> <sym> <supplyBaseUnits>',1,"
+        "'fire a fixed-supply token through the kiln, signed by your active token',async(a)=>{"
+        "const id=await need();const[nm,sy,su]=a;"
+        "await I.send(X.kiln,ENC(S.launch,[{w:I.W(id)},{d:H(nm)},{d:H(sy)},"
+        "{w:I.W(18)},{w:I.W(BigInt(su))},{w:I.W(1)}]));"
+        "return'launched \u2014 open /launch for the address, the hook and the pool'});"
+        "def('launched','launched',0,'the latest launches',async()=>{"
+        "const r=await I.call(X.kiln,S.recent+I.W(0)+I.W(8));"
+        "const d=String(r).slice(2);const n=Number(BigInt('0x'+d.slice(64,128)));"
+        "let o=n+' launch(es)';for(let i=0;i<n;i++){"
+        "o+='\\n0x'+d.slice(128+i*64+24,192+i*64)}return o||'none yet'});"
+        "def('lockup','lockup <token> <amtBaseUnits> <days>',1,"
+        "'lock an ERC-20 in the vault \u2014 up to ten years, no early exit',async(a)=>{"
+        "const[t,amt,dy]=a;const v=BigInt(amt);const d=Number(dy);"
+        "if(!(d>=1&&d<=3650))return'one day to ten years';"
+        "const al=await I.call(t,S.allow+I.AD(I.acct())+I.AD(X.locker));"
+        "if(BigInt(al)<v){await I.send(t,S.approve+I.AD(X.locker)+I.W(v))}"
+        "const until=BigInt(Math.floor(Date.now()/1000)+d*86400);"
+        "await I.send(X.locker,S.vlock+I.AD(t)+I.W(v)+I.W(until));"
+        "return'locked until '+new Date(Number(until)*1000).toISOString().slice(0,10)});"
+        "def('lockups','lockups',1,'your locks, straight off the vault',async()=>{"
+        "const r=await I.call(X.locker,S.vof+I.AD(I.acct()));"
+        "const n=Number(I.word(r,1));if(!n)return'nothing locked';"
+        "let o=n+' lock(s)';const now=Date.now()/1000;"
+        "for(let i=0;i<n&&i<12;i++){const id=I.word(r,2+i);"
+        "const L=await I.call(X.locker,S.vat+I.W(id));"
+        "const until=Number(I.word(L,3)),tk=I.word(L,4)===1n;"
+        "o+='\\n#'+id+' \u00b7 '+I.word(L,2)+' of 0x'+String(L).slice(26,66)"
+        "+(tk?' \u00b7 claimed':now>=until?' \u00b7 claimable \u2014 redeem '+id"
+        "  :' \u00b7 '+Math.ceil((until-now)/86400)+'d left')}return o});"
+        "def('redeem','redeem <id>',1,'claim a matured lock',async(a)=>{"
+        "await I.send(X.locker,S.vclaim+I.W(BigInt(a[0])));return'claimed'});"
+        "def('extend','extend <id> <days>',1,'push a lock further out \u2014 never nearer',async(a)=>{"
+        "const until=BigInt(Math.floor(Date.now()/1000)+Number(a[1])*86400);"
+        "await I.send(X.locker,S.vext+I.W(BigInt(a[0]))+I.W(until));"
+        "return'extended'});"
         "def('balance','balance',0,'the connected wallet\\u2019s ether',async()=>{"
         "const p=I.pv();const b=await p.request({method:'eth_getBalance',"
         "params:[I.acct(),'latest']});return I.fmt(BigInt(b),18,6)+' ETH'});"

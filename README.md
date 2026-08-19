@@ -146,7 +146,12 @@ web3://<premises>/terminal              every function, one line at a time —
 web3://<premises>/swap                  any ERC-20 with a v3 pool, against the
                                         chain's own Uniswap
 web3://<premises>/gallery               the collection, wearing its stills
-web3://<premises>/coins                 fixed-supply coins, poured by tokens
+web3://<premises>/launch                a v4 launchpad: fixed-supply token,
+                                        mined hook, pool — sliders included
+web3://<premises>/hook/0x…              what a hook's address already says,
+                                        read with no call at all
+web3://<premises>/lock                  the vault: tokens in, a date on a bar
+                                        (up to ten years), no early exit
 web3://<premises>/chat                  the commons: one room, every token in it
 web3://<premises>/rooms                 the groups this token has entered
 web3://<premises>/room/3                one group
@@ -403,10 +408,26 @@ exists), and the door's chain switcher moves the wallet between them —
 moving *value* between chains is a bridge's job, and this site will never
 quietly be one.
 
+The launchpad came back too, and it is the honest version of the thing the
+coin pourer was a sketch of. `/launch` walks four transactions with every
+choice on a bar or in a box: a fixed-supply token with no owner (signed by a
+token of this collection you hold), a v4 **hook** whose address is mined by
+your own node under `eth_call` — v4 puts a hook's permissions in the low
+fourteen bits of its address, so deploying one means searching CREATE2 salts,
+and a `view` function does it for free — then the pool itself, six flat
+words to the chain's real PoolManager. The shipped hook is a `Gate`: trading
+opens at one time, liquidity unlocks at another, both immutable, so "locked
+until" is enforced by the pool rather than promised. `/hook/<address>` reads
+any hook's powers off its address — the bits are the mechanism, not a claim
+— and says the unreassuring half out loud: a lock and a trap have the same
+address shape. And `/lock` is the vault: any ERC-20, a slider that runs to
+ten years, no owner, no rescue path, extend-only — the amount recorded is
+the amount that arrived, and the only key is the clock.
+
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and seven such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and ten such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1198,7 +1219,7 @@ test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy the collection, load, seal
 script/Site.s.sol       deploy the parley, the desks, the pages and the router
 
-INVARIANTS.md           one hundred and seven statements that must hold, and the test for each
+INVARIANTS.md           one hundred and ten statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 

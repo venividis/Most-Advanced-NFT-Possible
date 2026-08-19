@@ -36,7 +36,9 @@ interface IPagePool {
 interface IPageTerminal { function terminal() external view returns (string memory); }
 interface IPageSwap     { function swap() external view returns (string memory); }
 interface IPageGallery  { function gallery(uint256 page) external view returns (string memory); }
-interface IPageMint     { function coins() external view returns (string memory); }
+interface IPageLaunch   { function launch() external view returns (string memory); }
+interface IPageLock     { function lockPage() external view returns (string memory); }
+interface IPageHook     { function hook(address at) external view returns (string memory); }
 
 interface IPageServices {
     function rent(uint256 id) external view returns (string memory);
@@ -91,7 +93,9 @@ interface IPageManifest {
       /terminal                  every function, one line at a time
       /swap                      any ERC-20 with a pool, against the chain's Uniswap v3
       /gallery  /gallery/<p>     the whole collection, wearing its stills
-      /coins                     fixed-supply coins, poured by tokens
+      /launch                    a v4 launchpad: token, hook, pool
+      /hook/<address>            what a hook's address already says
+      /lock                      the vault: tokens in, a date, no early exit
       /chat                      the commons: one room, every token in it
       /rooms                     the groups this token has entered
       /room/<n>                  one group, numbered from 1
@@ -137,7 +141,9 @@ contract Premises {
     IPageTerminal public immutable P_TERMINAL;
     IPageSwap     public immutable P_SWAP;
     IPageGallery  public immutable P_GALLERY;
-    IPageMint     public immutable P_MINT;
+    IPageLaunch   public immutable P_LAUNCH;
+    IPageLock     public immutable P_LOCK;
+    IPageHook     public immutable P_HOOK;
 
     struct KeyValue { string key; string value; }
 
@@ -164,7 +170,9 @@ contract Premises {
         IPageTerminal pTerminal,
         IPageSwap pSwap,
         IPageGallery pGallery,
-        IPageMint pMint
+        IPageLaunch pLaunch,
+        IPageLock pLock,
+        IPageHook pHook
     ) {
         HUB = hub;
         CHROME = chrome;
@@ -179,7 +187,9 @@ contract Premises {
         P_TERMINAL = pTerminal;
         P_SWAP = pSwap;
         P_GALLERY = pGallery;
-        P_MINT = pMint;
+        P_LAUNCH = pLaunch;
+        P_LOCK = pLock;
+        P_HOOK = pHook;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -283,9 +293,32 @@ contract Premises {
             return (200, P_GALLERY.gallery(page), _headers(HTML));
         }
 
-        if (_eq(resource[0], "coins")) {
+        if (_eq(resource[0], "launch")) {
             if (n != 1) return _notFound();
-            return (200, P_MINT.coins(), _headers(HTML));
+            return (200, P_LAUNCH.launch(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "lock")) {
+            if (n != 1) return _notFound();
+            return (200, P_LOCK.lockPage(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "hook")) {
+            if (n > 2) return _notFound();
+            address subject;
+            if (n == 2) {
+                (bool okA, address v, bool canon) = _toAddr(resource[1]);
+                if (!okA) return _notFound();
+                /*  One resource, one URL — so one spelling. An address
+                    pasted from a block explorer is EIP-55 mixed case and is
+                    a perfectly good address; it is just not this document's
+                    address. Sent there rather than refused.              */
+                if (!canon) {
+                    return _moved(string.concat("/hook/", LibNum.hexAddr(v)));
+                }
+                subject = v;
+            }
+            return (200, P_HOOK.hook(subject), _headers(HTML));
         }
 
         /*───── collection-wide ─────*/
@@ -419,6 +452,56 @@ contract Premises {
     ///      deserves an answer, and the path is never echoed back — the one
     ///      thing on this page an attacker could have chosen is the one
     ///      thing that would be rendered.
+
+    /// @dev 42 characters of hex to an address, refusing anything else.
+    /// @return ok    whether it parsed at all
+    /// @return a     the address
+    /// @return canon whether it was written the one way this site writes it:
+    ///               lower-case `0x`, lower-case digits. Anything else is a
+    ///               different URL for the same document, and gets a 301.
+    function _toAddr(string memory s)
+        private pure returns (bool ok, address a, bool canon)
+    {
+        bytes memory b = bytes(s);
+        if (b.length != 42 || b[0] != "0") return (false, address(0), false);
+        if (b[1] != "x" && b[1] != "X") return (false, address(0), false);
+        canon = b[1] == "x";
+        uint256 v;
+        for (uint256 i = 2; i < 42; ++i) {
+            uint8 ch = uint8(b[i]);
+            uint256 d;
+            if (ch >= 0x30 && ch <= 0x39) d = ch - 0x30;
+            else if (ch >= 0x61 && ch <= 0x66) d = ch - 0x61 + 10;
+            else if (ch >= 0x41 && ch <= 0x46) { d = ch - 0x41 + 10; canon = false; }
+            else return (false, address(0), false);
+            v = v * 16 + d;
+        }
+        return (true, address(uint160(v)), canon);
+    }
+
+    /// @dev A 301 to the canonical spelling. Cached hard, because where a
+    ///      resource lives does not change and a gateway that re-asked on
+    ///      every request would have turned a de-duplication into a second
+    ///      round trip.
+    function _moved(string memory to)
+        private pure returns (uint16, string memory, KeyValue[] memory)
+    {
+        KeyValue[] memory h = new KeyValue[](3);
+        h[0] = KeyValue("Content-Type", HTML);
+        h[1] = KeyValue("Cache-Control", "public, max-age=86400");
+        h[2] = KeyValue("Location", to);
+        return (
+            301,
+            string.concat(
+                "<!doctype html><meta charset=utf-8><title>moved</title>"
+                "<body style=\"background:#07080c;color:#8b95ad;"
+                "font:14px ui-monospace,monospace;padding:3rem\">"
+                "<p>That is the right address, written a different way.</p>"
+                "<p><a style=\"color:#7fd4ff\" href=\"", to, "\">", to, "</a></p>"),
+            h
+        );
+    }
+
     function _notFound() private pure returns (uint16, string memory, KeyValue[] memory) {
         return (
             404,

@@ -54,7 +54,7 @@ fs.writeFileSync(recPath, JSON.stringify(rec, null, 1));
 fs.writeFileSync(path.join(ROOT, "dist/testnet.json"), JSON.stringify(rec, null, 1));
 
 const GET = getter(c, site.premises);
-for (const p of [[], ["terminal"], ["swap"], ["chat"], ["gallery"], ["coins"]]) {
+for (const p of [[], ["terminal"], ["swap"], ["launch"], ["lock"], ["chat"], ["gallery"]]) {
   const r = await GET(p);
   console.log(`  ${r.status} /${p.join("/")}  ${r.body.length}B`);
   if (r.status !== 200) process.exit(1);

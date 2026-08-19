@@ -49,7 +49,8 @@ export const UNISWAP = {
     router: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45", routerKind: 1,
     positions: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     wrapped: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-    governor: ZERO, govToken: ZERO
+    governor: ZERO, govToken: ZERO,
+    poolManager: "0x000000000004444c5dc75cB358380D2e3dE08A90"
   },
   8453: {
     name: "Base",
@@ -58,7 +59,8 @@ export const UNISWAP = {
     router: "0x2626664c2603336E57B271c5C0b26F421741e481", routerKind: 1,
     positions: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
     wrapped: "0x4200000000000000000000000000000000000006",
-    governor: ZERO, govToken: ZERO
+    governor: ZERO, govToken: ZERO,
+    poolManager: "0x498581fF718922c3f8e6A244956aF099B2652b2b"
   },
   84532: {
     name: "Base Sepolia",
@@ -67,7 +69,8 @@ export const UNISWAP = {
     router: "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4", routerKind: 1,
     positions: "0x27F971cb582BF9E50F397e4d29a5C7A34f11faA2",
     wrapped: "0x4200000000000000000000000000000000000006",
-    governor: ZERO, govToken: ZERO
+    governor: ZERO, govToken: ZERO,
+    poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408"
   },
   11155111: {
     name: "Ethereum Sepolia",
@@ -76,14 +79,15 @@ export const UNISWAP = {
     router: "0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E", routerKind: 1,
     positions: "0x1238536071E1c677A632429e3655c799b22cDA52",
     wrapped: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
-    governor: ZERO, govToken: ZERO
+    governor: ZERO, govToken: ZERO,
+    poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543"
   }
 };
 
 /** A chain with no verified deployment: every read degrades to "no venue". */
 export const NO_VENUE = {
   name: "nowhere in particular",
-  factory: ZERO, quoter: ZERO, router: ZERO, routerKind: 0,
+  factory: ZERO, quoter: ZERO, router: ZERO, routerKind: 0, poolManager: ZERO,
   positions: ZERO, wrapped: ZERO, governor: ZERO, govToken: ZERO
 };
 
@@ -146,8 +150,14 @@ export async function deploySite(c, A,
   const parley = existingParley ||
     await c.deploy(A("src/Parley.sol", "Parley").bytecode, encodeAddressArg(hub), "Parley");
 
-  const foundry = await c.deploy(
-    A("src/Foundry.sol", "Foundry").bytecode, encodeAddressArg(hub), "Foundry");
+  /*  The kiln launches (gated by holding a token), the locker keeps.
+      The kiln learns the PoolManager so the Gate hooks it ships refuse
+      callbacks from anywhere else.                                       */
+  const kiln = await c.deploy(
+    A("src/Kiln.sol", "Kiln").bytecode,
+    encodeAddressArg(hub) + encodeAddressArg(uniswap.poolManager || ZERO), "Kiln");
+  const locker = await c.deploy(
+    A("src/Locker.sol", "Locker").bytecode, "", "Locker");
 
   /*  Venue takes a `Wiring` struct — a static tuple, so it encodes flat in
       declaration order with no offset word. Getting that wrong would put
@@ -161,7 +171,8 @@ export async function deploySite(c, A,
     encodeAddressArg(uniswap.positions) +
     encodeAddressArg(uniswap.wrapped) +
     encodeAddressArg(uniswap.governor) +
-    encodeAddressArg(uniswap.govToken),
+    encodeAddressArg(uniswap.govToken) +
+    encodeAddressArg(uniswap.poolManager || ZERO),
     "Venue");
 
   const deskU = await c.deploy(
@@ -212,13 +223,14 @@ export async function deploySite(c, A,
   const pManifest = await c.deploy(
     A("src/PageManifest.sol", "PageManifest").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
-    encodeAddressArg(parley) + encodeAddressArg(foundry) + encodeAddressArg(venue),
+    encodeAddressArg(parley) + encodeAddressArg(kiln) +
+    encodeAddressArg(locker) + encodeAddressArg(venue),
     "PageManifest");
 
   const deskTerm = await c.deploy(
     A("src/DeskTerm.sol", "DeskTerm").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
-    encodeAddressArg(parley) + encodeAddressArg(foundry),
+    encodeAddressArg(parley) + encodeAddressArg(kiln) + encodeAddressArg(locker),
     "DeskTerm");
 
   const pTerminal = await c.deploy(
@@ -231,9 +243,20 @@ export async function deploySite(c, A,
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(pool) +
     encodeAddressArg(lease) + encodeAddressArg(sigil), "PageGallery");
 
-  const pMint = await c.deploy(
-    A("src/PageMint.sol", "PageMint").bytecode,
-    encodeAddressArg(chrome) + encodeAddressArg(foundry), "PageMint");
+  const deskL = await c.deploy(
+    A("src/DeskLaunch.sol", "DeskLaunch").bytecode, "", "DeskLaunch");
+  const pLaunch = await c.deploy(
+    A("src/PageLaunch.sol", "PageLaunch").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskU) +
+    encodeAddressArg(deskL) + encodeAddressArg(venue) + encodeAddressArg(kiln),
+    "PageLaunch");
+  const pLock = await c.deploy(
+    A("src/PageLock.sol", "PageLock").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(locker),
+    "PageLock");
+  const pHook = await c.deploy(
+    A("src/PageHook.sol", "PageHook").bytecode,
+    encodeAddressArg(chrome), "PageHook");
 
   const pDoor = await c.deploy(
     A("src/PageDoor.sol", "PageDoor").bytecode,
@@ -256,12 +279,13 @@ export async function deploySite(c, A,
     encodeAddressArg(pToken) + encodeAddressArg(pMarket) + encodeAddressArg(pPool) +
     encodeAddressArg(pServices) + encodeAddressArg(pManifest) +
     encodeAddressArg(pTalk) + encodeAddressArg(pRooms) +
-    encodeAddressArg(pTerminal) + encodeAddressArg(pSwap) + encodeAddressArg(pGallery) + encodeAddressArg(pMint),
+    encodeAddressArg(pTerminal) + encodeAddressArg(pSwap) + encodeAddressArg(pGallery) +
+    encodeAddressArg(pLaunch) + encodeAddressArg(pLock) + encodeAddressArg(pHook),
     "Premises");
 
   return {
-    chrome, parley, foundry, venue, deskU, deskT, pSwap, desk, deskTalk, deskTerm,
+    chrome, parley, kiln, locker, venue, deskU, deskT, deskL, pSwap, desk, deskTalk, deskTerm,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
-    pTerminal, pGallery, pMint, premises
+    pTerminal, pGallery, pLaunch, pLock, pHook, premises
   };
 }

@@ -47,7 +47,8 @@ contract PageManifest {
     ///      — an absent key and a present-but-empty one mean different
     ///      things to a program, and only one of them is the truth.
     IParley    public immutable PARLEY;
-    address    public immutable FOUNDRY;
+    address    public immutable KILN;
+    address    public immutable LOCKER;
     IVenue     public immutable VENUE;
 
     string public constant SCHEMA = "ipseity.services/1";
@@ -56,8 +57,9 @@ contract PageManifest {
     uint256 public constant PAGE = 24;
 
     constructor(IHub hub, IPoolRead pool, ILeaseRead lease, IParley parley,
-                address foundry, IVenue venue) {
-        FOUNDRY = foundry;
+                address kiln, address locker, IVenue venue) {
+        KILN = kiln;
+        LOCKER = locker;
         VENUE = venue;
         HUB = hub;
         POOL = pool;
@@ -284,7 +286,12 @@ contract PageManifest {
                 silently. It terminates its own values now.              */
             "\",\"routes\":", ROUTES,
             ",\"parley\":", _parley(),
-            ",\"foundry\":\"", LibNum.hexAddr(FOUNDRY),
+            /*  The two contracts a program would want to drive without the
+                pages: the kiln launches, the locker keeps. Addresses only —
+                their ABIs are in the repository and their selectors on the
+                pages that call them.                                     */
+            ",\"kiln\":\"", LibNum.hexAddr(KILN),
+            "\",\"locker\":\"", LibNum.hexAddr(LOCKER),
             "\",\"venue\":", _venue()
         );
     }
@@ -308,7 +315,12 @@ contract PageManifest {
         "{\"path\":\"/swap\",\"is\":\"any ERC-20 with a pool, against this "
         "chain's Uniswap v3\"},"
         "{\"path\":\"/gallery\",\"is\":\"the collection, wearing its stills\",\"paged\":true},"
-        "{\"path\":\"/coins\",\"is\":\"fixed-supply coins, poured by tokens\"},"
+        "{\"path\":\"/launch\",\"is\":\"a v4 launchpad: fixed-supply token, "
+        "mined hook, pool\"},"
+        "{\"path\":\"/hook/<address>\",\"is\":\"what a hook's address already "
+        "says, with no call\"},"
+        "{\"path\":\"/lock\",\"is\":\"the vault: tokens in, a date, no early "
+        "exit \u2014 ten years on a slider\"},"
         "{\"path\":\"/open\",\"is\":\"every open market here\",\"paged\":true},"
         "{\"path\":\"/services.json\",\"is\":\"this document\",\"paged\":true}"
         "]";

@@ -205,7 +205,8 @@ const routes = [];
     [["dm", "1"], "/dm/1", "the room two tokens share"],
     [["terminal"], "/terminal", "every function, one line at a time"],
     [["gallery"], "/gallery", "the collection, wearing its stills"],
-    [["coins"], "/coins", "the foundry's ledger"],
+    [["launch"], "/launch", "the launchpad: token, hook, pool"],
+    [["lock"], "/lock", "the vault: ten years on a slider"],
     [["swap"], "/swap", "the Uniswap card (venueless on this bare chain)"]
   ]) {
     routes.push({ label, note, ...(await hit(path)) });

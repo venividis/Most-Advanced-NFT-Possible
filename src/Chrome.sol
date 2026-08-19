@@ -214,7 +214,12 @@ contract Chrome {
         "text-transform:uppercase;color:#6c7689;margin-right:.5rem}"
         ".gtags i.ok{color:#7fe0a8}.gtags i.w{color:#ffb27f}"
         /*  coins                                                          */
-        ".coinaddr{font-size:13px;color:#cfe3ff}";
+        ".coinaddr{font-size:13px;color:#cfe3ff}"
+        /*  the bars: a launch and a lock are both dragged before they are
+            typed                                                          */
+        "input[type=range]{width:100%;accent-color:#7fd4ff;background:transparent;"
+        "border:0;padding:0;margin:.45rem 0 .15rem;height:1.1rem}"
+        "input[type=checkbox]{width:auto}";
 
     /*═══════════════════ the wallet, chosen ═══════════════════*/
 
@@ -308,18 +313,20 @@ contract Chrome {
     }
 
     /// @dev The tabs are the site's whole thesis in one row: the door in,
-    ///      the terminal that does everything, the swap against the chain's own
-    ///      Uniswap, the social layer, the collection, and the coins. `here`
-    ///      codes: 0 door · 20 terminal · 9 swap · 16 social · 22 market · 23 coins · 6 json.
+    ///      the terminal that does everything, the swap against the chain's
+    ///      own Uniswap, the launchpad, the vault, the social layer, and the
+    ///      collection. `here` codes: 0 door · 20 terminal · 9 swap ·
+    ///      15 launch · 18 lock · 16 social · 22 market · 6 json.
     function navTop(uint8 here) external pure returns (string memory) {
         return string.concat(
             "<nav>",
             _tab("/", "door", here == 0),
             _tab("/terminal", "terminal", here == 20),
             _tab("/swap", "swap", here == 9),
+            _tab("/launch", "launch", here == 15),
+            _tab("/lock", "lock", here == 18),
             _tab("/chat", "social", here == 16),
             _tab("/gallery", "market", here == 22),
-            _tab("/coins", "coins", here == 23),
             _tab("/services.json", "json", here == 6),
             "</nav>"
         );

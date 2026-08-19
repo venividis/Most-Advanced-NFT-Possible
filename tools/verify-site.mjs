@@ -43,7 +43,7 @@
 ───────────────────────────────────────────────────────────────────────────*/
 import { compile, artifact } from "./compile.mjs";
 import * as evm from "./evm.mjs";
-import { Chain, encodeAddressArg, decUint, decAddr, decBool, decString } from "./evm.mjs";
+import { Chain, encodeAddressArg, decUint, decAddr, decBool, decString, warp } from "./evm.mjs";
 import { deploySite, getter } from "./site.mjs";
 import { createAddressFromString } from "@ethereumjs/util";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
@@ -151,6 +151,14 @@ await c.exec(weth, "mint(address,uint256)", [uniRouterV3, 10n ** 24n]);
 const uniPositions = await c.deploy(A("test/mocks/UniV3.sol", "MockPositions").bytecode,
   "", "NonfungiblePositionManager");
 
+/*  A v4 PoolManager that records the PoolKey it DECODED, field by field —
+    the same discipline as the routers, for the same reason: `initialize`
+    is six flat words from a client with no ABI coder, and a manager that
+    merely accepted the call would pass a client that shifted every field
+    by a word.                                                            */
+const uniManager = await c.deploy(A("test/mocks/UniV3.sol", "MockManager").bytecode,
+  "", "PoolManager");
+
 const UNI = {
   name: "the test chain", factory: uniFactory, quoter: uniQuoter,
   router: uniRouterV3, routerKind: 0, positions: uniPositions,
@@ -159,7 +167,8 @@ const UNI = {
       nowhere else, so "this chain has no governor" is the ordinary case
       and the only one this site still describes.                       */
   governor: "0x0000000000000000000000000000000000000000",
-  govToken: "0x0000000000000000000000000000000000000000"
+  govToken: "0x0000000000000000000000000000000000000000",
+  poolManager: uniManager
 };
 
 const site = await deploySite(c, A, { hub: nft, pool, lease, sigil, uniswap: UNI });
@@ -315,7 +324,9 @@ const routes = [
   [["terminal"], "text/html", "/terminal"],
   [["gallery"], "text/html", "/gallery"],
   [["gallery", "0"], "text/html", "/gallery/0"],
-  [["coins"], "text/html", "/coins"],
+  [["launch"], "text/html", "/launch"],
+  [["lock"], "text/html", "/lock"],
+  [["hook"], "text/html", "/hook"],
   [["swap"], "text/html", "/swap"],
   [["rooms"], "text/html", "/rooms"],
   [["dm", "1"], "text/html", "/dm/1"],
@@ -402,7 +413,7 @@ head("and it describes the collection-wide surface too");
      JSON.stringify(m.routes || null).slice(0, 120));
   const paths = (m.routes || []).map((r) => r.path);
   for (const p of ["/", "/terminal", "/chat", "/rooms", "/room/<n>", "/dm/<id>",
-                   "/gallery", "/coins", "/swap", "/open",
+                   "/gallery", "/launch", "/lock", "/hook/<address>", "/swap", "/open",
                    "/services.json"]) {
     ok(`  ${p} is discoverable`, paths.includes(p), paths.join(" "));
   }
@@ -415,6 +426,7 @@ head("and it describes the collection-wide surface too");
     if (r.path === "/services.json") continue;
     const seg = r.path === "/room/<n>" ? ["room", "1"]
               : r.path === "/dm/<id>" ? ["dm", "1"]
+              : r.path === "/hook/<address>" ? ["hook", weth.toLowerCase()]
               : r.path.split("/").filter(Boolean);
     const got = await GET(seg);
     ok(`  and ${r.path} actually answers`, got.status === 200, `status ${got.status}`);
@@ -621,7 +633,8 @@ const scriptsOf = (body) =>
 for (const [label, body] of [
   ["the door", (await GET([])).body],
   ["the terminal", (await GET(["terminal"])).body],
-  ["the coins", (await GET(["coins"])).body],
+  ["the launchpad", (await GET(["launch"])).body],
+  ["the vault", (await GET(["lock"])).body],
   ["the commons", (await GET(["chat"])).body],
   ["the rooms", (await GET(["rooms"])).body],
   ["a direct message", (await GET(["dm", "1"])).body],
@@ -768,6 +781,7 @@ const mkEl = (tag, attrs) => {
     },
     addEventListener(k, f) { (this._on[k] = this._on[k] || []).push(f); },
     focus() {}, blur() {}, click() { return this.fire("click"); },
+    dispatchEvent(e) { return this.fire(e && e.type); },
     async fire(k) { for (const f of this._on[k] || []) await f(); }
   };
   el.classList = {
@@ -1152,7 +1166,7 @@ head("driving the terminal");
      cmds.every((x) => typeof x.writes === "boolean" && x.usage && x.what));
 
   const help = await globalThis.TERM.run("help");
-  ok("help is the same table, for people", help.includes("mint") && help.includes("coin"));
+  ok("help is the same table, for people", help.includes("mint") && help.includes("launch"));
 
   const supply0 = decUint(await c.read(nft, "totalSupply()"));
   await globalThis.TERM.run("mint");
@@ -1166,22 +1180,37 @@ head("driving the terminal");
   eq("`say` reached the commons", decUint(await c.read(site.parley, "stateOf(uint256)", [0]), 1),
      commons0 + 1n);
 
-  await globalThis.TERM.run("coin Terminal Coin? no — one word");
-  await globalThis.TERM.run("coin TermCoin TERM 18 1000000000000000000000000");
+  await globalThis.TERM.run("launch TermCoin TERM 1000000000000000000000000");
   await nap(30);
-  eq("`coin` poured through the foundry", decUint(await c.read(site.foundry, "count()")), 1n);
+  eq("`launch` fired through the kiln, signed by the active token",
+     decUint(await c.read(site.kiln, "coinCount()")), 1n);
+  const termCoin = decAddr(await c.read(site.kiln, "recent(uint256,uint256)", [0, 1]), 2);
+  eq("and the kiln remembers which token signed it",
+     decUint(await c.read(site.kiln, "launchedBy(address)", [termCoin])),
+     supply0 + 1n);
 
-  const out = await globalThis.TERM.run("coins");
-  ok("`coins` lists the pour with its address", /0x[0-9a-f]{40}/.test(out), out);
+  const out = await globalThis.TERM.run("launched");
+  ok("`launched` lists it with its address", /0x[0-9a-f]{40}/.test(out), out);
+
+  /*  The vault, from the same prompt. Two transactions in one command —
+      the exact approve the lock needs, then the lock — and the list read
+      back off the chain, not off a variable.                            */
+  await c.exec(weth, "mint(address,uint256)", [c.from.toString(), 10n ** 20n]);
+  const locked = await globalThis.TERM.run(`lockup ${weth} 1000000 7`);
+  ok("`lockup` locked and says until when", /locked until 20/.test(locked), locked);
+  const ls = await globalThis.TERM.run("lockups");
+  ok("`lockups` reads it back off the vault", /#\d+ .*1000000/.test(ls), ls);
 }
 
 head("the new tabs render what the terminal did");
 {
-  const co = await GET(["coins"]);
-  ok("/coins shows the coin, address first",
+  const co = await GET(["launch"]);
+  ok("/launch lists the terminal's coin, address first",
      co.body.includes("TERM") && /0x[0-9a-f]{40}/.test(co.body));
   ok("with a copy button and a watch button",
      co.body.includes("class=copy") && co.body.includes("class=watch"));
+  ok("and names the token that signed it", />#\d+</.test(co.body.replace(/\s/g, "")) ||
+     co.body.includes("<td>#"), "no by-token column");
   const ga = await GET(["gallery"]);
   const cells = [...ga.body.matchAll(/class=gcell/g)].length;
   const supply = Number(decUint(await c.read(nft, "totalSupply()")));
@@ -1395,7 +1424,7 @@ head("the same page wired to the other router");
   const venue02 = await c.deploy(A("src/Venue.sol", "Venue").bytecode,
     encodeAddressArg(uniFactory) + encodeAddressArg(uniQuoter) +
     encodeAddressArg(uniRouter02) + w(1) + encodeAddressArg(uniRouter02) +
-    encodeAddressArg(weth) + w(0) + w(0), "Venue02");
+    encodeAddressArg(weth) + w(0) + w(0) + w(0), "Venue02");
   const deskU02 = await c.deploy(A("src/DeskUni.sol", "DeskUni").bytecode,
     encodeAddressArg(venue02) + encodeAddressArg(pool), "DeskUni02");
   const pSwap02 = await c.deploy(A("src/PageSwap.sol", "PageSwap").bytecode,
@@ -1462,6 +1491,250 @@ head("the same page wired to the other router");
      mangled,
      "the mock accepted the wrong shape unchanged, so the checks above prove nothing");
   console.log("      which is exactly why the kind is stored beside the address");
+}
+
+
+/*════════════ the launchpad, actually driven ════════════
+
+  Four transactions with every choice in front of them, driven the way a
+  visitor would: bars dragged, boxes typed, buttons pressed. The mocks
+  record what they decoded, so every field the client wrote is asserted to
+  have landed under its own name — the v4 `initialize` is six flat words
+  from a client with no ABI coder, which is exactly the shape of mistake
+  the router drives above exist to catch.
+*/
+head("driving the launchpad");
+let gateAt = null;
+{
+  const page = await GET(["launch"]);
+  eq("/launch answers 200", page.status, 200);
+  ok("the bars are real controls, not pictures",
+     (page.body.match(/type=range/g) || []).length >= 4,
+     `${(page.body.match(/type=range/g) || []).length} range inputs`);
+
+  mount(page.body);
+  const W = wallet(c);
+  runScripts(page.body);
+  await nap(60);
+  const $ = (i) => byId.get(i);
+
+  /* the terminal minted this token and c holds it — it signs the launch */
+  const myTok = decUint(await c.read(nft, "totalSupply()"));
+  $("ct").value = String(myTok);
+  $("cn").value = "Launch Coin";
+  $("cs").value = "LNCH";
+
+  $("cvR").value = "120";
+  await $("cvR").fire("input");
+  eq("the supply bar is logarithmic and writes the box", $("cv").value, "1000000000000");
+  $("cv").value = "1000000";
+  await $("cv").fire("input");
+
+  await $("cchk").fire("click");
+  await nap(60);
+  const landed = ($("cpre").innerHTML.match(/0x[0-9a-f]{40}/) || [])[0];
+  ok("`where would it land` answered from the kiln, nothing sent",
+     !!landed, $("cpre").innerHTML.slice(0, 120));
+
+  /*──── the dynamic-fee guard, before any hook exists ────*/
+  $("pq").value = usdc.toLowerCase();
+  $("pp").value = "1";
+  $("pfd").checked = true;
+  await $("pfd").fire("change");
+  eq("the dynamic checkbox writes the sentinel fee", $("pf").value, "8388608");
+  const sent0 = W.sent();
+  await $("pgo").fire("click");
+  await nap(60);
+  eq("a dynamic fee with no hook sends nothing — a pool nothing can ever price",
+     W.sent(), sent0);
+  ok("and the manager was never reached",
+     !decBool(await c.read(uniManager, "last()"), 0));
+  $("pfd").checked = false;
+  await $("pfd").fire("change");
+
+  /*──── the gate on the kiln itself ────*/
+  $("ct").value = "999999";
+  await $("cgo").fire("click");
+  await nap(150);
+  eq("a token you do not hold cannot sign a launch",
+     decUint(await c.read(site.kiln, "coinCount()")), 1n);
+  $("ct").value = String(myTok);
+
+  await $("cgo").fire("click");
+  await nap(200);
+  eq("the launch fired through the kiln", decUint(await c.read(site.kiln, "coinCount()")), 2n);
+  const coin = decAddr(await c.read(site.kiln, "recent(uint256,uint256)", [0, 1]), 2);
+  eq("and landed exactly where the page said it would", coin.toLowerCase(), landed);
+  eq("attributed to the signing token",
+     decUint(await c.read(site.kiln, "launchedBy(address)", [coin])), myTok);
+  eq("with the whole supply in the launcher's wallet",
+     decUint(await c.read(coin, "balanceOf(address)", [c.from.toString()])),
+     1_000_000n * WAD);
+
+  /*──── the hook: the ten-year bar, the mine, the deploy ────*/
+  $("hlR").value = "3650";
+  await $("hlR").fire("input");
+  eq("the liquidity bar runs to ten years and writes the box", $("hl").value, "3650");
+  ok("and the page says both dates out loud",
+     /trading opens/.test($("hsum").innerHTML) && /liquidity unlocks/.test($("hsum").innerHTML),
+     $("hsum").innerHTML.slice(0, 160));
+  $("hl").value = "30"; await $("hl").fire("input");
+  $("ho").value = "1";  await $("ho").fire("input");
+
+  await $("hmine").fire("click");
+  await nap(600);
+  ok("the salt was mined by the node itself, under eth_call",
+     /found after/.test($("hmined").innerHTML), $("hmined").innerHTML.slice(0, 160));
+  gateAt = ($("hmined").innerHTML.match(/the hook would live at<\/span><b>(0x[0-9a-f]{40})/) || [])[1]
+        || ($("hmined").innerHTML.match(/0x[0-9a-f]{40}/g) || []).pop();
+  ok("and the deploy button armed", $("hgo").disabled === false);
+
+  await $("hgo").fire("click");
+  await nap(200);
+  ok("the gate was deployed at the mined address", (await c.codeSize(gateAt)) > 0);
+  eq("whose low fourteen bits are exactly beforeSwap + beforeRemoveLiquidity",
+     "0x" + (BigInt(gateAt) & 0x3fffn).toString(16), "0x280");
+  const opens = decUint(await c.read(gateAt, "OPENS()"));
+  const unlocks = decUint(await c.read(gateAt, "UNLOCKS()"));
+  ok("both timestamps immutable, the unlock after the open",
+     opens > 0n && unlocks > opens, `opens ${opens} unlocks ${unlocks}`);
+  const st = await c.read(gateAt, "status()");
+  ok("and the gate reports shut, because only the clock opens it",
+     !decBool(st, 0) && !decBool(st, 1));
+
+  /*──── the fee bar, then the pool, field by field ────*/
+  $("pfR").value = "400";
+  await $("pfR").fire("input");
+  eq("the fee bar is logarithmic: 400 of 600 lands on 1.00%", $("pf").value, "10000");
+  eq("and the label says so", $("pfl").textContent, "1.00%");
+  $("pf").value = "3000";
+  await $("pf").fire("input");
+  eq("typing snaps the label back", $("pfl").textContent, "0.30%");
+
+  $("ps").value = "60"; await $("ps").fire("input");
+  await $("pgo").fire("click");
+  await nap(300);
+
+  const seen = await c.read(uniManager, "last()");
+  ok("initialize reached the PoolManager", decBool(seen, 0), "it never arrived");
+  const lo = coin.toLowerCase() < usdc.toLowerCase() ? coin : usdc;
+  const hi = lo === coin ? usdc : coin;
+  eq("currency0 is the lower address", decAddr(seen, 1).toLowerCase(), lo.toLowerCase());
+  eq("currency1 is the higher", decAddr(seen, 2).toLowerCase(), hi.toLowerCase());
+  eq("the fee arrived as the fee", decUint(seen, 3), 3000n);
+  eq("the spacing arrived as the spacing", decUint(seen, 4), 60n);
+  eq("the hook is the gate that was just mined", decAddr(seen, 5).toLowerCase(), gateAt);
+  /* one LNCH = one USDC, mirrored through the same arithmetic the client runs */
+  const d0 = lo === coin ? 18 : 6, d1 = lo === coin ? 6 : 18;
+  const tick = Math.round(Math.log(Math.pow(10, d1 - d0)) / Math.log(1.0001));
+  const snapped = Math.round(tick / 60) * 60;
+  const w2c = (v) => ((1n << 256n) + BigInt(v)).toString(16).padStart(64, "0").slice(-64);
+  const sq = decUint(await c.call(site.venue, evm.sel("sqrtAt(int24)") + w2c(snapped)));
+  eq("and the price is the venue's own sqrt of the snapped tick", decUint(seen, 6), sq);
+  console.log("      six flat words: currencies sorted, fee, spacing, the mined hook, the price");
+}
+
+/*════════════ the hook reader ════════════*/
+head("what the address already says");
+{
+  const hp = await GET(["hook", gateAt]);
+  eq("/hook/<the gate> answers 200", hp.status, 200);
+  ok("and reads both powers off the address, with no call",
+     /CAN REFUSE OR REPRICE EVERY SWAP/.test(hp.body) &&
+     /CAN REFUSE LIQUIDITY BEING TAKEN OUT/.test(hp.body));
+  ok("and says the half that is not reassuring",
+     /same address shape/.test(hp.body));
+
+  const mixed = "0x" + gateAt.slice(2).toUpperCase();
+  const mv = await GET(["hook", mixed]);
+  eq("a checksummed spelling is a different URL and gets moved", mv.status, 301);
+  ok("to the one canonical address", JSON.stringify(mv.headers).includes(gateAt));
+
+  const ask = await GET(["hook"]);
+  ok("bare /hook explains itself", /read a hook/i.test(ask.body));
+
+  const inert = await GET(["hook", "0x" + "1".repeat(36) + "0000"]);
+  ok("an address with no flag bits is called what it is: not a hook",
+     /not a hook/.test(inert.body));
+}
+
+/*════════════ the vault, actually driven ════════════
+
+  Ten years on a slider, and then the only three facts that matter, each
+  proven the hard way: it cannot come out early, it cannot come out to
+  anyone else, and at term it comes out to the wei. The clock is moved
+  forward rather than waited on, which is the one luxury a test chain has.
+*/
+head("driving the vault");
+{
+  const page = await GET(["lock"]);
+  eq("/lock answers 200", page.status, 200);
+  ok("ten years sits on the bar itself", /max=3650/.test(page.body));
+
+  mount(page.body);
+  const saver = await c.as("0x" + "cc".repeat(32));
+  await c.exec(weth, "mint(address,uint256)", [saver.from.toString(), 10n ** 20n]);
+  const W = wallet(saver);
+  runScripts(page.body);
+  await nap(60);
+  const $ = (i) => byId.get(i);
+
+  $("ldR").value = "3650";
+  await $("ldR").fire("input");
+  eq("the bar writes the box", $("ld").value, "3650");
+  ok("and the page answers with a date, not a number",
+     /until 20\d\d-\d\d-\d\d/.test($("ldd").textContent), $("ldd").textContent);
+  $("ld").value = "365";
+  await $("ld").fire("input");
+  eq("typing writes the bar back", $("ldR").value, "365");
+
+  $("lt").value = weth.toLowerCase();
+  await $("lt").fire("change");
+  await nap(150);
+  ok("the token was asked what it is", /WETH/.test($("ltok").innerHTML),
+     $("ltok").innerHTML.slice(0, 120));
+
+  $("la").value = "5";
+  await $("la").fire("input");
+
+  await $("lgo").fire("click");                     // connect, then approve
+  await nap(250);
+  eq("the first press approved the vault for exactly the amount",
+     decUint(await c.read(weth, "allowance(address,address)",
+       [saver.from.toString(), site.locker])), 5n * WAD);
+
+  await $("lgo").fire("click");                     // lock
+  await nap(250);
+  eq("the lock is in the vault", decUint(await c.read(site.locker, "count()")), 2n);
+  eq("and the ledger holds both locks to the wei",
+     decUint(await c.read(site.locker, "totalLocked(address)", [weth])),
+     5n * WAD + 1_000_000n);
+
+  const at = await c.read(site.locker, "lockAt(uint256)", [1]);
+  eq("recorded at what arrived", decUint(at, 2), 5n * WAD);
+  const until = decUint(at, 3);
+
+  await refuses("it cannot come out early — no such function exists to call",
+    () => saver.exec(site.locker, "claim(uint256)", [1]), "0x1c9cc458");   // NotYet()
+  await refuses("it cannot come out to anyone else",
+    () => renter.exec(site.locker, "claim(uint256)", [1]), "0x4a636d30");   // NotYours()
+  await refuses("the date cannot be brought nearer",
+    () => saver.exec(site.locker, "extend(uint256,uint64)", [1, until - 1000n]), "0x227d0670");   // OnlyLonger()
+  await refuses("and nothing locks past ten years from now",
+    () => saver.exec(site.locker, "lock(address,uint256,uint64)",
+      [weth, 1n, until + 3651n * 86400n]), "0x4ee45b56");   // TooLong()
+
+  warp(until + 1n);
+  const before = decUint(await c.read(weth, "balanceOf(address)", [saver.from.toString()]));
+  await saver.exec(site.locker, "claim(uint256)", [1]);
+  eq("at term, the clock lets it out to the wei",
+     decUint(await c.read(weth, "balanceOf(address)", [saver.from.toString()])) - before,
+     5n * WAD);
+  await refuses("and only once",
+    () => saver.exec(site.locker, "claim(uint256)", [1]), "0x646cf558");   // AlreadyClaimed()
+  eq("the ledger followed it out",
+     decUint(await c.read(site.locker, "totalLocked(address)", [weth])), 1_000_000n);
+  console.log("      locked, refused early, refused to a stranger, out at term to the wei");
 }
 
 head("driving the holder's side");
@@ -1711,7 +1984,9 @@ for (const [file, name] of [
       here, not that there is one nobody calls.                          */
   ["src/PageDoor.sol", "PageDoor"], ["src/PageTalk.sol", "PageTalk"],
   ["src/PageRooms.sol", "PageRooms"], ["src/DeskTalk.sol", "DeskTalk"],
-  ["src/PageTerminal.sol", "PageTerminal"], ["src/PageGallery.sol", "PageGallery"], ["src/PageMint.sol", "PageMint"],
+  ["src/PageTerminal.sol", "PageTerminal"], ["src/PageGallery.sol", "PageGallery"],
+  ["src/PageLaunch.sol", "PageLaunch"], ["src/PageLock.sol", "PageLock"],
+  ["src/PageHook.sol", "PageHook"], ["src/DeskLaunch.sol", "DeskLaunch"],
   ["src/PageSwap.sol", "PageSwap"], ["src/DeskUni.sol", "DeskUni"],
   ["src/DeskTrade.sol", "DeskTrade"], ["src/Venue.sol", "Venue"],
   ["src/DeskTerm.sol", "DeskTerm"],

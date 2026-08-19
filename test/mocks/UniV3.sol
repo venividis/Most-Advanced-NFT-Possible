@@ -617,3 +617,49 @@ contract MockVotes {
     function getCurrentVotes(address a) external view returns (uint256) { return _votes[a]; }
     function balanceOf(address) external pure returns (uint256) { return 1_000e18; }
 }
+
+/*───────────────────────────────────────────────────────────────────────────
+  v4's PoolManager, as far as the launch page sends to it: `initialize`
+  with a five-field static PoolKey and a starting price. It records what it
+  DECODED, field by field, because the assertion worth having is that the
+  client's six flat words landed as the six fields they were named — a
+  manager that merely accepted the call would pass a client that shifted
+  every field by a word.
+───────────────────────────────────────────────────────────────────────────*/
+contract MockManager {
+    struct PoolKey {
+        address currency0;
+        address currency1;
+        uint24  fee;
+        int24   tickSpacing;
+        address hooks;
+    }
+
+    bool    public inited;
+    address public c0;
+    address public c1;
+    uint24  public fee;
+    int24   public spacing;
+    address public hooks;
+    uint160 public sqrtPrice;
+
+    function initialize(PoolKey calldata k, uint160 sqrtPriceX96)
+        external returns (int24)
+    {
+        inited = true;
+        c0 = k.currency0;
+        c1 = k.currency1;
+        fee = k.fee;
+        spacing = k.tickSpacing;
+        hooks = k.hooks;
+        sqrtPrice = sqrtPriceX96;
+        return 0;
+    }
+
+    function last()
+        external view
+        returns (bool, address, address, uint24, int24, address, uint160)
+    {
+        return (inited, c0, c1, fee, spacing, hooks, sqrtPrice);
+    }
+}

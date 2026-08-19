@@ -524,7 +524,7 @@ topic and the rule for walking backwards — enough to read the whole archive wi
 
 **94. The terminal is one code path for fingers and for models.**
 `TERM.run(line)` is what the keyboard calls and what an agent calls; the
-suite drives mint, speak, propose, vote and pour through it and asserts
+suite drives mint, speak, launch and lockup through it and asserts
 against the chain, not against the screen. `TERM.commands()` returns the
 whole table as data — usage, description, writes — so a model asks the
 terminal what it can do instead of scraping it.
@@ -538,11 +538,12 @@ because an offset written while the tail is still growing is a lie.
 → `src/DeskTerm.sol` · `ENC`, exercised by every string-carrying command in
   the drive
 
-**97. A poured coin has no owner because its ABI has none.**
-Fixed supply minted once to the pourer; no mint, no pause, no blacklist, no
-upgrade. The guarantee is the absence of the functions, which the compiled
-ABI states machine-checkably.
-→ `src/Foundry.sol`
+**97. A launched coin has no owner because its ABI has none.**
+Fixed supply minted once to the launcher; no mint, no pause, no blacklist,
+no upgrade. The guarantee is the absence of the functions, which the
+compiled ABI states machine-checkably — and every one of the omissions is
+a lever a deployer could otherwise pull against the people who bought.
+→ `src/Kiln.sol` · `Coin`
 
 **98. The router's calldata shape travels with its address.**
 Two Uniswap routers share the name `exactInputSingle`; their param structs
@@ -560,6 +561,33 @@ identity is the stored choice, the only wallet, or the person's pick from
 a list — and clicking your own address asks again. Reads may use any
 announcer, because a read is just RPC.
 → `src/Chrome.sol` · `WALLET_JS`
+
+**100. A hook's permissions are its address, and the kiln refuses a mismatch.**
+v4 invokes a hook's callbacks by testing bits of the hook's own address, so
+`/hook/<address>` reads a hook's powers with no call and nothing its author
+can misstate. `deployHook` checks the deployed address carries exactly the
+declared bits and reverts `WrongFlags` otherwise — a hook at an address
+missing a bit is code the pool never consults, and a lock nobody consults
+looks exactly like a lock. The mining salt mixes the sender, so watching
+the mempool for a `launch` and re-sending it with more gas takes nothing.
+→ `tools/verify-site.mjs` · *"driving the launchpad"*, `src/Kiln.sol`,
+  `src/lib/Hook.sol`
+
+**101. A lock ends when its clock says — no sooner, for no one, only once.**
+`claim` refuses before the time (`NotYet`), refuses every caller but the
+locker (`NotYours`), refuses a second time (`AlreadyClaimed`); `extend`
+moves the date away and never nearer (`OnlyLonger`); nothing locks past
+ten years from now (`TooLong`), because a lock with no end is a burn
+wearing a vault's clothing. There is no owner, no pause and no rescue
+path — a rescue path is an unlock with a nicer name.
+→ `tools/verify-site.mjs` · *"driving the vault"*, `src/Locker.sol`
+
+**102. The vault records what arrived, not what was asked for.**
+The locked amount is the measured balance difference, so a fee-on-transfer
+token that skims on the way in cannot make the vault promise more than it
+holds, and what comes out at term is what actually went in, to the wei.
+→ `src/Locker.sol` · `lock`, asserted to the wei in the vault drive
+
 
 ## Found by adversarial review, and fixed
 

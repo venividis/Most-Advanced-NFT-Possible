@@ -185,8 +185,10 @@ interface IVenue {
     function WRAPPED() external view returns (address);
     function GOVERNOR() external view returns (address);
     function GOV_TOKEN() external view returns (address);
+    function POOL_MANAGER() external view returns (address);
 
     function present() external view returns (bool);
+    function hasV4() external view returns (bool);
     function tiers() external pure returns (uint24[4] memory);
     function enabled(uint24 fee) external view returns (int24);
     function spacings() external view returns (int24[4] memory);
