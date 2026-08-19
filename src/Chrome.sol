@@ -213,10 +213,8 @@ contract Chrome {
         ".gtags i{font-style:normal;font-size:.68rem;letter-spacing:.08em;"
         "text-transform:uppercase;color:#6c7689;margin-right:.5rem}"
         ".gtags i.ok{color:#7fe0a8}.gtags i.w{color:#ffb27f}"
-        /*  coins and charts                                               */
-        ".coinaddr{font-size:13px;color:#cfe3ff}"
-        ".gtframe{width:100%;height:34rem;border:1px solid #1a2030;border-radius:.55rem;"
-        "background:#04050a;max-width:none;aspect-ratio:auto}";
+        /*  coins                                                          */
+        ".coinaddr{font-size:13px;color:#cfe3ff}";
 
     /*═══════════════════ the wallet, chosen ═══════════════════*/
 
@@ -310,17 +308,18 @@ contract Chrome {
     }
 
     /// @dev The tabs are the site's whole thesis in one row: the door in,
-    ///      the terminal that does everything, the social layer, the collection, the coins, and the one tab that leaves the
-    ///      chain. `here` codes: 0 door · 20 terminal · 16 social · 22 market · 23 coins · 24 charts · 6 json.
+    ///      the terminal that does everything, the swap against the chain's own
+    ///      Uniswap, the social layer, the collection, and the coins. `here`
+    ///      codes: 0 door · 20 terminal · 9 swap · 16 social · 22 market · 23 coins · 6 json.
     function navTop(uint8 here) external pure returns (string memory) {
         return string.concat(
             "<nav>",
             _tab("/", "door", here == 0),
             _tab("/terminal", "terminal", here == 20),
+            _tab("/swap", "swap", here == 9),
             _tab("/chat", "social", here == 16),
             _tab("/gallery", "market", here == 22),
             _tab("/coins", "coins", here == 23),
-            _tab("/charts", "charts", here == 24),
             _tab("/services.json", "json", here == 6),
             "</nav>"
         );

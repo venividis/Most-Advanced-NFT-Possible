@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile, artifact } from "./compile.mjs";
 import { RpcChain } from "./rpc.mjs";
-import { deploySite, getter } from "./site.mjs";
+import { deploySite, getter, UNISWAP } from "./site.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const recPath = process.argv[2];
@@ -30,12 +30,17 @@ console.log(`  keeping Parley ${rec.contracts.parley} — the conversation survi
 const out = compile({ quiet: true, dirs: ["src", "test/mocks"] });
 const A = (f, n) => artifact(out, f, n);
 
+const uni = UNISWAP[c.chainId];
+console.log(uni
+  ? `  Uniswap v3 wiring for ${uni.name}: router ${uni.router}`
+  : "  no Uniswap wiring known for this chain — the swap tab will say so");
 const site = await deploySite(c, A, {
   hub: rec.contracts.ipseity,
   pool: rec.contracts.pool,
   lease: rec.contracts.lease,
   sigil: rec.contracts.sigil,
-  parley: rec.contracts.parley
+  parley: rec.contracts.parley,
+  ...(uni ? { uniswap: uni } : {})
 });
 
 rec.contracts = { ...rec.contracts, ...site, parley: rec.contracts.parley };
@@ -49,7 +54,7 @@ fs.writeFileSync(recPath, JSON.stringify(rec, null, 1));
 fs.writeFileSync(path.join(ROOT, "dist/testnet.json"), JSON.stringify(rec, null, 1));
 
 const GET = getter(c, site.premises);
-for (const p of [[], ["terminal"], ["chat"], ["gallery"], ["coins"], ["charts"]]) {
+for (const p of [[], ["terminal"], ["swap"], ["chat"], ["gallery"], ["coins"]]) {
   const r = await GET(p);
   console.log(`  ${r.status} /${p.join("/")}  ${r.body.length}B`);
   if (r.status !== 200) process.exit(1);

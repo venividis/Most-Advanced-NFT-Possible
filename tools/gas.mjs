@@ -206,7 +206,7 @@ const routes = [];
     [["terminal"], "/terminal", "every function, one line at a time"],
     [["gallery"], "/gallery", "the collection, wearing its stills"],
     [["coins"], "/coins", "the foundry's ledger"],
-    [["charts"], "/charts", "the one tab that leaves the chain"]
+    [["swap"], "/swap", "the Uniswap card (venueless on this bare chain)"]
   ]) {
     routes.push({ label, note, ...(await hit(path)) });
   }

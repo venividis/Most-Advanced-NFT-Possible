@@ -34,9 +34,9 @@ interface IPagePool {
 }
 
 interface IPageTerminal { function terminal() external view returns (string memory); }
+interface IPageSwap     { function swap() external view returns (string memory); }
 interface IPageGallery  { function gallery(uint256 page) external view returns (string memory); }
 interface IPageMint     { function coins() external view returns (string memory); }
-interface IPageCharts   { function charts() external view returns (string memory); }
 
 interface IPageServices {
     function rent(uint256 id) external view returns (string memory);
@@ -89,9 +89,9 @@ interface IPageManifest {
 
       /                          the door: connect, and what you hold opens
       /terminal                  every function, one line at a time
+      /swap                      any ERC-20 with a pool, against the chain's Uniswap v3
       /gallery  /gallery/<p>     the whole collection, wearing its stills
       /coins                     fixed-supply coins, poured by tokens
-      /charts                    the one tab that leaves the chain
       /chat                      the commons: one room, every token in it
       /rooms                     the groups this token has entered
       /room/<n>                  one group, numbered from 1
@@ -135,9 +135,9 @@ contract Premises {
     IPageTalk     public immutable P_TALK;
     IPageRooms    public immutable P_ROOMS;
     IPageTerminal public immutable P_TERMINAL;
+    IPageSwap     public immutable P_SWAP;
     IPageGallery  public immutable P_GALLERY;
     IPageMint     public immutable P_MINT;
-    IPageCharts   public immutable P_CHARTS;
 
     struct KeyValue { string key; string value; }
 
@@ -162,9 +162,9 @@ contract Premises {
         IPageTalk pTalk,
         IPageRooms pRooms,
         IPageTerminal pTerminal,
+        IPageSwap pSwap,
         IPageGallery pGallery,
-        IPageMint pMint,
-        IPageCharts pCharts
+        IPageMint pMint
     ) {
         HUB = hub;
         CHROME = chrome;
@@ -177,9 +177,9 @@ contract Premises {
         P_TALK = pTalk;
         P_ROOMS = pRooms;
         P_TERMINAL = pTerminal;
+        P_SWAP = pSwap;
         P_GALLERY = pGallery;
         P_MINT = pMint;
-        P_CHARTS = pCharts;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -267,6 +267,11 @@ contract Premises {
             return (200, P_TERMINAL.terminal(), _headers(HTML));
         }
 
+        if (_eq(resource[0], "swap")) {
+            if (n != 1) return _notFound();
+            return (200, P_SWAP.swap(), _headers(HTML));
+        }
+
         if (_eq(resource[0], "gallery")) {
             if (n > 2) return _notFound();
             uint256 page;
@@ -281,11 +286,6 @@ contract Premises {
         if (_eq(resource[0], "coins")) {
             if (n != 1) return _notFound();
             return (200, P_MINT.coins(), _headers(HTML));
-        }
-
-        if (_eq(resource[0], "charts")) {
-            if (n != 1) return _notFound();
-            return (200, P_CHARTS.charts(), _headers(HTML));
         }
 
         /*───── collection-wide ─────*/

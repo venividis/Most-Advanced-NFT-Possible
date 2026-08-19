@@ -143,9 +143,10 @@ at all:
 web3://<premises>/                      the door: connect, and what you hold opens
 web3://<premises>/terminal              every function, one line at a time —
                                         window.TERM.run() for agents
+web3://<premises>/swap                  any ERC-20 with a v3 pool, against the
+                                        chain's own Uniswap
 web3://<premises>/gallery               the collection, wearing its stills
 web3://<premises>/coins                 fixed-supply coins, poured by tokens
-web3://<premises>/charts                the one tab that leaves the chain
 web3://<premises>/chat                  the commons: one room, every token in it
 web3://<premises>/rooms                 the groups this token has entered
 web3://<premises>/room/3                one group
@@ -389,6 +390,18 @@ website whose job is to be the door to an instrument should not spend nine tenth
 of itself on trading pairs the instrument has nothing to do with. What the tokens
 did not have was a way to reach each other. Now they have one, and the site is
 the door.
+
+One card came back, deliberately smaller. `/swap` is a single exactInputSingle
+card against the chain's own Uniswap v3 — no pools page, no orders, no
+governance reader — because "trade a tokenized stock for ETH" is a thing a
+door should be able to do without becoming a trading floor again. It checks
+the pool for whatever address you paste rather than carrying a token list,
+so anything with v3 liquidity on that chain trades, and anything without gets
+an honest "no pool". The same contracts deploy per chain from one wiring
+table (the four v3 addresses differ on Base, which is exactly why the table
+exists), and the door's chain switcher moves the wallet between them —
+moving *value* between chains is a bridge's job, and this site will never
+quietly be one.
 
 ## Security
 

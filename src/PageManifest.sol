@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {LibNum} from "./lib/LibNum.sol";
 import {Web} from "./lib/Web.sol";
-import {IHub, IPoolRead, ILeaseRead, IRendererDoc, IParley, MarketView}
+import {IHub, IPoolRead, ILeaseRead, IRendererDoc, IParley, IVenue, MarketView}
     from "./interfaces/Site.sol";
 
 /*───────────────────────────────────────────────────────────────────────────
@@ -48,6 +48,7 @@ contract PageManifest {
     ///      things to a program, and only one of them is the truth.
     IParley    public immutable PARLEY;
     address    public immutable FOUNDRY;
+    IVenue     public immutable VENUE;
 
     string public constant SCHEMA = "ipseity.services/1";
 
@@ -55,8 +56,9 @@ contract PageManifest {
     uint256 public constant PAGE = 24;
 
     constructor(IHub hub, IPoolRead pool, ILeaseRead lease, IParley parley,
-                address foundry) {
+                address foundry, IVenue venue) {
         FOUNDRY = foundry;
+        VENUE = venue;
         HUB = hub;
         POOL = pool;
         LEASE = lease;
@@ -282,7 +284,8 @@ contract PageManifest {
                 silently. It terminates its own values now.              */
             "\",\"routes\":", ROUTES,
             ",\"parley\":", _parley(),
-            ",\"foundry\":\"", LibNum.hexAddr(FOUNDRY), "\""
+            ",\"foundry\":\"", LibNum.hexAddr(FOUNDRY),
+            "\",\"venue\":", _venue()
         );
     }
 
@@ -302,9 +305,10 @@ contract PageManifest {
         "{\"path\":\"/rooms\",\"is\":\"the groups a token has entered\"},"
         "{\"path\":\"/room/<n>\",\"is\":\"one group, numbered from 1\"},"
         "{\"path\":\"/dm/<id>\",\"is\":\"the room two tokens share, derived not founded\"},"
+        "{\"path\":\"/swap\",\"is\":\"any ERC-20 with a pool, against this "
+        "chain's Uniswap v3\"},"
         "{\"path\":\"/gallery\",\"is\":\"the collection, wearing its stills\",\"paged\":true},"
         "{\"path\":\"/coins\",\"is\":\"fixed-supply coins, poured by tokens\"},"
-        "{\"path\":\"/charts\",\"is\":\"external charts, and it says so\"},"
         "{\"path\":\"/open\",\"is\":\"every open market here\",\"paged\":true},"
         "{\"path\":\"/services.json\",\"is\":\"this document\",\"paged\":true}"
         "]";
@@ -328,6 +332,32 @@ contract PageManifest {
             ",\"said\":\"", LibNum.hex32(said),
             "\",\"walk\":\"stateOf(room).last is the block of the newest message; "
             "each message carries the block of the one before it\"}"
+        );
+    }
+
+    /*  Where those pages send, so a program can check the addresses against
+        Uniswap's published deployments rather than against this contract.
+
+        `routerKind` is the field that matters and it is here for the same
+        reason it is on the page: two Uniswap routers have an
+        `exactInputSingle` whose structs differ by one field, the wrong shape
+        does not revert, and a program building calldata from this manifest
+        needs to know which one it is talking to. 0 is the v3-periphery
+        SwapRouter — eight words, deadline at index 4. 1 is SwapRouter02 —
+        seven words, no deadline.                                         */
+    function _venue() private view returns (string memory) {
+        if (address(VENUE) == address(0)) return "null";
+        return string.concat(
+            "{\"at\":\"", LibNum.hexAddr(address(VENUE)),
+            "\",\"present\":", VENUE.present() ? "true" : "false",
+            ",\"factory\":\"", LibNum.hexAddr(VENUE.FACTORY()),
+            "\",\"quoter\":\"", LibNum.hexAddr(VENUE.QUOTER()),
+            "\",\"router\":\"", LibNum.hexAddr(VENUE.ROUTER()),
+            "\",\"routerKind\":", uint256(VENUE.ROUTER_KIND()).str(),
+            ",\"positions\":\"", LibNum.hexAddr(VENUE.POSITIONS()),
+            "\",\"wrapped\":\"", LibNum.hexAddr(VENUE.WRAPPED()),
+            "\",\"governor\":\"", LibNum.hexAddr(VENUE.GOVERNOR()),
+            "\",\"govToken\":\"", LibNum.hexAddr(VENUE.GOV_TOKEN()), "\"}"
         );
     }
 

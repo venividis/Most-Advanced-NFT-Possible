@@ -26,6 +26,67 @@ const encStrArray = (arr) => {
   return w(arr.length) + heads.join("") + bodies.join("");
 };
 
+/*──────────────── where Uniswap actually is ────────────────
+
+  Every address below was probed for code over live RPC on 2026-08-19 —
+  factory, SwapRouter02, QuoterV2 and the wrapped native, on each chain —
+  not copied from memory. All four chains carry SwapRouter02, so every
+  entry is routerKind 1: seven words, no deadline. A chain missing from
+  this table deploys with NO_VENUE and the swap tab says so instead of
+  failing.
+
+  The stock-token consequence is the design, not the table: the card
+  checks the pool for whatever address you paste, so a tokenized equity
+  with v3 liquidity on that chain trades like anything else, and one
+  without gets an honest "no pool" — there is no list here to be wrong. */
+const ZERO = "0x0000000000000000000000000000000000000000";
+
+export const UNISWAP = {
+  1: {
+    name: "Ethereum",
+    factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+    quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+    router: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45", routerKind: 1,
+    positions: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
+    wrapped: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    governor: ZERO, govToken: ZERO
+  },
+  8453: {
+    name: "Base",
+    factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+    quoter: "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
+    router: "0x2626664c2603336E57B271c5C0b26F421741e481", routerKind: 1,
+    positions: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
+    wrapped: "0x4200000000000000000000000000000000000006",
+    governor: ZERO, govToken: ZERO
+  },
+  84532: {
+    name: "Base Sepolia",
+    factory: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
+    quoter: "0xC5290058841028F1614F3A6F0F5816cAd0df5E27",
+    router: "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4", routerKind: 1,
+    positions: "0x27F971cb582BF9E50F397e4d29a5C7A34f11faA2",
+    wrapped: "0x4200000000000000000000000000000000000006",
+    governor: ZERO, govToken: ZERO
+  },
+  11155111: {
+    name: "Ethereum Sepolia",
+    factory: "0x0227628f3F023bb0B980b67D528571c95c6DaC1c",
+    quoter: "0xEd1f6473345F45b75F8179591dd5bA1888cf2FB3",
+    router: "0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E", routerKind: 1,
+    positions: "0x1238536071E1c677A632429e3655c799b22cDA52",
+    wrapped: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
+    governor: ZERO, govToken: ZERO
+  }
+};
+
+/** A chain with no verified deployment: every read degrades to "no venue". */
+export const NO_VENUE = {
+  name: "nowhere in particular",
+  factory: ZERO, quoter: ZERO, router: ZERO, routerKind: 0,
+  positions: ZERO, wrapped: ZERO, governor: ZERO, govToken: ZERO
+};
+
 export const REQUEST = sel("request(string[],(string,string)[])");
 
 export const encRequest = (resource) => {
@@ -71,7 +132,8 @@ export const getter = (c, premises) => async (path) =>
  * deploying a new router and pointing a name at it, which is the property
  * that keeps the routes serving the artwork off the mutable path.
  */
-export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existingParley }) {
+export async function deploySite(c, A,
+    { hub, pool, lease, sigil, parley: existingParley, uniswap = NO_VENUE }) {
   const chrome = await c.deploy(A("src/Chrome.sol", "Chrome").bytecode, "", "Chrome");
 
   /*  Parley is the protocol, not a page: the rooms, the back-links that
@@ -87,6 +149,26 @@ export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existi
   const foundry = await c.deploy(
     A("src/Foundry.sol", "Foundry").bytecode, encodeAddressArg(hub), "Foundry");
 
+  /*  Venue takes a `Wiring` struct — a static tuple, so it encodes flat in
+      declaration order with no offset word. Getting that wrong would put
+      the quoter where the router goes.                                   */
+  const venue = await c.deploy(
+    A("src/Venue.sol", "Venue").bytecode,
+    encodeAddressArg(uniswap.factory) +
+    encodeAddressArg(uniswap.quoter) +
+    encodeAddressArg(uniswap.router) +
+    BigInt(uniswap.routerKind).toString(16).padStart(64, "0") +
+    encodeAddressArg(uniswap.positions) +
+    encodeAddressArg(uniswap.wrapped) +
+    encodeAddressArg(uniswap.governor) +
+    encodeAddressArg(uniswap.govToken),
+    "Venue");
+
+  const deskU = await c.deploy(
+    A("src/DeskUni.sol", "DeskUni").bytecode,
+    encodeAddressArg(venue) + encodeAddressArg(pool), "DeskUni");
+  const deskT = await c.deploy(A("src/DeskTrade.sol", "DeskTrade").bytecode, "", "DeskTrade");
+
   /*  Desk holds the application: the config block a page emits and the
       client that reads it. It knows the hub, the pool and the lease because
       the config is data about all three.                                 */
@@ -100,6 +182,12 @@ export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existi
   const deskTalk = await c.deploy(
     A("src/DeskTalk.sol", "DeskTalk").bytecode,
     encodeAddressArg(parley) + encodeAddressArg(hub), "DeskTalk");
+
+  const pSwap = await c.deploy(
+    A("src/PageSwap.sol", "PageSwap").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(pool) + encodeAddressArg(desk) +
+    encodeAddressArg(deskU) + encodeAddressArg(deskT) + encodeAddressArg(venue),
+    "PageSwap");
 
   const pToken = await c.deploy(
     A("src/PageToken.sol", "PageToken").bytecode,
@@ -124,7 +212,7 @@ export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existi
   const pManifest = await c.deploy(
     A("src/PageManifest.sol", "PageManifest").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
-    encodeAddressArg(parley) + encodeAddressArg(foundry),
+    encodeAddressArg(parley) + encodeAddressArg(foundry) + encodeAddressArg(venue),
     "PageManifest");
 
   const deskTerm = await c.deploy(
@@ -147,10 +235,6 @@ export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existi
     A("src/PageMint.sol", "PageMint").bytecode,
     encodeAddressArg(chrome) + encodeAddressArg(foundry), "PageMint");
 
-  const pCharts = await c.deploy(
-    A("src/PageCharts.sol", "PageCharts").bytecode,
-    encodeAddressArg(chrome), "PageCharts");
-
   const pDoor = await c.deploy(
     A("src/PageDoor.sol", "PageDoor").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(desk) +
@@ -172,12 +256,12 @@ export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existi
     encodeAddressArg(pToken) + encodeAddressArg(pMarket) + encodeAddressArg(pPool) +
     encodeAddressArg(pServices) + encodeAddressArg(pManifest) +
     encodeAddressArg(pTalk) + encodeAddressArg(pRooms) +
-    encodeAddressArg(pTerminal) + encodeAddressArg(pGallery) + encodeAddressArg(pMint) + encodeAddressArg(pCharts),
+    encodeAddressArg(pTerminal) + encodeAddressArg(pSwap) + encodeAddressArg(pGallery) + encodeAddressArg(pMint),
     "Premises");
 
   return {
-    chrome, parley, foundry, desk, deskTalk, deskTerm,
+    chrome, parley, foundry, venue, deskU, deskT, pSwap, desk, deskTalk, deskTerm,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
-    pTerminal, pGallery, pMint, pCharts, premises
+    pTerminal, pGallery, pMint, premises
   };
 }

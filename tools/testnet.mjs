@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import { compile, artifact } from "./compile.mjs";
 import { enc, sel, decUint, decAddr, decBool, decString, encodeAddressArg } from "./evm.mjs";
 import { RpcChain, DEV_KEYS } from "./rpc.mjs";
-import { deploySite, getter } from "./site.mjs";
+import { deploySite, getter, UNISWAP } from "./site.mjs";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -124,7 +124,9 @@ note(`Ipseity ${nft}`);
 
 /*──────────────── the site ────────────────*/
 head("the site");
-const site = await deploySite(c, A, { hub: nft, pool, lease, sigil });
+const uni = UNISWAP[chainId];
+const site = await deploySite(c, A,
+  { hub: nft, pool, lease, sigil, ...(uni ? { uniswap: uni } : {}) });
 ok("thirteen contracts deployed", (await c.codeSize(site.premises)) > 0);
 note(`Premises ${site.premises}`);
 note(`Parley   ${site.parley}`);

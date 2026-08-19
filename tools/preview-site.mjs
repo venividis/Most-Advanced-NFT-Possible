@@ -128,7 +128,7 @@ const pages = [
   [["terminal"], "terminal.html", "every function, one line at a time"],
   [["gallery"], "gallery.html", "the collection, wearing its stills"],
   [["coins"], "coins.html", "the foundry's ledger"],
-  [["charts"], "charts.html", "the one tab that leaves the chain"],
+  [["swap"], "swap.html", "any pair, on the venue with the liquidity"],
   [["chat"], "chat.html", "the commons"],
   [["rooms"], "rooms.html", "the groups"],
   [["room", "1"], "room-1.html", "one group"],
@@ -152,7 +152,7 @@ for (const [route, file, what] of pages) {
       .replace(/href="\/gallery\/(\d+)"/g, 'href="gallery.html"')
       .replace(/href="\/gallery"/g, 'href="gallery.html"')
       .replace(/href="\/coins"/g, 'href="coins.html"')
-      .replace(/href="\/charts"/g, 'href="charts.html"')
+      .replace(/href="\/swap"/g, 'href="swap.html"')
       .replace(/href="\/chat"/g, 'href="chat.html"')
       .replace(/href="\/rooms"/g, 'href="rooms.html"')
       .replace(/href="\/room\/(\d+)"/g, 'href="room-$1.html"')

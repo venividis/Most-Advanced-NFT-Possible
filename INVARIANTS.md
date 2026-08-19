@@ -544,11 +544,15 @@ upgrade. The guarantee is the absence of the functions, which the compiled
 ABI states machine-checkably.
 → `src/Foundry.sol`
 
-**98. The one page that leaves the chain says so, and only goes one place.**
-`/charts` names GeckoTerminal as a third party out loud, builds its frame
-only on demand, and refuses any URL off that origin — an iframe src a
-visitor chooses is otherwise an open redirect with a chart's reputation.
-→ `tools/verify-site.mjs` · *"anything off that origin is refused"*
+**98. The router's calldata shape travels with its address.**
+Two Uniswap routers share the name `exactInputSingle`; their param structs
+differ by exactly one word, and sending one shape to the other does not
+revert — it shifts the recipient and every amount. So the venue stores a
+kind beside the router address, the client builds seven or eight words from
+the kind, and the drive sends the wrong shape on purpose and requires it to
+arrive mangled — a mock that accepted it unchanged would make every
+field-by-field check above it theatre.
+→ `tools/verify-site.mjs` · *"the same page wired to the other router"*
 
 **99. The signing wallet is chosen, never raced.**
 EIP-6963 announcers are collected, not taken first-come; the signing
