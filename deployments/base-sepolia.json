@@ -12,18 +12,34 @@
   "pool": "0xfc482a4c4f77a5d37b7dcb97f9678a903b76987f",
   "lease": "0x746530b7ef2b57ecb50713f062fee33bfb63d97f",
   "parley": "0xe08ff7cf056b2a3a067fa1b00476f663b9bcbfcb",
-  "chrome": "0xc4956502df015d470174b686251719c56c1e3399",
-  "desk": "0x0338d1e3660d244e92ed8e4c01172198ea7be10a",
-  "deskTalk": "0x21f6e43618c736b546a718cce54e842f34d5464e",
-  "premises": "0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824"
+  "chrome": "0x702891e50eecb59a0be5785d9536a4a3162a340e",
+  "desk": "0x424654b6c033b8f11f8f0a55c9c2fa5fdae88d00",
+  "deskTalk": "0x8e388c41e9a45994aa3aec200afb02b05d8b3276",
+  "premises": "0x023b9d8834902ad3bf35b690db6e654d26c26463",
+  "agora": "0x8daba00e3894bd05ecd7c3e9c0a69bbd0a584b6e",
+  "foundry": "0xb56f4dcaffb3845ad3dccd0ed4200e81ffddaf0d",
+  "deskTerm": "0xd11efdd0f9a08dd789ae38a49ee4a920a23deeb4",
+  "pDoor": "0x850a922a30bdee486e193661937dc41cb17a5b4b",
+  "pToken": "0x636493a0f13cc3e68994d41a15c7635cc8a62b2b",
+  "pMarket": "0x6d771841bd684bf824e2a17d6d2415da37e2f651",
+  "pPool": "0x42e956f393b834e9e3211185f6c2a68fd5334644",
+  "pServices": "0x5e30badd93c97bedd54cf2e41ae284559eff5b6e",
+  "pManifest": "0x4115c030b1b533c8e1ef1a37ed2705f182a6cadc",
+  "pTalk": "0xbc7064987c829280d1769671958c61575fce60d1",
+  "pRooms": "0x9e3959397a501e66f15e4c4b8af75043d26f5921",
+  "pTerminal": "0x6c4ff2269b4dc60e355f57f6bdc74757cf4b1c72",
+  "pAgora": "0x282e8ba80a76610fe6545935a9b5b407fa0eb1a6",
+  "pGallery": "0x354f96bc6d8da7be4d6e886b358f5cb42f20550d",
+  "pMint": "0xcd95cd919a9c479e05bcec71c94ea8565f82442d",
+  "pCharts": "0xb114a3d414b51ebccebf57791d3c3ada4c658b83"
  },
  "holders": {
   "1": "0x5f1191a432ea9d3f36eba62c0ca797bf0a754337",
   "2": "0x5f1191a432ea9d3f36eba62c0ca797bf0a754337"
  },
  "urls": {
-  "door": "web3://0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824:84532/",
-  "chat": "web3://0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824:84532/chat",
-  "instrument": "web3://0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824:84532/token/1/live"
+  "door": "web3://0x023b9d8834902ad3bf35b690db6e654d26c26463:84532/",
+  "terminal": "web3://0x023b9d8834902ad3bf35b690db6e654d26c26463:84532/terminal",
+  "chat": "web3://0x023b9d8834902ad3bf35b690db6e654d26c26463:84532/chat"
  }
 }

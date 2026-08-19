@@ -66,13 +66,19 @@ const body = (req) => new Promise((resolve) => {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "POST" && req.url === "/__rpc") {
+      /*  Forwarded through the same client the pages use, because that one
+          knows about proxies and this environment only has one road out. A
+          bare fetch here worked on localhost and died in production, which
+          is the exact bug shape this repository keeps meeting.          */
       const payload = JSON.parse(await body(req));
-      const out = await fetch(record.rpc, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
       res.writeHead(200, { "Content-Type": "application/json" });
-      return res.end(await out.text());
+      try {
+        const result = await c.rpc(payload.method, payload.params || []);
+        return res.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id ?? 1, result }));
+      } catch (e) {
+        return res.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id ?? 1,
+          error: { code: -32000, message: String(e && e.message || e) } }));
+      }
     }
 
     if (req.method === "POST" && req.url === "/__wallet") {

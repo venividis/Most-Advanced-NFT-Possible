@@ -64,3 +64,22 @@ wrongly.
 
 Selected transactions in `dist/exercise-log.json` (all 101 hashes there);
 tokens #1–#24 exist, #20 is the fully-exercised one, #23 its kernel clone.
+
+### The site, rebuilt — 2026-08-19
+
+The pages were replaced (wallet picker; eight tabs: door · terminal · social ·
+agora · market · coins · charts · json) by `tools/redeploy-site.mjs`, which
+deploys new pages and a new Premises and **keeps the Parley** — every message
+ever sent is a log that contract emitted, and a new Parley would not migrate a
+conversation, it would end one. The collection, pool, lease and every token are
+untouched: same addresses, same holders, same history.
+
+```
+Base Sepolia    Premises 0x023b9d8834902ad3bf35b690db6e654d26c26463   (live, all tabs 200)
+                Parley   0x959922be3caee4b8cd9a407cc3ac1c251c2007b1   (unchanged)
+Eth Sepolia     pending — the redeploy ran the deployer dry one contract
+                short; it resumes when the deployer is topped up
+```
+
+The old Base Sepolia Premises (`0x646b…4824`) still serves the old pages
+forever — an immutable router cannot be un-deployed, only pointed away from.
