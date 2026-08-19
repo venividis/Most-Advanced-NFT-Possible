@@ -54,8 +54,16 @@ fs.writeFileSync(recPath, JSON.stringify(rec, null, 1));
 fs.writeFileSync(path.join(ROOT, "dist/testnet.json"), JSON.stringify(rec, null, 1));
 
 const GET = getter(c, site.premises);
+/*  A load-balanced public RPC answers from replicas, and a replica that has
+    not seen the deploy yet answers `0x` for a contract that exists. That is
+    lag, not absence — so a failed probe is retried before it is believed. */
 for (const p of [[], ["terminal"], ["swap"], ["launch"], ["lock"], ["chat"], ["gallery"]]) {
-  const r = await GET(p);
+  let r = null, err = null;
+  for (let t = 0; t < 6 && (!r || r.status !== 200); t++) {
+    if (t) await new Promise((res) => setTimeout(res, 4000));
+    try { r = await GET(p); err = null; } catch (e) { err = e; }
+  }
+  if (err) { console.log(`  FAILED /${p.join("/")} after retries: ${err.message}`); process.exit(1); }
   console.log(`  ${r.status} /${p.join("/")}  ${r.body.length}B`);
   if (r.status !== 200) process.exit(1);
 }

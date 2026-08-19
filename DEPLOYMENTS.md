@@ -123,3 +123,34 @@ An earlier entry on this page recorded the Base Sepolia Parley as
 `0x9599…07b1`; that address holds no code on Base Sepolia and never did — it
 was a local-chain address copied into prose. The deployment records were
 always right, and they are the ones the redeploys read.
+
+### The launchpad and the vault — 2026-08-19
+
+The coin pourer is withdrawn and three surfaces replace it, all live in the
+same redeploy: `/launch` (a v4 launchpad — fixed-supply no-owner token
+signed by a collection token, hook address mined by the visitor's own node
+under `eth_call`, pool initialized with six flat words at the chain's real
+PoolManager, sliders for supply, fee, spacing, and a liquidity lock that
+runs to ten years), `/hook/<address>` (a hook's powers read off its address
+alone, canonicalized with 301s), and `/lock` (the vault: any ERC-20, a
+ten-year bar, extend-only, no owner, no rescue path). The whole pipeline
+was green before the deploy — `verify-site` 392/0 with the launch driven
+field-by-field into a recording PoolManager and the vault through all five
+refusals by error selector.
+
+```
+Base Sepolia    Premises 0xb0e9e0d5a80b92a812ca682fa7e908a365a70db1   (live, 13 routes, all 200)
+                Kiln     0x353511322c9f4f17e2d37df4e32348509f594d03   (v4 PoolManager 0x05E7…3408, live-probed)
+                Locker   0x8886088382d933b05a18d45efa04339cf40f2632
+                Venue    (Base Sepolia's own Uniswap v3, routerKind 1)
+                Parley   0xe08ff7cf056b2a3a067fa1b00476f663b9bcbfcb   (kept — same conversation)
+                https://0xb0e9e0d5a80b92a812ca682fa7e908a365a70db1.basesep.w3link.io/
+Eth Sepolia     still pending the top-up (~0.06 ETH to the deployer);
+                the watcher deploys this same shape the moment it lands
+```
+
+The redeploy probe loop also learned that a load-balanced RPC's replica
+answering `0x` for a fresh contract is lag, not absence — probes now retry
+before they believe a failure. Two prior Premises on this chain
+(`0x023b…6463`, `0x9d01…67b9`) still serve their older pages forever; an
+immutable router cannot be un-deployed, only pointed away from.
