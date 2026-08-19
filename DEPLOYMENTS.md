@@ -76,7 +76,7 @@ untouched: same addresses, same holders, same history.
 
 ```
 Base Sepolia    Premises 0x023b9d8834902ad3bf35b690db6e654d26c26463   (live, all tabs 200)
-                Parley   0x959922be3caee4b8cd9a407cc3ac1c251c2007b1   (unchanged)
+                Parley   0xe08ff7cf056b2a3a067fa1b00476f663b9bcbfcb   (unchanged)
 Eth Sepolia     pending — the redeploy ran the deployer dry one contract
                 short; it resumes when the deployer is topped up
 ```
@@ -92,3 +92,34 @@ with them. The Base Sepolia site that briefly carried the tab is superseded by
 the next redeploy. Rooms remain the place the tokens organise; a decision the
 holders want to bind can always come back as a contract when there is
 something for it to bind.
+
+### Charts withdrawn, the swap card returns — 2026-08-19
+
+`/charts` — the one tab that left the chain — is deleted outright, and `/swap`
+comes back from this repository's history as a single `exactInputSingle` card
+against the chain's own Uniswap v3: no pools page, no positions client, no
+governance reader, no v4 wiring. The card checks the factory for a pool at
+every fee tier for whatever address is pasted into it, so there is no token
+list to be wrong about. One wiring table in `tools/site.mjs` carries the four
+per-chain address sets (probed live against each chain's deployments on this
+date; all four route through `SwapRouter02`, seven words, no deadline), and
+the door grew an EIP-3326/3085 chain switcher. `npm run check` green
+throughout; `verify-site` 324/0 with the card driven field-by-field on both
+router calldata shapes.
+
+```
+Base Sepolia    Premises 0x9d012f98bf4fdf6937c892b71b882631547467b9   (live, all tabs 200)
+                Venue    0x81605ab877cedbc497a9b45049a79a6bb121fd42   (factory/quoter/router = Base Sepolia's own Uniswap v3)
+                Parley   0xe08ff7cf056b2a3a067fa1b00476f663b9bcbfcb   (kept — same conversation)
+                Foundry  0xe32eeb14bd0ba789d1edd8ae1d9c184d9ececf76   (fresh — the redeploy resets the /coins ledger;
+                                                                       coins poured before it live on as contracts,
+                                                                       unlisted)
+                https://0x9d012f98bf4fdf6937c892b71b882631547467b9.basesep.w3link.io/
+Eth Sepolia     still pending the top-up; the same final shape (with Eth
+                Sepolia's own v3 wiring) deploys the moment it lands
+```
+
+An earlier entry on this page recorded the Base Sepolia Parley as
+`0x9599…07b1`; that address holds no code on Base Sepolia and never did — it
+was a local-chain address copied into prose. The deployment records were
+always right, and they are the ones the redeploys read.
