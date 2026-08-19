@@ -869,11 +869,17 @@ const nap = (ms) => new Promise((r) => setTimeout(r, ms));
 const wallet = (actor) => {
   let n = 0;
   const filters = [];
+  /*  One request at a time. The in-process EVM is not a node: two
+      interleaved runCalls corrupt each other's checkpoints and neither
+      returns. A page is entitled to fire overlapping reads — its boot
+      chain and a click chain race in real browsers too — and a real RPC
+      endpoint absorbs that; this queue is the shim's version of a node's
+      front door.                                                        */
+  let q = Promise.resolve();
+  const seq = (f) => { const p = q.then(f, f); q = p.then(() => {}, () => {}); return p; };
   globalThis.window = globalThis;
   globalThis.window.ethereum = {
     request: async ({ method, params }) => {
-      if (globalThis.__RQLOG) console.log("RQ", method,
-        (params && params[0] && String(params[0].data || params[0] || "").slice(0, 10)) || "");
       if (method === "eth_chainId") return "0x1";
       if (method === "eth_requestAccounts" || method === "eth_accounts")
         return [actor.from.toString()];
@@ -887,16 +893,16 @@ const wallet = (actor) => {
         return "0x" + h1.toString("hex") + h2.toString("hex") + "1b";
       }
       if (method === "eth_call")
-        return c.call(params[0].to, params[0].data, actor.from.toString());
+        return seq(() => c.call(params[0].to, params[0].data, actor.from.toString()));
       /*  The conversation is read from logs, so the provider has to answer
           for them. The ledger is the same one the transactions above wrote
           into, filtered the way a node filters.                        */
-      if (method === "eth_getLogs") { filters.push(params[0]); return c.getLogs(params[0]); }
+      if (method === "eth_getLogs") { filters.push(params[0]); return seq(() => c.getLogs(params[0])); }
       if (method === "eth_sendTransaction") {
         n++;
         const t = params[0];
-        await actor.send({ to: t.to, data: t.data,
-                           value: t.value ? BigInt(t.value) : 0n, label: "app" });
+        await seq(() => actor.send({ to: t.to, data: t.data,
+                           value: t.value ? BigInt(t.value) : 0n, label: "app" }));
         return "0x" + "ab".repeat(32);
       }
       throw new Error("unexpected method " + method);
@@ -1111,14 +1117,9 @@ head("driving a direct message, and the room nobody founded");
   const page = await GET(["dm", "2"]);
   mount(page.body);
   wallet(c);
-  console.log("      BC1 mounted");
   runScripts(page.body);
-  console.log("      BC2 scripts ran");
   await nap(80);
-  console.log("      BC3 pressing go");
-  globalThis.__RQLOG = 1;
   await byId.get("go").fire("click");
-  console.log("      BC4 go returned");
   await nap(140);
 
   const key = decUint(await c.read(site.parley, "pairKey(uint256,uint256)",

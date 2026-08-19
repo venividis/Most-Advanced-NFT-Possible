@@ -104,7 +104,7 @@ contract DeskSeal {
         "const say=(m,warn)=>{st.textContent=m;"
         "bar.className=warn?'det only w':'det only'};"
 
-        "const arm=async me=>{console.log('A1',String(me));KEY=null;PL.out(async h=>({k:0,h:h}));btn.hidden=true;"
+        "const arm=async me=>{KEY=null;PL.out(async h=>({k:0,h:h}));btn.hidden=true;"
         "if(me==null){say('connect to seal this room');return}"
         "const theirs=await onChain(OTHER);"
         "const mineOn=await onChain(me);"
@@ -125,6 +125,6 @@ contract DeskSeal {
         "await I.send(P,S.announce+I.W(me)+MY.x+MY.y);"
         "await arm(me)}catch(x){I.say(String(x&&x.message||x),'no')}});"
 
-        "PL.on(me=>{arm(me).then(()=>console.log('A9')).catch(e=>console.log('AX',String(e&&e.message||e)))});"
+        "PL.on(me=>{arm(me).catch(e=>{})});"
         "})();";
 }
