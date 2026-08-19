@@ -33,13 +33,12 @@ contract DeskTerm {
     address public immutable POOL;
     address public immutable LEASE;
     address public immutable PARLEY;
-    address public immutable AGORA;
     address public immutable FOUNDRY;
 
     constructor(address hub, address pool, address lease,
-                address parley, address agora, address foundry) {
+                address parley, address foundry) {
         HUB = hub; POOL = pool; LEASE = lease;
-        PARLEY = parley; AGORA = agora; FOUNDRY = foundry;
+        PARLEY = parley; FOUNDRY = foundry;
     }
 
     /*═══════════════════ the data the terminal runs on ═══════════════════*/
@@ -51,7 +50,6 @@ contract DeskTerm {
             "\",\"pool\":\"", LibNum.hexAddr(POOL),
             "\",\"lease\":\"", LibNum.hexAddr(LEASE),
             "\",\"parley\":\"", LibNum.hexAddr(PARLEY),
-            "\",\"agora\":\"", LibNum.hexAddr(AGORA),
             "\",\"foundry\":\"", LibNum.hexAddr(FOUNDRY),
             "\",\"sel\":{", _sel1(), _sel2(), "}}</script>"
         );
@@ -106,10 +104,6 @@ contract DeskTerm {
             "\",\"join\":\"",   _s("join(uint256,uint256)"),
             "\",\"leave\":\"",  _s("leave(uint256,uint256)"),
             "\",\"gkey\":\"",   _s("groupKey(uint256)"),
-            "\",\"propose\":\"",_s("propose(uint256,string,string,uint32)"),
-            "\",\"vote\":\"",   _s("vote(uint256,uint256,bool)"),
-            "\",\"acount\":\"", _s("count()"),
-            "\",\"aprop\":\"",  _s("proposalAt(uint256)"),
             "\",\"pour\":\"",   _s("pour(uint256,string,string,uint8,uint256)"),
             "\",\"recent\":\"", _s("recent(uint256,uint256)"), "\""
         );
@@ -286,22 +280,6 @@ contract DeskTerm {
         "const id=await need();"
         "await I.send(X.pool,S.mdep+I.W(id)+I.W(BigInt(a[0]))+I.W(BigInt(a[1])));"
         "return'deposited'});"
-
-        "def('propose','propose <days> <title> :: <body>',1,'put it to the agora',async(a)=>{"
-        "const id=await need();const d=a.shift();"
-        "const t=a.join(' ').split('::');"
-        "await I.send(X.agora,ENC(S.propose,[{w:I.W(id)},{d:H(t[0].trim())},"
-        "{d:H((t[1]||'').trim())},{w:I.W(d)}]));return'proposed'});"
-        "def('vote','vote <n> yes|no',1,'one token, one voice, once',async(a)=>{"
-        "const id=await need();"
-        "await I.send(X.agora,S.vote+I.W(id)+I.W(a[0])+I.W(a[1]==='yes'?1:0));"
-        "return'voted '+a[1]+' on #'+a[0]});"
-        "def('agora','agora [n]',0,'the board, or one proposal',async(a)=>{"
-        "if(a[0]!==undefined){const r=await I.call(X.agora,S.aprop+I.W(a[0]));"
-        "return'#'+a[0]+'  by token '+I.word(r,0)+'  yes '+I.word(r,3)+'  no '+I.word(r,4)+"
-        "(I.word(r,5)?'  \\u00b7 open':'  \\u00b7 closed')}"
-        "const n=I.word(await I.call(X.agora,S.acount),0);"
-        "return n+' proposal(s) \\u2014 agora <n> for one, or open /agora'});"
 
         "def('coin','coin <name> <sym> <decimals> <supply>',1,"
         "'pour a fixed-supply coin, all of it to you',async(a)=>{"

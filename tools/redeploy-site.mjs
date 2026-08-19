@@ -49,7 +49,7 @@ fs.writeFileSync(recPath, JSON.stringify(rec, null, 1));
 fs.writeFileSync(path.join(ROOT, "dist/testnet.json"), JSON.stringify(rec, null, 1));
 
 const GET = getter(c, site.premises);
-for (const p of [[], ["terminal"], ["chat"], ["agora"], ["gallery"], ["coins"], ["charts"]]) {
+for (const p of [[], ["terminal"], ["chat"], ["gallery"], ["coins"], ["charts"]]) {
   const r = await GET(p);
   console.log(`  ${r.status} /${p.join("/")}  ${r.body.length}B`);
   if (r.status !== 200) process.exit(1);

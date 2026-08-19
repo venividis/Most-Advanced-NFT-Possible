@@ -204,7 +204,6 @@ const routes = [];
     [["room", "1"], "/room/1", "one group"],
     [["dm", "1"], "/dm/1", "the room two tokens share"],
     [["terminal"], "/terminal", "every function, one line at a time"],
-    [["agora"], "/agora", "proposals and votes"],
     [["gallery"], "/gallery", "the collection, wearing its stills"],
     [["coins"], "/coins", "the foundry's ledger"],
     [["charts"], "/charts", "the one tab that leaves the chain"]

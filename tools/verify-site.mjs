@@ -261,7 +261,6 @@ const routes = [
   [["token", "1", "pool"], "text/html", "/token/1/pool"],
   [["chat"], "text/html", "/chat"],
   [["terminal"], "text/html", "/terminal"],
-  [["agora"], "text/html", "/agora"],
   [["gallery"], "text/html", "/gallery"],
   [["gallery", "0"], "text/html", "/gallery/0"],
   [["coins"], "text/html", "/coins"],
@@ -347,11 +346,11 @@ head("and it describes the collection-wide surface too");
 {
   const m = JSON.parse((await GET(["services.json"])).body);
 
-  ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 12,
+  ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 11,
      JSON.stringify(m.routes || null).slice(0, 120));
   const paths = (m.routes || []).map((r) => r.path);
   for (const p of ["/", "/terminal", "/chat", "/rooms", "/room/<n>", "/dm/<id>",
-                   "/agora", "/gallery", "/coins", "/charts", "/open",
+                   "/gallery", "/coins", "/charts", "/open",
                    "/services.json"]) {
     ok(`  ${p} is discoverable`, paths.includes(p), paths.join(" "));
   }
@@ -557,7 +556,6 @@ const scriptsOf = (body) =>
 for (const [label, body] of [
   ["the door", (await GET([])).body],
   ["the terminal", (await GET(["terminal"])).body],
-  ["the agora", (await GET(["agora"])).body],
   ["the coins", (await GET(["coins"])).body],
   ["the charts", (await GET(["charts"])).body],
   ["the commons", (await GET(["chat"])).body],
@@ -1089,7 +1087,7 @@ head("driving the terminal");
      cmds.every((x) => typeof x.writes === "boolean" && x.usage && x.what));
 
   const help = await globalThis.TERM.run("help");
-  ok("help is the same table, for people", help.includes("mint") && help.includes("propose"));
+  ok("help is the same table, for people", help.includes("mint") && help.includes("coin"));
 
   const supply0 = decUint(await c.read(nft, "totalSupply()"));
   await globalThis.TERM.run("mint");
@@ -1103,16 +1101,6 @@ head("driving the terminal");
   eq("`say` reached the commons", decUint(await c.read(site.parley, "stateOf(uint256)", [0]), 1),
      commons0 + 1n);
 
-  await globalThis.TERM.run("propose 3 Ship the terminal :: One surface for fingers and models.");
-  await nap(30);
-  eq("`propose` reached the agora", decUint(await c.read(site.agora, "count()")), 1n);
-  await globalThis.TERM.run("vote 0 yes");
-  await nap(30);
-  eq("`vote` counted", decUint(await c.read(site.agora, "proposalAt(uint256)", [0]), 3), 1n);
-  ok("and voting twice is refused by the chain, reported by the terminal",
-     String(await globalThis.TERM.run("vote 0 yes")).length > 0 &&
-     decUint(await c.read(site.agora, "proposalAt(uint256)", [0]), 3) === 1n);
-
   await globalThis.TERM.run("coin Terminal Coin? no — one word");
   await globalThis.TERM.run("coin TermCoin TERM 18 1000000000000000000000000");
   await nap(30);
@@ -1124,9 +1112,6 @@ head("driving the terminal");
 
 head("the new tabs render what the terminal did");
 {
-  const ag = await GET(["agora"]);
-  ok("/agora shows the proposal and its tally",
-     ag.body.includes("Ship the terminal") && ag.body.includes("yes <b>1</b>"));
   const co = await GET(["coins"]);
   ok("/coins shows the coin, address first",
      co.body.includes("TERM") && /0x[0-9a-f]{40}/.test(co.body));
@@ -1401,8 +1386,7 @@ for (const [file, name] of [
       here, not that there is one nobody calls.                          */
   ["src/PageDoor.sol", "PageDoor"], ["src/PageTalk.sol", "PageTalk"],
   ["src/PageRooms.sol", "PageRooms"], ["src/DeskTalk.sol", "DeskTalk"],
-  ["src/PageTerminal.sol", "PageTerminal"], ["src/PageAgora.sol", "PageAgora"],
-  ["src/PageGallery.sol", "PageGallery"], ["src/PageMint.sol", "PageMint"],
+  ["src/PageTerminal.sol", "PageTerminal"], ["src/PageGallery.sol", "PageGallery"], ["src/PageMint.sol", "PageMint"],
   ["src/PageCharts.sol", "PageCharts"], ["src/DeskTerm.sol", "DeskTerm"],
   ["src/Desk.sol", "Desk"]
 ]) {

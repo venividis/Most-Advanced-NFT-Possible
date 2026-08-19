@@ -538,12 +538,6 @@ because an offset written while the tail is still growing is a lie.
 → `src/DeskTerm.sol` · `ENC`, exercised by every string-carrying command in
   the drive
 
-**96. A vote is one token, one voice, once, and nothing executes.**
-Cast before the close, refused after it, never changed; the Agora holds no
-treasury and calls nothing. The page and the contract say so in the same
-words.
-→ `src/Agora.sol`, `tools/verify-site.mjs` · *"voting twice is refused"*
-
 **97. A poured coin has no owner because its ABI has none.**
 Fixed supply minted once to the pourer; no mint, no pause, no blacklist, no
 upgrade. The guarantee is the absence of the functions, which the compiled

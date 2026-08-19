@@ -84,8 +84,6 @@ export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existi
   const parley = existingParley ||
     await c.deploy(A("src/Parley.sol", "Parley").bytecode, encodeAddressArg(hub), "Parley");
 
-  const agora = await c.deploy(
-    A("src/Agora.sol", "Agora").bytecode, encodeAddressArg(hub), "Agora");
   const foundry = await c.deploy(
     A("src/Foundry.sol", "Foundry").bytecode, encodeAddressArg(hub), "Foundry");
 
@@ -126,24 +124,19 @@ export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existi
   const pManifest = await c.deploy(
     A("src/PageManifest.sol", "PageManifest").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
-    encodeAddressArg(parley) + encodeAddressArg(agora) + encodeAddressArg(foundry),
+    encodeAddressArg(parley) + encodeAddressArg(foundry),
     "PageManifest");
 
   const deskTerm = await c.deploy(
     A("src/DeskTerm.sol", "DeskTerm").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
-    encodeAddressArg(parley) + encodeAddressArg(agora) + encodeAddressArg(foundry),
+    encodeAddressArg(parley) + encodeAddressArg(foundry),
     "DeskTerm");
 
   const pTerminal = await c.deploy(
     A("src/PageTerminal.sol", "PageTerminal").bytecode,
     encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskTerm),
     "PageTerminal");
-
-  const pAgora = await c.deploy(
-    A("src/PageAgora.sol", "PageAgora").bytecode,
-    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskTalk) +
-    encodeAddressArg(agora), "PageAgora");
 
   const pGallery = await c.deploy(
     A("src/PageGallery.sol", "PageGallery").bytecode,
@@ -179,13 +172,12 @@ export async function deploySite(c, A, { hub, pool, lease, sigil, parley: existi
     encodeAddressArg(pToken) + encodeAddressArg(pMarket) + encodeAddressArg(pPool) +
     encodeAddressArg(pServices) + encodeAddressArg(pManifest) +
     encodeAddressArg(pTalk) + encodeAddressArg(pRooms) +
-    encodeAddressArg(pTerminal) + encodeAddressArg(pAgora) +
-    encodeAddressArg(pGallery) + encodeAddressArg(pMint) + encodeAddressArg(pCharts),
+    encodeAddressArg(pTerminal) + encodeAddressArg(pGallery) + encodeAddressArg(pMint) + encodeAddressArg(pCharts),
     "Premises");
 
   return {
-    chrome, parley, agora, foundry, desk, deskTalk, deskTerm,
+    chrome, parley, foundry, desk, deskTalk, deskTerm,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
-    pTerminal, pAgora, pGallery, pMint, pCharts, premises
+    pTerminal, pGallery, pMint, pCharts, premises
   };
 }

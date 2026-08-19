@@ -126,7 +126,6 @@ const pages = [
   [["token", "1", "sigil.svg"], "token-1-sigil.svg", "the still"],
   [["open"], "open.html", "open markets"],
   [["terminal"], "terminal.html", "every function, one line at a time"],
-  [["agora"], "agora.html", "proposals and votes"],
   [["gallery"], "gallery.html", "the collection, wearing its stills"],
   [["coins"], "coins.html", "the foundry's ledger"],
   [["charts"], "charts.html", "the one tab that leaves the chain"],
@@ -150,7 +149,6 @@ for (const [route, file, what] of pages) {
       .replace(/href="\/"/g, 'href="index.html"')
       .replace(/href="\/open"/g, 'href="open.html"')
       .replace(/href="\/terminal"/g, 'href="terminal.html"')
-      .replace(/href="\/agora"/g, 'href="agora.html"')
       .replace(/href="\/gallery\/(\d+)"/g, 'href="gallery.html"')
       .replace(/href="\/gallery"/g, 'href="gallery.html"')
       .replace(/href="\/coins"/g, 'href="coins.html"')

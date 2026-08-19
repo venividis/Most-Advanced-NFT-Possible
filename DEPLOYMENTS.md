@@ -83,3 +83,12 @@ Eth Sepolia     pending — the redeploy ran the deployer dry one contract
 
 The old Base Sepolia Premises (`0x646b…4824`) still serves the old pages
 forever — an immutable router cannot be un-deployed, only pointed away from.
+
+### Governance withdrawn — 2026-08-19
+
+The agora tab, its page and its contract are removed from the codebase before
+Ethereum Sepolia ever deployed them; the terminal's propose/vote commands went
+with them. The Base Sepolia site that briefly carried the tab is superseded by
+the next redeploy. Rooms remain the place the tokens organise; a decision the
+holders want to bind can always come back as a contract when there is
+something for it to bind.

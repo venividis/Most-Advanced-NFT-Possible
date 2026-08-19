@@ -310,17 +310,14 @@ contract Chrome {
     }
 
     /// @dev The tabs are the site's whole thesis in one row: the door in,
-    ///      the terminal that does everything, the social layer, the agora,
-    ///      the collection, the coins, and the one tab that leaves the
-    ///      chain. `here` codes: 0 door · 20 terminal · 16 social · 21
-    ///      agora · 22 market · 23 coins · 24 charts · 6 json.
+    ///      the terminal that does everything, the social layer, the collection, the coins, and the one tab that leaves the
+    ///      chain. `here` codes: 0 door · 20 terminal · 16 social · 22 market · 23 coins · 24 charts · 6 json.
     function navTop(uint8 here) external pure returns (string memory) {
         return string.concat(
             "<nav>",
             _tab("/", "door", here == 0),
             _tab("/terminal", "terminal", here == 20),
             _tab("/chat", "social", here == 16),
-            _tab("/agora", "agora", here == 21),
             _tab("/gallery", "market", here == 22),
             _tab("/coins", "coins", here == 23),
             _tab("/charts", "charts", here == 24),

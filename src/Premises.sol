@@ -34,7 +34,6 @@ interface IPagePool {
 }
 
 interface IPageTerminal { function terminal() external view returns (string memory); }
-interface IPageAgora    { function agora() external view returns (string memory); }
 interface IPageGallery  { function gallery(uint256 page) external view returns (string memory); }
 interface IPageMint     { function coins() external view returns (string memory); }
 interface IPageCharts   { function charts() external view returns (string memory); }
@@ -90,7 +89,6 @@ interface IPageManifest {
 
       /                          the door: connect, and what you hold opens
       /terminal                  every function, one line at a time
-      /agora                     proposals and votes, one token one voice
       /gallery  /gallery/<p>     the whole collection, wearing its stills
       /coins                     fixed-supply coins, poured by tokens
       /charts                    the one tab that leaves the chain
@@ -137,7 +135,6 @@ contract Premises {
     IPageTalk     public immutable P_TALK;
     IPageRooms    public immutable P_ROOMS;
     IPageTerminal public immutable P_TERMINAL;
-    IPageAgora    public immutable P_AGORA;
     IPageGallery  public immutable P_GALLERY;
     IPageMint     public immutable P_MINT;
     IPageCharts   public immutable P_CHARTS;
@@ -165,7 +162,6 @@ contract Premises {
         IPageTalk pTalk,
         IPageRooms pRooms,
         IPageTerminal pTerminal,
-        IPageAgora pAgora,
         IPageGallery pGallery,
         IPageMint pMint,
         IPageCharts pCharts
@@ -181,7 +177,6 @@ contract Premises {
         P_TALK = pTalk;
         P_ROOMS = pRooms;
         P_TERMINAL = pTerminal;
-        P_AGORA = pAgora;
         P_GALLERY = pGallery;
         P_MINT = pMint;
         P_CHARTS = pCharts;
@@ -270,11 +265,6 @@ contract Premises {
         if (_eq(resource[0], "terminal")) {
             if (n != 1) return _notFound();
             return (200, P_TERMINAL.terminal(), _headers(HTML));
-        }
-
-        if (_eq(resource[0], "agora")) {
-            if (n != 1) return _notFound();
-            return (200, P_AGORA.agora(), _headers(HTML));
         }
 
         if (_eq(resource[0], "gallery")) {
