@@ -113,6 +113,7 @@ contract DeskTerm {
             "\",\"vat\":\"",    _s("lockAt(uint256)"),
             "\",\"vclaim\":\"", _s("claim(uint256)"),
             "\",\"vext\":\"",   _s("extend(uint256,uint64)"),
+            "\",\"vgive\":\"",  _s("give(uint256,address)"),
             "\",\"allow\":\"",  _s("allowance(address,address)"), "\""
         );
     }
@@ -321,6 +322,9 @@ contract DeskTerm {
         "  :' \u00b7 '+Math.ceil((until-now)/86400)+'d left')}return o});"
         "def('redeem','redeem <id>',1,'claim a matured lock',async(a)=>{"
         "await I.send(X.locker,S.vclaim+I.W(BigInt(a[0])));return'claimed'});"
+        "def('lockgive','lockgive <id> <to>',1,"
+        "'hand a lock to another address \u2014 a token\u2019s account, to travel with it',async(a)=>{"
+        "await I.send(X.locker,S.vgive+I.W(BigInt(a[0]))+I.AD(a[1]));return'given'});"
         "def('extend','extend <id> <days>',1,'push a lock further out \u2014 never nearer',async(a)=>{"
         "const until=BigInt(Math.floor(Date.now()/1000)+Number(a[1])*86400);"
         "await I.send(X.locker,S.vext+I.W(BigInt(a[0]))+I.W(until));"

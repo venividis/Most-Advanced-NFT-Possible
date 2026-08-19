@@ -55,6 +55,7 @@ contract Locker {
                  address indexed owner, uint256 amount, uint64 until);
     event Claimed(uint256 indexed id, address indexed token, uint256 amount);
     event Extended(uint256 indexed id, uint64 until);
+    event Given(uint256 indexed id, address indexed from, address indexed to);
 
     error NothingArrived();
     error NoTime();
@@ -64,6 +65,7 @@ contract Locker {
     error AlreadyClaimed();
     error OnlyLonger();
     error TransferFailed();
+    error NobodyThere();
 
     /*═══════════════════ locking ═══════════════════*/
 
@@ -71,6 +73,12 @@ contract Locker {
     ///         what actually arrived, measured, not what was asked for.
     function lock(address token, uint256 amount, uint64 until)
         external returns (uint256 id)
+    {
+        return _lock(token, amount, until);
+    }
+
+    function _lock(address token, uint256 amount, uint64 until)
+        private returns (uint256 id)
     {
         if (until <= block.timestamp) revert NoTime();
         if (until > block.timestamp + MAX_TERM) revert TooLong();
@@ -102,6 +110,26 @@ contract Locker {
     /// @notice Push the unlock further out. Never nearer — a promise can be
     ///         lengthened without breaking faith with anyone, and only
     ///         lengthened.
+    /// @notice A lock is a position, and a position can change hands — most
+    ///         usefully into a token's own 6551 account, so a locked
+    ///         treasury travels with the NFT when the NFT is sold. The date
+    ///         does not move; only the name on the claim does.
+    function give(uint256 id, address to) external {
+        Lock storage l = _locks[id];
+        if (l.owner != msg.sender) revert NotYours();
+        if (l.taken) revert AlreadyClaimed();
+        if (to == address(0)) revert NobodyThere();
+        address from = l.owner;
+        l.owner = to;
+        /*  The per-owner index gains the new owner and keeps the old entry;
+            `locksOf` is a finding aid, not the truth — ownership is the
+            `owner` field, which `claim` checks. A stale index entry shows a
+            lock you no longer own, and the page filters it out by reading
+            the lock itself.                                              */
+        _of[to].push(id);
+        emit Given(id, from, to);
+    }
+
     function extend(uint256 id, uint64 until) external {
         Lock storage l = _locks[id];
         if (l.owner != msg.sender) revert NotYours();
@@ -110,6 +138,23 @@ contract Locker {
         if (until > block.timestamp + MAX_TERM) revert TooLong();
         l.until = until;
         emit Extended(id, until);
+    }
+
+    /// @notice One signature instead of approve-then-lock, where the token
+    ///         supports EIP-2612. The permit is allowed to fail: anyone can
+    ///         front-run a permit signature they saw in the mempool by
+    ///         submitting it to the token first, and a lock that died to
+    ///         that griefing would be a lock nobody could land. If the
+    ///         allowance is there — by this permit or any other means — the
+    ///         lock proceeds.
+    function lockWithPermit(
+        address token, uint256 amount, uint64 until,
+        uint256 deadline, uint8 v, bytes32 r, bytes32 s
+    ) external returns (uint256 id) {
+        token.call(abi.encodeWithSignature(
+            "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)",
+            msg.sender, address(this), amount, deadline, v, r, s));
+        return _lock(token, amount, until);
     }
 
     /*═══════════════════ reading ═══════════════════*/

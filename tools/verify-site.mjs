@@ -60,6 +60,7 @@ const w = (n) => BigInt(n).toString(16).padStart(64, "0");
 const REGISTRY = "0x000000006551c19487814612e58FE06813775758";
 const WAD = 10n ** 18n;
 
+process.on("unhandledRejection", (e) => console.log("  UNHANDLED:", String(e && e.stack || e).slice(0, 300)));
 const refuses = async (name, fn, want) => {
   try { await fn(); ok(name, false, "it went through"); }
   catch (e) { ok(name, !want || String(e.message).includes(want), e.message.slice(0, 120)); }
@@ -871,9 +872,20 @@ const wallet = (actor) => {
   globalThis.window = globalThis;
   globalThis.window.ethereum = {
     request: async ({ method, params }) => {
+      if (globalThis.__RQLOG) console.log("RQ", method,
+        (params && params[0] && String(params[0].data || params[0] || "").slice(0, 10)) || "");
       if (method === "eth_chainId") return "0x1";
       if (method === "eth_requestAccounts" || method === "eth_accounts")
         return [actor.from.toString()];
+      /*  Deterministic per (actor, message) — which is the only property
+          the seal client relies on (RFC 6979 in a real wallet). The bytes
+          are entropy to the page, never verified as a signature.        */
+      if (method === "personal_sign") {
+        const h1 = Buffer.from(keccak256(Buffer.from(
+          actor.from.toString() + String(params[0]), "utf8")));
+        const h2 = Buffer.from(keccak256(h1));
+        return "0x" + h1.toString("hex") + h2.toString("hex") + "1b";
+      }
       if (method === "eth_call")
         return c.call(params[0].to, params[0].data, actor.from.toString());
       /*  The conversation is read from logs, so the provider has to answer
@@ -1099,9 +1111,14 @@ head("driving a direct message, and the room nobody founded");
   const page = await GET(["dm", "2"]);
   mount(page.body);
   wallet(c);
+  console.log("      BC1 mounted");
   runScripts(page.body);
+  console.log("      BC2 scripts ran");
   await nap(80);
+  console.log("      BC3 pressing go");
+  globalThis.__RQLOG = 1;
   await byId.get("go").fire("click");
+  console.log("      BC4 go returned");
   await nap(140);
 
   const key = decUint(await c.read(site.parley, "pairKey(uint256,uint256)",
@@ -1735,6 +1752,255 @@ head("driving the vault");
   eq("the ledger followed it out",
      decUint(await c.read(site.locker, "totalLocked(address)", [weth])), 1_000_000n);
   console.log("      locked, refused early, refused to a stranger, out at term to the wei");
+
+  /*──── a lock is a position, and a position changes hands ────*/
+  /*  The chain was just warped a year past the wall clock, and the page
+      computes its date from the wall — so the bar must reach past the
+      warp for the vault to see a future at all.                        */
+  $("ld").value = "800";
+  await $("ld").fire("input");
+  $("la").value = "3";
+  await $("la").fire("input");
+  await $("lgo").fire("click");                    // approve (fresh amount)
+  await nap(250);
+  await $("lgo").fire("click");                    // lock → id 2
+  await nap(250);
+  eq("a second lock landed", decUint(await c.read(site.locker, "count()")), 3n);
+
+  const giveBtn = $("llist").querySelectorAll("button")
+    .find((b) => b.dataset.act === "give" && b.dataset.id === "2");
+  ok("the open lock offers to be given", !!giveBtn);
+  await giveBtn.fire("click");
+  ok("which reveals the hand-over panel", $("gpanel").hidden === false);
+  $("gto").value = renter.from.toString();
+  await $("ggo").fire("click");
+  await nap(250);
+
+  const l2 = await c.read(site.locker, "lockAt(uint256)", [2]);
+  eq("the vault now answers to the new owner",
+     decAddr(l2, 1).toLowerCase(), renter.from.toString().toLowerCase());
+  await refuses("and no longer to the old one",
+    () => saver.exec(site.locker, "claim(uint256)", [2]), "0x4a636d30");   // NotYours()
+  const u2 = decUint(l2, 3);
+  warp(u2 + 1n);
+  const rBefore = decUint(await c.read(weth, "balanceOf(address)", [renter.from.toString()]));
+  await renter.exec(site.locker, "claim(uint256)", [2]);
+  eq("who claims it at term, to the wei",
+     decUint(await c.read(weth, "balanceOf(address)", [renter.from.toString()])) - rBefore,
+     3n * WAD);
+  await refuses("a claimed lock cannot be given",
+    () => renter.exec(site.locker, "give(uint256,address)",
+      [2, buyer.from.toString()]), "0x646cf558");                          // AlreadyClaimed()
+
+  /*──── the permit path fails soft, exactly as designed ────*/
+
+  /*  This token has no permit. lockWithPermit swallows the failed permit
+      call and proceeds on whatever allowance exists — so with one it
+      locks, and without one it refuses at the transfer, which is the
+      difference between resilient and credulous.                       */
+  await saver.exec(weth, "approve(address,uint256)", [site.locker, WAD]);
+  const nowChain = evm.BLOCK.header.timestamp;
+  await saver.exec(site.locker,
+    "lockWithPermit(address,uint256,uint64,uint256,uint8,bytes32,bytes32)",
+    [weth, WAD, nowChain + 86400n, 0n, 27n, "0x" + "11".repeat(32), "0x" + "22".repeat(32)]);
+  eq("a dead permit does not kill a lock that has its allowance",
+     decUint(await c.read(site.locker, "count()")), 4n);
+  await refuses("and without the allowance the lock refuses at the transfer",
+    () => saver.exec(site.locker,
+      "lockWithPermit(address,uint256,uint64,uint256,uint8,bytes32,bytes32)",
+      [weth, WAD, nowChain + 86400n, 0n, 27n, "0x" + "11".repeat(32), "0x" + "22".repeat(32)]),
+    "0x90b8ec18");   // TransferFailed()
+  console.log("      given away, claimed by its new owner, and the permit path fails soft");
+}
+
+
+/*════════════ the nameplate, actually resolved ════════════
+
+  ENS asks a resolver three questions and believes the answers. So the
+  answers are checked against the chain the way an ENS client would ask
+  them — including the ENSIP-10 wildcard path with a DNS-encoded name,
+  because a namehash computed one byte off is a name that resolves for
+  nobody and reverts for no one.
+*/
+head("the nameplate answers for the collection");
+{
+  /*  The site's own nameplate deployed with no registry: binding refuses
+      and says why, which is what an L2 without ENS should hear.        */
+  await refuses("with no registry here, binding refuses honestly",
+    () => c.exec(site.nameplate, "bind(bytes32,uint256)", ["0x" + "ab".repeat(32), 1]),
+    "0x88f0c90d");   // NoRegistryHere()
+
+  /*  And one wired to a registry, for the full conversation. */
+  const mockEns = await c.deploy(A("test/mocks/MockENS.sol", "MockENS").bytecode, "", "MockENS");
+  const plate = await c.deploy(A("src/Nameplate.sol", "Nameplate").bytecode,
+    encodeAddressArg(mockEns) + encodeAddressArg(nft) + encodeAddressArg(site.premises),
+    "Nameplate2");
+
+  const label = (t) => "0x" + Buffer.from(keccak256(Buffer.from(t, "utf8"))).toString("hex");
+  const nhash = (parts) => parts.reduceRight(
+    (node, p) => "0x" + Buffer.from(keccak256(Buffer.from(
+      node.slice(2) + label(p).slice(2), "hex"))).toString("hex"),
+    "0x" + "00".repeat(32));
+  const dns = (nm) => "0x" + nm.split(".").map(
+    (l) => l.length.toString(16).padStart(2, "0") +
+           Buffer.from(l, "utf8").toString("hex")).join("") + "00";
+
+  const myNode = nhash(["mine", "eth"]);
+  await refuses("a name you do not own cannot be bound",
+    () => renter.exec(plate, "bind(bytes32,uint256)", [myNode, 1]), "0x5b209b83");   // NotTheNameOwner()
+  await c.exec(mockEns, "setOwner(bytes32,address)", [myNode, renter.from.toString()]);
+  await refuses("owning the name is not enough without the token",
+    () => renter.exec(plate, "bind(bytes32,uint256)", [myNode, 1]), "0xdb970f63");   // NotTheTokenHolder()
+
+  await c.exec(mockEns, "setOwner(bytes32,address)", [myNode, c.from.toString()]);
+  await c.exec(plate, "bind(bytes32,uint256)", [myNode, 1]);
+  eq("bound, the name answers with the token's own account",
+     decAddr(await c.read(plate, "addr(bytes32)", [myNode])).toLowerCase(),
+     decAddr(await c.read(nft, "account(uint256)", [1])).toLowerCase());
+
+  const cc = decString(await c.read(plate, "text(bytes32,string)", [myNode, "contentcontract"]));
+  eq("text(contentcontract) is the ERC-6821 record, chain-scoped, to this site",
+     cc, "eip155:1:" + site.premises.toLowerCase());
+  const av = decString(await c.read(plate, "text(bytes32,string)", [myNode, "avatar"]));
+  ok("and the avatar is the token itself, as ENS apps draw one",
+     av === "eip155:1/erc721:" + nft.toLowerCase() + "/1", av);
+
+  /*──── the wildcard: every token has a name the moment it exists ────*/
+  const parent = nhash(["ipseity", "eth"]);
+  await refuses("the parent slot needs the parent's owner",
+    () => renter.exec(plate, "claimParent(bytes32)", [parent]), "0x5b209b83");   // NotTheNameOwner()
+  await c.exec(mockEns, "setOwner(bytes32,address)", [parent, c.from.toString()]);
+  await c.exec(plate, "claimParent(bytes32)", [parent]);
+  await refuses("and is written once",
+    () => c.exec(plate, "claimParent(bytes32)", [parent]), "0x368c18e3");   // ParentAlreadyClaimed()
+
+  const sub = dns("2.ipseity.eth");
+  eq("2.ipseity.eth means token 2, with no registration at all",
+     decUint(await c.read(plate, "tokenForName(bytes)", [sub])), 2n);
+  const addrCall = evm.sel("addr(bytes32)") + "00".repeat(32);
+  const res = await c.read(plate, "resolve(bytes,bytes)", [sub, addrCall]);
+  /* resolve() returns abi-encoded bytes; the answer sits one layer in */
+  const inner = "0x" + String(res).slice(2 + 128);
+  eq("and ENSIP-10 resolve hands back its account",
+     ("0x" + inner.slice(26, 66)).toLowerCase(),
+     decAddr(await c.read(nft, "account(uint256)", [2])).toLowerCase());
+  eq("a token that does not exist resolves to nobody",
+     decUint(await c.read(plate, "tokenForName(bytes)", [dns("999999.ipseity.eth")])), 0n);
+  console.log("      bound, wildcarded, and the ERC-6821 record points a name at this site");
+}
+
+/*════════════ the seal, actually used ════════════
+
+  Parley has carried the kind byte and the per-token point since it was
+  written; this drives the half a browser does. Two tokens, two wallets:
+  each derives its key from a signature, publishes the point, and what
+  crosses the chain after that is ciphertext — asserted by reading it
+  back as a stranger and finding bytes, then as the other end and
+  finding words.
+*/
+head("two tokens whisper through a sealed room");
+{
+  await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+  const tokA = decUint(await c.read(nft, "totalSupply()"));
+  await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+  const tokB = decUint(await c.read(nft, "totalSupply()"));
+  await c.exec(nft, "transferFrom(address,address,uint256)",
+    [c.from.toString(), buyer.from.toString(), tokB]);
+
+  /*──── side A publishes ────*/
+  let page = await GET(["dm", String(tokB)]);
+  mount(page.body);
+  wallet(c);
+  runScripts(page.body);
+  await nap(200);
+  const $ = (i) => byId.get(i);
+  ok("the DM page grew a seal bar", !!$("sealbar"));
+  {
+    const sel = $("as");
+    sel.value = String(tokA);
+    await sel.fire("change");
+    await nap(300);
+    ok("it says the key is missing and offers to publish",
+       $("sealpub").hidden === false, $("sealst").textContent);
+    await $("sealpub").fire("click");
+    await nap(400);
+    const k = await c.read(site.parley, "keyOf(uint256)", [tokA]);
+    ok("one press derived from a signature and published the point",
+       decUint(k, 0) > 0n && decUint(k, 1) > 0n);
+  }
+
+  /*──── side B publishes ────*/
+  page = await GET(["dm", String(tokA)]);
+  mount(page.body);
+  wallet(buyer);
+  runScripts(page.body);
+  await nap(200);
+  {
+    const sel = byId.get("as");
+    sel.value = String(tokB);
+    await sel.fire("change");
+    await nap(300);
+    await byId.get("sealpub").fire("click");
+    await nap(400);
+    ok("the other side published too",
+       decUint(await c.read(site.parley, "keyOf(uint256)", [tokB]), 0) > 0n);
+  }
+
+  /*──── A seals a message ────*/
+  page = await GET(["dm", String(tokB)]);
+  mount(page.body);
+  wallet(c);
+  runScripts(page.body);
+  await nap(200);
+  {
+    const sel = byId.get("as");
+    sel.value = String(tokA);
+    await sel.fire("change");
+    await nap(500);
+    ok("with both points on chain, the room arms itself",
+       /^sealed/.test(byId.get("sealst").textContent), byId.get("sealst").textContent);
+    byId.get("say").value = "the quiet part, out loud to exactly one token";
+    await byId.get("send").fire("click");
+    await nap(400);
+  }
+
+  /*──── a stranger sees bytes ────*/
+  page = await GET(["dm", String(tokB)]);
+  mount(page.body);
+  wallet(renter);
+  runScripts(page.body);
+  await nap(600);
+  {
+    const rows = [];
+    const walk = (e) => { if (!e) return; rows.push(e); (e.children || []).forEach(walk); };
+    walk(byId.get("log"));
+    const sealedRows = rows.filter((e) => /sealed/.test(String(e.className || ""))
+      && /sealed \u00b7|sealed ·/.test(String(e.textContent || "")));
+    ok("to a wallet holding neither token, it is bytes and says so",
+       sealedRows.length >= 1, `${sealedRows.length} sealed rows of ${rows.length}`);
+    ok("and the plaintext is nowhere on the page",
+       !rows.some((e) => /quiet part/.test(String(e.textContent || ""))));
+  }
+
+  /*──── B reads words ────*/
+  page = await GET(["dm", String(tokA)]);
+  mount(page.body);
+  wallet(buyer);
+  runScripts(page.body);
+  await nap(300);
+  {
+    const sel = byId.get("as");
+    sel.value = String(tokB);
+    await sel.fire("change");
+    await nap(800);
+    const rows2 = [];
+    const walk2 = (e) => { if (!e) return; rows2.push(e); (e.children || []).forEach(walk2); };
+    walk2(byId.get("log"));
+    ok("the other end derives the same secret and reads it",
+       rows2.some((e) => /quiet part, out loud/.test(String(e.textContent || ""))),
+       byId.get("sealst") ? byId.get("sealst").textContent : "no status");
+  }
+  console.log("      derived from a signature, sealed with WebCrypto, bytes to everyone else");
 }
 
 head("driving the holder's side");
@@ -1987,6 +2253,7 @@ for (const [file, name] of [
   ["src/PageTerminal.sol", "PageTerminal"], ["src/PageGallery.sol", "PageGallery"],
   ["src/PageLaunch.sol", "PageLaunch"], ["src/PageLock.sol", "PageLock"],
   ["src/PageHook.sol", "PageHook"], ["src/DeskLaunch.sol", "DeskLaunch"],
+  ["src/DeskSeal.sol", "DeskSeal"],
   ["src/PageSwap.sol", "PageSwap"], ["src/DeskUni.sol", "DeskUni"],
   ["src/DeskTrade.sol", "DeskTrade"], ["src/Venue.sol", "Venue"],
   ["src/DeskTerm.sol", "DeskTerm"],

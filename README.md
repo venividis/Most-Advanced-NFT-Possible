@@ -422,12 +422,33 @@ any hook's powers off its address — the bits are the mechanism, not a claim
 — and says the unreassuring half out loud: a lock and a trap have the same
 address shape. And `/lock` is the vault: any ERC-20, a slider that runs to
 ten years, no owner, no rescue path, extend-only — the amount recorded is
-the amount that arrived, and the only key is the clock.
+the amount that arrived, and the only key is the clock. A lock is also a
+*position*: `give` hands the claim to any address without moving the date,
+and handing it to a token's own account makes a locked treasury travel with
+the token when the token is sold. Where a token speaks EIP-2612, one
+signature replaces the approve press, and a permit that dies falls back to
+the two-press flow instead of taking the lock down with it.
+
+Three more things came across from a sibling of this project
+(`venividis/Launchpad-nft`, the Tesseract branch), each rebuilt to this
+site's rules rather than copied. The **Nameplate** is an ENS resolver with
+nobody's hands on it: bind a name you own to a token you hold and the name
+answers with the token's account, the sigil as its avatar, and — the record
+Tesseract's resolver never had — ERC-6821's `contentcontract`, so a
+web3:// browser resolves the name straight into this site with no IPFS
+pin and no gateway; claim the wildcard parent once and `7.yourname.eth`
+is token 7's address forever. And the DMs learned to **seal**: Parley has
+carried a kind byte and a per-token P-256 point since it was written, and
+the missing client half now exists — the key is derived from a wallet
+signature (the same key in every browser, nothing to back up), the public
+point is recovered through WebCrypto's own import (no curve arithmetic
+shipped), and what crosses the chain is AES-GCM ciphertext that renders as
+"sealed · N bytes" to every wallet but the two that share the room.
 
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and ten such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and thirteen such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1219,7 +1240,7 @@ test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy the collection, load, seal
 script/Site.s.sol       deploy the parley, the desks, the pages and the router
 
-INVARIANTS.md           one hundred and ten statements that must hold, and the test for each
+INVARIANTS.md           one hundred and thirteen statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 

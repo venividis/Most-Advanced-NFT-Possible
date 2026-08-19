@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {LibNum} from "./lib/LibNum.sol";
 import {IHub, IChrome, IDesk, IParley, ITalkDesk} from "./interfaces/Site.sol";
 
+interface ISealDesk { function core() external pure returns (string memory); }
+
 /*───────────────────────────────────────────────────────────────────────────
   PageTalk — the commons, and one token talking to another
 
@@ -26,12 +28,16 @@ contract PageTalk {
     ITalkDesk    public immutable TALK;
     IParley      public immutable PARLEY;
 
-    constructor(IHub hub, IChrome chrome, IDesk desk, ITalkDesk talk, IParley parley) {
+    ISealDesk public immutable SEAL;
+
+    constructor(IHub hub, IChrome chrome, IDesk desk, ITalkDesk talk,
+                IParley parley, ISealDesk seal) {
         HUB = hub;
         CHROME = chrome;
         DESK = desk;
         TALK = talk;
         PARLEY = parley;
+        SEAL = seal;
     }
 
     /*═══════════════════ /chat ═══════════════════*/
@@ -75,11 +81,13 @@ contract PageTalk {
             TALK.config(0, other, 0),
             _gate(),
             _live(),
+            _sealbar(),
             canSeal ? _sealable(t) : _plain(t),
             "<div id=s></div>",
             CHROME.wallet(),
             DESK.core(),
             TALK.core(),
+            SEAL.core(),
             CHROME.foot(msg.sender, block.chainid)
         );
     }
@@ -101,6 +109,17 @@ contract PageTalk {
             "<div class=only>"
             "<label for=as>speaking as</label>"
             "<select id=as></select>"
+            "</div>";
+    }
+
+    /// @dev Rendered by the contract so it exists with JavaScript off —
+    ///      the client only fills it in. Only the DM page emits it, because
+    ///      only a pair has exactly two ends to seal between.
+    function _sealbar() private pure returns (string memory) {
+        return
+            "<div class=\"det only\" id=sealbar>"
+            "<span id=sealst>checking whether this room can seal\xe2\x80\xa6</span> "
+            "<button id=sealpub hidden>derive &amp; publish my key</button>"
             "</div>";
     }
 

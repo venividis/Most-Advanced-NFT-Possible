@@ -50,7 +50,8 @@ export const UNISWAP = {
     positions: "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
     wrapped: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     governor: ZERO, govToken: ZERO,
-    poolManager: "0x000000000004444c5dc75cB358380D2e3dE08A90"
+    poolManager: "0x000000000004444c5dc75cB358380D2e3dE08A90",
+    ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
   },
   8453: {
     name: "Base",
@@ -80,7 +81,8 @@ export const UNISWAP = {
     positions: "0x1238536071E1c677A632429e3655c799b22cDA52",
     wrapped: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
     governor: ZERO, govToken: ZERO,
-    poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543"
+    poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
+    ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
   }
 };
 
@@ -193,6 +195,8 @@ export async function deploySite(c, A,
   const deskTalk = await c.deploy(
     A("src/DeskTalk.sol", "DeskTalk").bytecode,
     encodeAddressArg(parley) + encodeAddressArg(hub), "DeskTalk");
+  const deskSeal = await c.deploy(
+    A("src/DeskSeal.sol", "DeskSeal").bytecode, "", "DeskSeal");
 
   const pSwap = await c.deploy(
     A("src/PageSwap.sol", "PageSwap").bytecode,
@@ -266,7 +270,8 @@ export async function deploySite(c, A,
   const pTalk = await c.deploy(
     A("src/PageTalk.sol", "PageTalk").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(desk) +
-    encodeAddressArg(deskTalk) + encodeAddressArg(parley), "PageTalk");
+    encodeAddressArg(deskTalk) + encodeAddressArg(parley) +
+    encodeAddressArg(deskSeal), "PageTalk");
 
   const pRooms = await c.deploy(
     A("src/PageRooms.sol", "PageRooms").bytecode,
@@ -283,8 +288,16 @@ export async function deploySite(c, A,
     encodeAddressArg(pLaunch) + encodeAddressArg(pLock) + encodeAddressArg(pHook),
     "Premises");
 
+  /*  The resolver deploys on every chain so the address matches
+      everywhere; where no ENS registry exists, binding refuses and says
+      why. It learns the premises, so it must follow it.                */
+  const nameplate = await c.deploy(
+    A("src/Nameplate.sol", "Nameplate").bytecode,
+    encodeAddressArg(uniswap.ens || ZERO) + encodeAddressArg(hub) +
+    encodeAddressArg(premises), "Nameplate");
+
   return {
-    chrome, parley, kiln, locker, venue, deskU, deskT, deskL, pSwap, desk, deskTalk, deskTerm,
+    chrome, parley, kiln, locker, venue, nameplate, deskU, deskT, deskL, deskSeal, pSwap, desk, deskTalk, deskTerm,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
     pTerminal, pGallery, pLaunch, pLock, pHook, premises
   };

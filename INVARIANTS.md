@@ -589,6 +589,42 @@ holds, and what comes out at term is what actually went in, to the wei.
 → `src/Locker.sol` · `lock`, asserted to the wei in the vault drive
 
 
+**103. A name reaches this site by record, not by favor.**
+The Nameplate answers ENS the way ERC-6821 asks: `text("contentcontract")`
+names the Premises, chain-scoped, so a web3:// browser resolves a bound
+name straight into the chain with no IPFS and no gateway; `addr` is the
+token's own 6551 account; the wildcard parent makes `<id>.parent` every
+token's address the moment it mints. There is no admin: binding re-checks
+the ENS registry on every call, and the parent slot is written once by
+whoever ENS itself says owns the parent.
+→ `tools/verify-site.mjs` · *"the nameplate answers for the collection"*,
+  `src/Nameplate.sol`
+
+**104. A lock is a position; the date is not.**
+`give` hands the claim to anyone — most usefully a token's own account, so
+a locked treasury travels with the token when the token is sold — and
+moves nothing else: not the date, not the amount, not the refusals. The
+per-owner index is a finding aid; ownership is the field `claim` checks.
+And a permit that dies (front-run, unsupported, malformed) does not kill
+the lock that carried it — the lock proceeds on whatever allowance stands,
+because a vault that died to a griefable signature would be a vault nobody
+could reach.
+→ `tools/verify-site.mjs` · *"a lock is a position, and a position changes
+  hands"*, `src/Locker.sol`
+
+**105. What is sealed was never open anywhere but at the two ends.**
+The key is the hash of a wallet signature over a fixed sentence — the same
+key in every browser forever, nothing stored, nothing to lose — and the
+public point is recovered by handing WebCrypto the scalar in a PKCS#8
+envelope with the public half omitted, which is the one way to get curve
+arithmetic without shipping any to audit. Static-static ECDH, AES-256-GCM,
+the kind byte says sealed, and the chain carries bytes it cannot read —
+the promise Parley's envelope made on the day it was written, now kept end
+to end. A derived key that differs from the published one is said out loud
+and sends plaintext rather than pretending.
+→ `tools/verify-site.mjs` · *"two tokens whisper through a sealed room"*,
+  `src/DeskSeal.sol`
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

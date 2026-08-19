@@ -82,6 +82,8 @@ contract DeskTalk {
             "\",\"heads\":\"",   _s("heads(uint256[])"),
             "\",\"rooms\":\"",   _s("roomsOf(uint256)"),
             "\",\"pair\":\"",    _s("pairKey(uint256,uint256)"),
+            "\",\"announce\":\"",_s("announce(uint256,bytes32,bytes32)"),
+            "\",\"keyOf\":\"",   _s("keyOf(uint256)"),
             "\",\"group\":\"",   _s("groupKey(uint256)"),
             "\",\"may\":\"",     _s("mayActAs(uint256,address)"),
             "\",\"bal\":\"",     _s("balanceOf(address)"),
@@ -139,7 +141,7 @@ contract DeskTalk {
         "let ME=null,MINE=[];"
         "const keep=k=>{try{return localStorage.getItem(k)}catch(e){return null}};"
         "const put=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};"
-        "const held=async a=>{const out=[];"
+        "const held=async a=>{console.log('SELS',S.bal,S.at,T.hub);const out=[];"
         "const n=Number(I.word(await I.call(T.hub,S.bal+I.AD(a)),0));"
         "for(let i=0;i<n&&i<64;i++){"
         "const r=await I.tryCall(T.hub,S.at+I.AD(a)+I.W(i));if(r)out.push(I.word(r,0))}"
@@ -184,7 +186,8 @@ contract DeskTalk {
             says what it is, and a sealed body the client cannot open is
             reported as sealed rather than rendered as mojibake. */
         "p.textContent=m.kind===0?TXT(m.body):'\\u2022 sealed \\u00b7 '+(m.body.length>>1)+' bytes';"
-        "if(m.kind!==0)p.className='sealed';"
+        "if(m.kind!==0){p.className='sealed';"
+        "if(window.UNSEAL)window.UNSEAL(m,p)}"
         "row.append(who,a,t,p);return row};"
 
         "let ROOM=null,SEEN=0n,BUSY=false;"
@@ -207,14 +210,20 @@ contract DeskTalk {
         "if(c>SEEN)paint()},9000);"
 
         /*───── saying something ─────*/
+        /*  The body may pass through one transform on its way out — the
+            seal, when the page carries one. The transform returns the kind
+            byte with the bytes, because a sealed body that still said
+            kind 0 would render as mojibake on every other screen.       */
+        "let OUT=async h=>({k:0,h:h});"
         "const send=async(text)=>{"
         "if(ME==null)throw new Error('connect a wallet that holds one of these tokens');"
-        "const h=B2H(text);const n=h.length>>1;"
-        "if(!n)throw new Error('nothing to say');"
+        "const h0=B2H(text);"
+        "if(!h0.length)throw new Error('nothing to say');"
+        "const o=await OUT(h0);const h=o.h;const n=h.length>>1;"
         "if(n>T.max)throw new Error('that is '+n+' bytes and the limit is '+T.max);"
         "const d=T.other!=='0'"
-        "?S.whisper+I.W(ME)+I.W(T.other)+I.W(0)+I.W(128)+ARG(h)"
-        ":S.speak+I.W(ROOM)+I.W(ME)+I.W(0)+I.W(128)+ARG(h);"
+        "?S.whisper+I.W(ME)+I.W(T.other)+I.W(o.k)+I.W(128)+ARG(h)"
+        ":S.speak+I.W(ROOM)+I.W(ME)+I.W(o.k)+I.W(128)+ARG(h);"
         "return I.send(P,d)};"
 
         /*───── the gate ─────*/
@@ -224,12 +233,14 @@ contract DeskTalk {
         "e.textContent=ME==null?'not holding':'#'+ME});"
         "for(const f of LIS){try{f(ME,MINE)}catch(e){}}};"
 
-        "const become=async(id)=>{ME=id==null?null:BigInt(id);"
+        "const become=async(id)=>{console.log('B1',id);ME=id==null?null:BigInt(id);"
         "if(ME!=null)put('ipse.me',ME.toString());show();"
         "if(T.other!=='0'&&ME!=null){"
-        "const r=await I.call(P,S.pair+I.W(ME)+I.W(T.other));ROOM=I.word(r,0)}"
-        "if(ROOM!=null)await paint()};"
+        "console.log('B2');const r=await I.call(P,S.pair+I.W(ME)+I.W(T.other));ROOM=I.word(r,0);console.log('B3')}"
+        "if(ROOM!=null){console.log('B4');await paint();console.log('B5')}};"
 
+        "window.PARL={out:f=>{OUT=f},me:()=>ME,on:on,repaint:()=>paint(),"
+        "P:P,S:S,T:T};"
         "const boot=async()=>{"
         "const sel=$('as');"
         "if(T.other==='0')ROOM=BigInt(T.room);"
@@ -240,17 +251,17 @@ contract DeskTalk {
         "if(sel)sel.addEventListener('change',()=>become(sel.value));"
         "show()};"
 
-        "const sight=async(a)=>{MINE=await held(a);"
+        "const sight=async(a)=>{console.log('S1');MINE=await held(a);console.log('S2',MINE.length);"
         "const sel=$('as');if(sel){sel.textContent='';"
         "for(const t of MINE){const o=document.createElement('option');"
         "o.value=t.toString();o.textContent='#'+t;sel.append(o)}}"
         "if(!MINE.length){ME=null;show();return}"
         "const was=keep('ipse.me');"
         "const want=was&&MINE.some(t=>t.toString()===was)?was:MINE[0].toString();"
-        "if(sel)sel.value=want;await become(want)};"
+        "if(sel)sel.value=want;console.log('S3',want);await become(want);console.log('S4')};"
 
-        "const hello=async()=>{const p=await I.connect();"
-        "const a=await p.request({method:'eth_accounts'});await sight(a[0]);"
+        "const hello=async()=>{console.log('H1');const p=await I.connect();console.log('H2');"
+        "const a=await p.request({method:'eth_accounts'});console.log('H3');await sight(a[0]);console.log('H4');"
         "if(!MINE.length)I.say('that wallet holds none of these tokens \\u2014 "
         "you can read everything and say nothing','no');else I.say('speaking as #'+ME,'ok')};"
 
