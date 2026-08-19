@@ -1965,22 +1965,25 @@ head("two tokens whisper through a sealed room");
     await nap(400);
   }
 
-  /*──── a stranger sees bytes ────*/
-  page = await GET(["dm", String(tokB)]);
-  mount(page.body);
-  wallet(renter);
-  runScripts(page.body);
-  await nap(600);
+  /*──── an eavesdropper reads the chain itself ────*/
+
+  /*  A stranger cannot even open this room through the page — a pair room
+      is derived from BOTH ids and a non-holder has no "me" — so the
+      honest eavesdropper is an indexer with the raw log, which is public
+      to anyone with a node. The bytes are there; the words must not be. */
   {
-    const rows = [];
-    const walk = (e) => { if (!e) return; rows.push(e); (e.children || []).forEach(walk); };
-    walk(byId.get("log"));
-    const sealedRows = rows.filter((e) => /sealed/.test(String(e.className || ""))
-      && /sealed \u00b7|sealed ·/.test(String(e.textContent || "")));
-    ok("to a wallet holding neither token, it is bytes and says so",
-       sealedRows.length >= 1, `${sealedRows.length} sealed rows of ${rows.length}`);
-    ok("and the plaintext is nowhere on the page",
-       !rows.some((e) => /quiet part/.test(String(e.textContent || ""))));
+    const room = decUint(await c.read(site.parley,
+      "pairKey(uint256,uint256)", [tokA, tokB]));
+    const logs = await c.getLogs({ address: site.parley });
+    const inRoom = logs.filter((l) => l.topics && l.topics[1]
+      && BigInt(l.topics[1]) === room);
+    ok("the pair room's log is there for anyone with a node", inRoom.length >= 1,
+       `${inRoom.length} logs in the room`);
+    const data = String(inRoom[inRoom.length - 1].data).replace(/^0x/, "");
+    eq("and the envelope says sealed out loud",
+       Number(BigInt("0x" + data.slice(3 * 64, 4 * 64))), 1);
+    ok("and the words are not in the bytes",
+       !Buffer.from(data, "hex").toString("utf8").includes("quiet part"));
   }
 
   /*──── B reads words ────*/
