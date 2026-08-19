@@ -154,3 +154,55 @@ answering `0x` for a fresh contract is lag, not absence — probes now retry
 before they believe a failure. Two prior Premises on this chain
 (`0x023b…6463`, `0x9d01…67b9`) still serve their older pages forever; an
 immutable router cannot be un-deployed, only pointed away from.
+
+### The Tesseract harvest — 2026-08-19
+
+Three upgrades mined from `venividis/Launchpad-nft` (branch
+`claude/defi-nft-multidimensional-39jijn`, the "Tesseract" build), each
+rebuilt to this collection's rules rather than copied, all live in one
+redeploy. The vault's locks became transferable positions (`give`, most
+usefully into a token's own 6551 account so a locked treasury travels with
+the token) with an EIP-2612 fast path that fails soft. The **Nameplate**
+is an adminless ENS resolver: bind a name to a token, claim a wildcard
+parent once, and the name answers with the token's account, its sigil as
+avatar, and ERC-6821's `contentcontract` — the record that resolves a
+name straight into this site over web3://, which the Tesseract's own
+resolver never carried. And the DMs **seal**: signature-derived P-256
+keys published through Parley's own `announce`, static-static ECDH,
+AES-GCM, all WebCrypto — the client half of a promise Parley's envelope
+made on the day it was written. Suite: verify-site 422/0, full pipeline
+green. Diagnosing the drive for it also taught the test shim's provider
+to serialize requests, after two overlapping page chains deadlocked the
+in-process EVM — a real node's front door absorbs that race.
+
+```
+Base Sepolia    Premises  0x257496d2270e45c36fb232fed3b5f0a87cce3dca   (live, all routes 200 by RPC)
+                Nameplate 0x551fa98b7f08e06b794c334aaacbbd3c39a0c506   (no ENS registry on this chain:
+                                                                        binding refuses honestly; the
+                                                                        contract is here so the address
+                                                                        matches the chains where it works)
+                Locker    0x5101c6edf5cde1215f9f9afd09ce857e5cbcbdc3   (give + lockWithPermit)
+                Kiln      0x4b1b7992e626aac88731d98dc3d0e5c779951245
+                DeskSeal  0x5d88564a78361607ffed9375e9a49800b1577bc1
+                Parley    0xe08ff7cf056b2a3a067fa1b00476f663b9bcbfcb   (kept — and its announce/keyOf
+                                                                        now have their client)
+                https://0x257496d2270e45c36fb232fed3b5f0a87cce3dca.basesep.w3link.io/
+                (w3link's basesep backend is mid-outage as this is written — the
+                 previous premises 400s identically; the chain itself serves 200s
+                 and the URL comes alive when their backend does)
+Eth Sepolia     still pending the top-up; deploys this shape when it lands
+```
+
+Deliberately not taken from the Tesseract, with reasons: the
+MetaForwarder (a relayer is a server, and this site's whole claim is that
+there is none); the DAO (governance was withdrawn here on purpose); the
+bridge intents (moving value between chains is a bridge's job, stated on
+the door); the bonding-curve launch protections (anti-snipe and
+max-wallet need to see the buyer, and on a real Uniswap router the buyer
+is hidden behind the router — the Tesseract could offer them only because
+it owned its own toy AMM); and the iNFT memory slot (this collection's
+sealed kernel already is that idea). One thing it taught that cannot be
+fixed on a deployed testnet hub: `transferFrom(holder, account(id), id)`
+would hand a token to its own 6551 account and freeze it — the Tesseract
+guards this; the mainnet hub should refuse `to == account(id)` at the
+ceremony.
