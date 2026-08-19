@@ -663,8 +663,13 @@ for (const [label, body] of [
     has something to do before anybody clicks a link.                     */
 for (const [label, path] of [["the counter", ["token", "1"]]]) {
   const b = (await GET(path)).body;
-  ok(`${label} ships no client, because it has nothing to sign`,
-     scriptsOf(b).length === 0, `${scriptsOf(b).length} script block(s)`);
+  /*  The lore folder rides on every foot now — it touches paragraphs and
+      nothing else. The claim this test keeps is the one that matters: no
+      script on a read-only page can reach a wallet.                    */
+  const signing = scriptsOf(b).filter((j) =>
+    /ethereum|request\(|IPW|window\.IP\b/.test(j));
+  ok(`${label} ships no signing client, because it has nothing to sign`,
+     signing.length === 0, `${signing.length} wallet-touching block(s)`);
 }
 {
   const b = (await GET([])).body;
@@ -1136,6 +1141,38 @@ head("driving a direct message, and the room nobody founded");
      decUint(await c.read(site.parley, "stateOf(uint256)", [key]), 1), before + 1n);
   const commonsNow = decUint(await c.read(site.parley, "stateOf(uint256)", [0]), 1);
   eq("without touching the commons", commonsNow, commonsWas);
+}
+
+head("the door is the solid itself");
+{
+  const page = await GET([]);
+  ok("the 4-polytope is on the door", page.body.includes("<canvas id=tess")
+     && page.body.includes("class=tess4"));
+  ok("and the terminal speaks from the door itself",
+     page.body.includes("id=tin") && page.body.includes("id=tout"));
+  ok("and the lore folds itself behind stars, script willing",
+     page.body.includes("lore"));
+
+  mount(page.body);
+  globalThis.location = { href: "/" };
+  wallet(c);
+  runScripts(page.body);
+  await nap(120);
+
+  ok("the doors exist as data, not only as pixels",
+     !!globalThis.TESS && globalThis.TESS.doors.length === 8,
+     globalThis.TESS ? globalThis.TESS.doors.join(",") : "no TESS");
+  eq("a node entered is a surface opened", globalThis.TESS.go(1), "/swap");
+  eq("and the page actually went there", globalThis.location.href, "/swap");
+
+  ok("the terminal came up on the door", !!globalThis.TERM);
+  globalThis.location.href = "/";
+  const walked = await globalThis.TERM.run("go lock");
+  ok("`go` walks by word", /\/lock/.test(walked), walked);
+  eq("to the same place the node leads", globalThis.location.href, "/lock");
+  const lost = await globalThis.TERM.run("go nowhere");
+  ok("and a wrong word lists the right ones", /go where/.test(lost), lost);
+  delete globalThis.location;
 }
 
 head("the door hands over what the wallet holds");

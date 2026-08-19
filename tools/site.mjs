@@ -265,7 +265,8 @@ export async function deploySite(c, A,
   const pDoor = await c.deploy(
     A("src/PageDoor.sol", "PageDoor").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(desk) +
-    encodeAddressArg(deskTalk) + encodeAddressArg(parley), "PageDoor");
+    encodeAddressArg(deskTalk) + encodeAddressArg(parley) +
+    encodeAddressArg(deskTerm), "PageDoor");
 
   const pTalk = await c.deploy(
     A("src/PageTalk.sol", "PageTalk").bytecode,

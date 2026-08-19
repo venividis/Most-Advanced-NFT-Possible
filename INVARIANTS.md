@@ -625,6 +625,17 @@ and sends plaintext rather than pretending.
 → `tools/verify-site.mjs` · *"two tokens whisper through a sealed room"*,
   `src/DeskSeal.sol`
 
+**106. Beauty hides nothing it shouldn't.**
+The lore chips fold explanation only — `p.e`, never a warning — and with
+JavaScript off the chip script never runs, so every folded word is simply
+on the page. The 4-polytope on the door is navigation, not decoration: its
+eight door-vertices exist as data (`window.TESS.doors`), the terminal's
+`go` walks the same set by word, and the nav row beneath the solid lists
+them for hands and for readers with no canvas. An agent, a mouse, and a
+screen reader enter through the same eight doors.
+→ `tools/verify-site.mjs` · *"the door is the solid itself"*,
+  `src/PageDoor.sol` · `TESS_JS`, `src/Chrome.sol` · the lore
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

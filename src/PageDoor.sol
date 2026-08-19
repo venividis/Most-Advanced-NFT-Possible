@@ -28,6 +28,11 @@ import {IHub, IChrome, IDesk, IParley, ITalkDesk} from "./interfaces/Site.sol";
   that claimed otherwise would be lying about a chain to the person standing
   on it.
 ───────────────────────────────────────────────────────────────────────────*/
+interface ITermDesk {
+    function config() external view returns (string memory);
+    function core() external pure returns (string memory);
+}
+
 contract PageDoor {
     using LibNum for uint256;
     using Section for uint256;
@@ -37,13 +42,16 @@ contract PageDoor {
     IDesk       public immutable DESK;
     ITalkDesk   public immutable TALK;
     IParley     public immutable PARLEY;
+    ITermDesk   public immutable TERM;
 
-    constructor(IHub hub, IChrome chrome, IDesk desk, ITalkDesk talk, IParley parley) {
+    constructor(IHub hub, IChrome chrome, IDesk desk, ITalkDesk talk,
+                IParley parley, ITermDesk term) {
         HUB = hub;
         CHROME = chrome;
         DESK = desk;
         TALK = talk;
         PARLEY = parley;
+        TERM = term;
     }
 
     function door() external view returns (string memory) {
@@ -56,16 +64,32 @@ contract PageDoor {
             "<h1>IPSEITY</h1>"
             "<p class=e>ipseity, n. &mdash; the property of being oneself; selfhood as "
             "distinct from any of its appearances.</p>"
-            "<p>A four-dimensional solid, and the instrument for turning it, are the same "
+            /*  The solid itself is the first interface: a 4-polytope turned
+                slowly through two of its planes, its inner-cube vertices
+                the eight doors of this site. Hover names one; entering it
+                is a click. The page below remains for hands that prefer a
+                list, and for JavaScript that is switched off.            */
+            "<div class=tess4><canvas id=tess width=560 height=560></canvas>"
+            "<p id=tessl>&nbsp;</p></div>",
+            _tess(),
+            "<p class=e>A four-dimensional solid, and the instrument for turning it, are the same "
             "token. What a holder sees is a three-dimensional section of a 4-polytope: the "
             "solid is never on screen, only the 3-space that currently cuts through it.</p>"
-            "<p>Every token returns its own control surface from <code>tokenURI</code> "
+            "<p class=e>Every token returns its own control surface from <code>tokenURI</code> "
             "&mdash; a WebGL2 engine, a keccak-256, an ABI coder and a wallet client, held "
             "in this chain's state as contract bytecode. Nothing is fetched, including by "
             "this page. This site is the door to it: connect below and whatever you hold "
             "opens.</p>",
             DESK.bare(),
             TALK.config(0, 0, 0),
+            /*  The voice: the same terminal an agent drives, on the door
+                itself. `help` lists every word; `go <door>` walks.       */
+            "<h2>speak</h2>"
+            "<div id=tout class=\"term tdoor\" aria-live=polite></div>"
+            "<input id=tin class=tinput autocomplete=off spellcheck=false "
+            "placeholder=\"help \xc2\xb7 go swap \xc2\xb7 mint \xc2\xb7 say \xe2\x80\xa6\" "
+            "aria-label=\"terminal input\">",
+            TERM.config(),
             _enter(),
             _talk(said),
             _chains(),
@@ -74,6 +98,7 @@ contract PageDoor {
             "<div id=s></div>",
             CHROME.wallet(),
             DESK.core(),
+            TERM.core(),
             TALK.core(),
             TALK.door(),
             CHROME.foot(msg.sender, block.chainid)
@@ -81,6 +106,73 @@ contract PageDoor {
     }
 
     /*═══════════════════ the way in ═══════════════════*/
+
+    /// @dev The tesseract: sixteen vertices of (±1,±1,±1,±1), turned in the
+    ///      xw and yz planes, projected 4→3 by the w-light and 3→2 by the
+    ///      z-light. The eight inner-cube vertices are this site's doors;
+    ///      the geometry is the navigation. `window.TESS` carries the same
+    ///      door list as data, so an agent — or a page with no canvas —
+    ///      walks the identical set.
+    function _tess() private pure returns (string memory) {
+        return string.concat("<script>", TESS_JS, "</script>");
+    }
+
+    string internal constant TESS_JS =
+        "(()=>{"
+        "const D=[['terminal','/terminal'],['swap','/swap'],['launch','/launch'],"
+        "['lock','/lock'],['social','/chat'],['market','/gallery'],"
+        "['archive','/open'],['manifest','/services.json']];"
+        "window.TESS={doors:D.map(d=>d[0]),go:i=>{const d=D[i];"
+        "if(d)location.href=d[1];return d?d[1]:null}};"
+        "const cv=document.getElementById('tess');"
+        "if(!cv||!cv.getContext)return;"
+        "const cx=cv.getContext('2d');if(!cx)return;"
+        /*  vertices: index bit3 is w. The w=-1 cube (indices 0-7) carries
+            the doors, and keeps them whichever cube the turn brings near. */
+        "const V=[];for(let i=0;i<16;i++)"
+        "V.push([i&1?1:-1,i&2?1:-1,i&4?1:-1,i&8?1:-1]);"
+        "const E=[];for(let a=0;a<16;a++)for(let b=a+1;b<16;b++){"
+        "let d=a^b;if(d&&!(d&(d-1)))E.push([a,b])}"
+        "const W=560,C=W/2;let t=0,mx=-1,my=-1,hot=-1;"
+        "const P=new Array(16);"
+        "const lbl=document.getElementById('tessl');"
+        "const frame=()=>{"
+        "t+=.0038;"
+        "const c1=Math.cos(t),s1=Math.sin(t),c2=Math.cos(t*.62),s2=Math.sin(t*.62);"
+        "cx.clearRect(0,0,W,W);"
+        "for(let i=0;i<16;i++){const v=V[i];"
+        "let x=v[0]*c1-v[3]*s1,w=v[0]*s1+v[3]*c1;"
+        "let y=v[1]*c2-v[2]*s2,z=v[1]*s2+v[2]*c2;"
+        "const k4=2.6/(3.2-w);x*=k4;y*=k4;z*=k4;"
+        "const k3=2.1/(3.6-z);"
+        "P[i]=[C+x*k3*C*.62,C+y*k3*C*.62,k3]}"
+        "hot=-1;"
+        "if(mx>=0)for(let i=0;i<8;i++){const p=P[i];"
+        "const dx=p[0]-mx,dy=p[1]-my;if(dx*dx+dy*dy<340){hot=i;break}}"
+        "cx.lineWidth=1;"
+        "for(const e of E){const p=P[e[0]],q=P[e[1]];"
+        "const g=(p[2]+q[2])*.5;"
+        "cx.strokeStyle='rgba(224,193,132,'+(.10+g*.16).toFixed(3)+')';"
+        "cx.beginPath();cx.moveTo(p[0],p[1]);cx.lineTo(q[0],q[1]);cx.stroke()}"
+        "for(let i=0;i<16;i++){const p=P[i];const door=i<8;"
+        "const r=door?(i===hot?7:4.4):2;"
+        "cx.beginPath();cx.arc(p[0],p[1],r,0,6.2832);"
+        "cx.shadowColor='rgba(244,221,166,.9)';cx.shadowBlur=door?(i===hot?26:12):5;"
+        "cx.fillStyle=door?(i===hot?'#fff4d8':'#e8cd8f'):'rgba(224,193,132,.5)';"
+        "cx.fill();cx.shadowBlur=0;"
+        "if(door&&i===hot){cx.font='11px ui-sans-serif,system-ui';"
+        "cx.fillStyle='#f4dda6';cx.textAlign='center';"
+        "cx.fillText(D[i][0].toUpperCase(),p[0],p[1]-14)}}"
+        "if(lbl)lbl.textContent=hot>=0?D[hot][0]:'\u00a0';"
+        "cv.style.cursor=hot>=0?'pointer':'crosshair';"
+        "(window.requestAnimationFrame||(f=>setTimeout(f,40)))(frame)};"
+        "const at=e=>{const b=cv.getBoundingClientRect();"
+        "const k=W/b.width;mx=(e.clientX-b.left)*k;my=(e.clientY-b.top)*k};"
+        "cv.addEventListener('mousemove',at);"
+        "cv.addEventListener('mouseleave',()=>{mx=my=-1});"
+        "cv.addEventListener('click',e=>{at(e);"
+        "if(hot>=0)window.TESS.go(hot)});"
+        "frame()})();";
 
     function _enter() private pure returns (string memory) {
         return
