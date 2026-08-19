@@ -450,7 +450,7 @@ shipped), and what crosses the chain is AES-GCM ciphertext that renders as
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and fourteen such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and fifteen such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1242,7 +1242,7 @@ test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy the collection, load, seal
 script/Site.s.sol       deploy the parley, the desks, the pages and the router
 
-INVARIANTS.md           one hundred and fourteen statements that must hold, and the test for each
+INVARIANTS.md           one hundred and fifteen statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 

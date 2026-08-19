@@ -636,6 +636,19 @@ screen reader enter through the same eight doors.
 → `tools/verify-site.mjs` · *"the door is the solid itself"*,
   `src/PageDoor.sol` · `TESS_JS`, `src/Chrome.sol` · the lore
 
+**107. The instrument is the door, and knows when it can be.**
+The artwork carries a third orbit: eight door-vertices that open the 2-D
+site's surfaces — swap, launch, lock, social, gallery, archive, the site
+itself — and a terminal veil drawn over the field. The ring forms only
+where an origin can answer (`https` or `web3:`), because a marketplace's
+`data:` sandbox has no site behind it and a door painted on a wall is a
+lie; there the artwork simply remains the artwork. The doors ride outside
+the shader's twelve uniforms — labels, wires and the picking ray know
+them; the field does not — so the sealed geometry of the instrument's own
+modules is untouched.
+→ `engine/ipseity.html` · `DOORS`, gated by `DOORED`; seen live on every
+  token the moment the hub was re-pointed
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

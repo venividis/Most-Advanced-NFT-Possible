@@ -2033,12 +2033,18 @@ head("two tokens whisper through a sealed room");
     const sel = byId.get("as");
     sel.value = String(tokB);
     await sel.fire("change");
-    await nap(800);
-    const rows2 = [];
-    const walk2 = (e) => { if (!e) return; rows2.push(e); (e.children || []).forEach(walk2); };
-    walk2(byId.get("log"));
-    ok("the other end derives the same secret and reads it",
-       rows2.some((e) => /quiet part, out loud/.test(String(e.textContent || ""))),
+    /*  Decryption is async per row and lands after the repaint; under a
+        loaded pipeline 800ms was occasionally not enough. Poll for the
+        words rather than trusting one nap.                             */
+    let read = false;
+    for (let t = 0; t < 20 && !read; t++) {
+      await nap(300);
+      const rows2 = [];
+      const walk2 = (e) => { if (!e) return; rows2.push(e); (e.children || []).forEach(walk2); };
+      walk2(byId.get("log"));
+      read = rows2.some((e) => /quiet part, out loud/.test(String(e.textContent || "")));
+    }
+    ok("the other end derives the same secret and reads it", read,
        byId.get("sealst") ? byId.get("sealst").textContent : "no status");
   }
   console.log("      derived from a signature, sealed with WebCrypto, bytes to everyone else");

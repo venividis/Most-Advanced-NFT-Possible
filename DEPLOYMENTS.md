@@ -206,3 +206,35 @@ fixed on a deployed testnet hub: `transferFrom(holder, account(id), id)`
 would hand a token to its own 6551 account and freeze it — the Tesseract
 guards this; the mainnet hub should refuse `to == account(id)` at the
 ceremony.
+
+### The instrument becomes the entrance — 2026-08-19
+
+Two deploys, one turn of the design inside-out. The **engine was rebuilt
+and the hub re-pointed** — possible precisely because the renderer is not
+yet sealed, which is what testnets are for. Every token's instrument now
+carries a third orbit: eight door-vertices (terminal · swap · launch ·
+lock · social · gallery · archive · site) that open the 2-D surfaces, and
+a terminal veil drawn over the field itself, so the NFT is the first
+interface and the site is what its doors open. The ring forms only where
+an origin can answer — over web3:// or any gateway — and never inside a
+marketplace's data: sandbox, where a door would be a painting of one. The
+doors ride outside the shader's twelve node uniforms, so the instrument's
+own sealed geometry is untouched.
+
+And the **2-D site was reborn to deserve it**: void and gold, serif
+ceremony, a slowly turning 4-polytope on the door whose eight inner
+vertices are the same eight doors, the terminal speaking from the door
+with a `go` that walks by word, and every explanatory paragraph folded
+behind a small star — hover reads, click pins, warnings never fold,
+scripts-off shows every word.
+
+```
+Base Sepolia    Premises  0x6e5315360522af0203af7a0f84aac8202c1e8ec7   (the divine site, all routes 200)
+                Engine    0x5f3cc653b86e2d09fde3bd475420f57026ab0398   (frozen; 3 shards, 40,318 B packed)
+                Renderer  0xb41f012b2a6f145099972be7032189343bc7e0f9   (the hub looks here now)
+                Parley    0xe08ff7cf056b2a3a067fa1b00476f663b9bcbfcb   (kept, as ever)
+                https://0x6e5315360522af0203af7a0f84aac8202c1e8ec7.basesep.w3link.io/
+                …/token/<id>/live — any token's instrument, doors and all
+Eth Sepolia     the watcher now deploys site + engine together when funded;
+                the honest ask rose to ~0.08 ETH to cover both
+```

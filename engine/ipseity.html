@@ -84,6 +84,17 @@ hr{border:0;height:1px;background:var(--rule);margin:12px 0}
 .led.live{background:var(--ok);box-shadow:0 0 9px var(--ok)}
 .led.ro{background:var(--a);box-shadow:0 0 9px var(--a-dim)}
 
+/*──────────────────────── the veil ────────────────────────*/
+#veil{position:fixed;inset:0;z-index:40;display:none;flex-direction:column;
+  background:hsl(230 33% 3% / .82);backdrop-filter:blur(10px)}
+#veil.open{display:flex}
+#veilbar{display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px;border-bottom:1px solid var(--rule-2);
+  font:600 11px/1 var(--mono);letter-spacing:.22em;color:var(--mid)}
+#veilx{background:none;border:1px solid var(--rule-2);border-radius:8px;
+  color:var(--mid);font:16px/1 var(--mono);padding:2px 10px;cursor:pointer}
+#veilx:hover{color:var(--lit);border-color:var(--rule-3)}
+#veilf{flex:1;width:100%;border:0;background:transparent}
 /*──────────────────────── node labels ────────────────────────*/
 #nodes{position:fixed;inset:0;z-index:3;pointer-events:none}
 .nd{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;
@@ -298,6 +309,9 @@ pre.code b{color:var(--a);font-weight:400}
 <body>
 
 <canvas id="field"></canvas>
+<div id="veil" aria-hidden="true"><div id="veilbar">
+<span id="veilt">TERMINAL</span><button id="veilx" type="button" aria-label="close">&times;</button>
+</div><iframe id="veilf" title="site surface"></iframe></div>
 <svg id="wires" aria-hidden="true"></svg>
 <div id="nodes"></div>
 
@@ -438,6 +452,34 @@ const MODULES = [
     blurb:"Open this token inside this token. The frame loads a live instance of itself one section deeper, which can do the same, until the plane runs out of room." }
 ];
 const NN = MODULES.length;
+
+/*  The door ring. When this frame is served from the collection's own
+    origin — a web3:// browser or any gateway in front of it — relative
+    paths resolve into the 2-D site, and the instrument becomes the door:
+    eight more vertices in a slower orbit, each opening one surface. In a
+    marketplace's data: sandbox no origin can answer, so the ring simply
+    never forms. These ride outside the shader's twelve — labels, wires
+    and the picking ray know them; the field does not.                  */
+const DOORED = /^(https?|web3):$/.test(location.protocol);
+const DOORS = [
+  { id:"TERMINAL", name:"Terminal", ring:2, key:"", door:"/terminal", veil:true,
+    blurb:"The site's terminal, drawn over the instrument. Every function, one line at a time; an agent drives the same words." },
+  { id:"DSWAP",    name:"Swap",     ring:2, key:"", door:"/swap",
+    blurb:"Any ERC-20 with a pool, against this chain's own Uniswap. Opens the 2-D swap surface." },
+  { id:"DLAUNCH",  name:"Launch",   ring:2, key:"", door:"/launch",
+    blurb:"A v4 launchpad: fixed-supply token, mined hook, pool. Opens the 2-D launch surface." },
+  { id:"DLOCK",    name:"Lock",     ring:2, key:"", door:"/lock",
+    blurb:"The vault: tokens in, a date on a bar, no early exit. Opens the 2-D lock surface." },
+  { id:"DSOCIAL",  name:"Social",   ring:2, key:"", door:"/chat",
+    blurb:"The commons, the rooms, and sealed whispers between tokens. Opens the 2-D social surface." },
+  { id:"DGALLERY", name:"Gallery",  ring:2, key:"", door:"/gallery",
+    blurb:"The whole collection, wearing its stills. Opens the 2-D gallery." },
+  { id:"DARCHIVE", name:"Archive",  ring:2, key:"", door:"/open",
+    blurb:"Every market open for business. Opens the 2-D archive." },
+  { id:"DSITE",    name:"Site",     ring:2, key:"", door:"/",
+    blurb:"The 2-D site entire, from its own front door." }
+];
+if(DOORED) MODULES.push(...DOORS);
 
 /* the eight solids. names, and how each behaves as w moves */
 const FORMS = [
@@ -1182,6 +1224,7 @@ function placeNodes(time){
   });
   shell(nodes.filter(n => n.ring === 0), 2.62,  0.33,  0.052, 0);
   shell(nodes.filter(n => n.ring === 1), 2.02, -0.76, -0.071, 0.86);
+  shell(nodes.filter(n => n.ring === 2), 3.30,  0.58,  0.026, 1.9);
 }
 
 function project(p){
@@ -1370,7 +1413,7 @@ function frame(now){
   5 · THE OVERLAY — labels tethered to three-dimensional positions
 ───────────────────────────────────────────────────────────────────────────*/
 const nodeHost = $("#nodes"), wireHost = $("#wires");
-const isOpen = i => ((S.open | 0) & (1 << i)) !== 0;
+const isOpen = i => (MODULES[i] && MODULES[i].door) ? true : ((S.open | 0) & (1 << i)) !== 0;
 
 const labels = nodes.map(n => {
   const d = document.createElement("button");
@@ -2154,6 +2197,13 @@ const sheet = $("#sheet"), sbody = $("#sbody");
 let current = -1;
 
 function open(i){
+  const dm = MODULES[i];
+  if(dm && dm.door){
+    VIS.sel = i; shock();
+    if(dm.veil) return veil(dm.door);
+    window.open(dm.door, "_blank", "noopener");
+    return;
+  }
   if(!isOpen(i)){
     VIS.sel = i;
     return panel(MODULES[i].name,
@@ -2185,6 +2235,16 @@ function shut(){
   VIS.sel = -1; current = -1;
 }
 $("#shut").onclick = shut;
+function veil(p){
+  const v = $("#veil");
+  $("#veilf").src = p;
+  v.classList.add("open"); v.setAttribute("aria-hidden", "false");
+}
+$("#veilx").onclick = () => {
+  const v = $("#veil");
+  v.classList.remove("open"); v.setAttribute("aria-hidden", "true");
+  $("#veilf").src = "about:blank";
+};
 $("#confirm").addEventListener("click", e => { if(e.target.id === "confirm"){ $("#confirm").classList.remove("open"); pending = null; } });
 
 const kv  = (k, v, id) => '<div class="kv"><span class="k">' + esc(k) + '</span><span class="vv"' +
