@@ -203,8 +203,18 @@ contract Nameplate {
                 "/erc721:", LibNum.hexAddr(address(HUB)), "/", t.str());
         }
         if (k == keccak256("url")) {
+            string memory host = _gateway();
+            /*  Where no gateway serves this chain there is no https URL to
+                give, and inventing one would send every reader to a host
+                that does not exist. The web3:// address is the real one
+                either way; a native client needs nothing else.         */
+            if (bytes(host).length == 0) {
+                return string.concat(
+                    "web3://", LibNum.hexAddr(PREMISES), ":", block.chainid.str(),
+                    "/token/", t.str());
+            }
             return string.concat(
-                "https://", _bare(PREMISES), _gateway(), "/token/", t.str());
+                "https://", _bare(PREMISES), host, "/token/", t.str());
         }
         if (k == keccak256("description")) {
             return string.concat(
@@ -286,13 +296,26 @@ contract Nameplate {
         return string(out);
     }
 
-    /// @dev The w3link host tail for this chain, or empty where none runs.
+    /*  The w3link host tail for this chain, or empty where no gateway runs.
+
+        Two corrections, both measured against DNS rather than assumed.
+        Ethereum returned `.w3link.io`, and `<address>.w3link.io` does not
+        resolve at all — the host needs the chain's short name in it, so
+        mainnet is `.eth.w3link.io`. And the fallback returned that same
+        dead tail for every chain not listed, which meant a deployment on a
+        chain no gateway serves published a URL that cannot be opened.
+
+        An unserved chain now returns empty and the caller says so. A
+        collection whose whole argument is that it needs no server should
+        not be the thing that prints a broken link.                      */
     function _gateway() private view returns (string memory) {
-        if (block.chainid == 1) return ".w3link.io";
-        if (block.chainid == 11155111) return ".sep.w3link.io";
-        if (block.chainid == 84532) return ".basesep.w3link.io";
-        if (block.chainid == 8453) return ".base.w3link.io";
-        return ".w3link.io";
+        uint256 c = block.chainid;
+        if (c == 1)        return ".eth.w3link.io";
+        if (c == 8453)     return ".base.w3link.io";
+        if (c == 56)       return ".bnb.w3link.io";
+        if (c == 11155111) return ".sep.w3link.io";
+        if (c == 84532)    return ".basesep.w3link.io";
+        return "";              // no public gateway serves this chain
     }
 
     function supportsInterface(bytes4 id) external pure returns (bool) {
