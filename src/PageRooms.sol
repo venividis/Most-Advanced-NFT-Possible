@@ -155,6 +155,15 @@ contract PageRooms {
             "<input id=who inputmode=numeric placeholder=\"token number\">"
             "<button id=invite>invite</button>"
             "</div>"
+            /*  The page said the steward could show a token out long before
+                the page offered any way to do it. The roster is that way:
+                who is actually here, each with the door beside them.    */
+            "<h2>who is here</h2>"
+            "<p class=e>Read from the chain a window of tokens at a time \xe2\x80\x94 "
+            "membership is a mapping, not a list, and asking it directly is what a "
+            "reader does instead of what an indexer would.</p>"
+            "<div class=det id=roster>reading\xe2\x80\xa6</div>"
+            "<div class=only><div class=det id=pend></div></div>"
         );
     }
 

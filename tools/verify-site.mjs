@@ -1598,6 +1598,72 @@ head("the same page wired to the other router");
   drained wallet has given away, and the point of this seal is that it
   does not care.
 */
+
+/*════════════ membership you can see, and remove ════════════
+
+  The room page promised for a long time that a steward "can invite tokens
+  to it and show them out of it", and the interface offered only half of
+  that: invite was wired, evict was not even published as a selector, and
+  nothing anywhere could say who was in a room to begin with — membership
+  is a mapping, and a mapping is not a list.
+
+  The fix reads the mapping directly, a window of tokens per call, from a
+  companion contract that changes nothing about the archive. So this drives
+  the whole loop against the chain: invite, join, see them listed, show
+  them out, see them gone — and checks that the one who may do it is the
+  steward and nobody else.
+*/
+head("who is in the room, and who may show them out");
+{
+  const keeper = DRIVEN;
+  const guest = decUint(await c.read(nft, "totalSupply()")) > 2n ? 2 : 1;
+
+  await c.exec(site.parley, "found(uint256,string,bool)",
+    [keeper, "the drawing room", false]);
+  const index = decUint(await c.read(site.parley, "groups()"));
+  const key = decUint(await c.read(site.parley, "groupKey(uint256)", [index]));
+
+  const bit = async (room, from) =>
+    decUint(await c.read(site.roster, "inWindow(uint256,uint256)", [room, from]));
+
+  ok("the steward is in the room it founded",
+     (await bit(key, 1)) & (1n << BigInt(keeper - 1)));
+  ok("and the guest is not", !((await bit(key, 1)) & (1n << BigInt(guest - 1))));
+
+  /*  Invited is not the same as in: the invitation records permission and
+      the token still walks in itself, because a list a stranger can grow
+      is a list a stranger can fill.                                    */
+  await c.exec(site.parley, "invite(uint256,uint256,uint256)", [key, keeper, guest]);
+  const pending = decUint(await c.read(site.roster,
+    "invitedInWindow(uint256,uint256)", [key, 1]));
+  ok("an invitation shows as invited, not as present",
+     (pending & (1n << BigInt(guest - 1))) !== 0n &&
+     !((await bit(key, 1)) & (1n << BigInt(guest - 1))));
+
+  await c.exec(site.parley, "join(uint256,uint256)", [key, guest]);
+  ok("once it walks in, the roster says so",
+     ((await bit(key, 1)) & (1n << BigInt(guest - 1))) !== 0n);
+  const listed = await c.read(site.roster, "membersOf(uint256,uint256)", [key, 1]);
+  ok("and the same answer arrives as a list, for a caller that would rather not shift",
+     decUint(listed, 1) === 2n, `${decUint(listed, 1)} members listed`);
+
+  await refuses("a token that does not keep the room cannot show anyone out",
+    () => renter.exec(site.parley, "evict(uint256,uint256,uint256)", [key, guest, keeper]));
+
+  await c.exec(site.parley, "evict(uint256,uint256,uint256)", [key, keeper, guest]);
+  ok("the steward can, and the roster empties",
+     !((await bit(key, 1)) & (1n << BigInt(guest - 1))));
+
+  /*  And the rooms a token keeps are derivable from the token alone —
+      group keys are keccak(1, index) and the indices run from one, so
+      there is nothing to replay and no registry to keep in step.      */
+  const mine = await c.read(site.roster, "stewardedBy(uint256,uint256,uint256)",
+    [keeper, 1, 32]);
+  ok("the rooms a token keeps are found from the token alone",
+     decUint(mine, 2) >= 1n, `${decUint(mine, 2)} rooms`);
+  console.log("      invited, joined, listed, shown out \u2014 over a Parley nothing changed");
+}
+
 head("driving the seals");
 {
   const page = await GET(["seal"]);
@@ -2573,7 +2639,8 @@ for (const [file, name] of [
   ["src/PageTerminal.sol", "PageTerminal"], ["src/PageGallery.sol", "PageGallery"],
   ["src/PageLaunch.sol", "PageLaunch"], ["src/PageLock.sol", "PageLock"],
   ["src/PageHook.sol", "PageHook"], ["src/DeskLaunch.sol", "DeskLaunch"],
-  ["src/DeskSeal.sol", "DeskSeal"], ["src/PageCast.sol", "PageCast"], ["src/PageSeal.sol", "PageSeal"],
+  ["src/DeskSeal.sol", "DeskSeal"], ["src/Roster.sol", "Roster"],
+  ["src/DeskRooms.sol", "DeskRooms"], ["src/PageCast.sol", "PageCast"], ["src/PageSeal.sol", "PageSeal"],
   ["src/PageKeys.sol", "PageKeys"], ["src/PageName.sol", "PageName"],
   ["src/PageSwap.sol", "PageSwap"], ["src/DeskUni.sol", "DeskUni"],
   ["src/DeskTrade.sol", "DeskTrade"], ["src/Venue.sol", "Venue"],

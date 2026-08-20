@@ -96,15 +96,24 @@ await c.exec(nft, "mint()", [], { value: 10n ** 16n });
 
 /*──────────────── the index ────────────────*/
 head("the index answers HTTP, from a contract");
+/*  The root is the instrument now — a link to an NFT arrives at the NFT —
+    so what used to be asked of `/` is asked of `/door`, and `/` is asked
+    the one question that distinguishes the artwork from a page about it. */
 const idx = await GET([]);
 eq("200", idx.status, 200);
 eq("Content-Type", idx.headers[0][1], "text/html; charset=utf-8");
 eq("Cache-Control", idx.headers[1][0], "Cache-Control");
-ok("it is a document", idx.body.startsWith("<!doctype html>"));
-ok("it names the collection", idx.body.includes("IPSEITY"));
-ok("it counts what has been issued", idx.body.includes("2 of 4096"));
-ok("and lists the most recent", idx.body.includes('href="/token/2"'));
-console.log(`      ${idx.body.length} bytes, no server involved`);
+ok("the root is the instrument, not a page about it",
+   idx.body.includes("IPSE") && !idx.body.includes('href="/token/2"'),
+   idx.body.slice(0, 80));
+
+const flat = await GET(["door"]);
+eq("the flat page answers at /door", flat.status, 200);
+ok("it is a document", flat.body.startsWith("<!doctype html>"));
+ok("it names the collection", flat.body.includes("IPSEITY"));
+ok("it counts what has been issued", flat.body.includes("2 of 4096"));
+ok("and lists the most recent", flat.body.includes('href="/token/2"'));
+console.log(`      ${idx.body.length} bytes at the root, ${flat.body.length} at the door`);
 
 /*──────────────── one token ────────────────*/
 head("a token's page");

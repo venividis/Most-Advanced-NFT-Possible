@@ -38,10 +38,13 @@ contract DeskTalk {
 
     IParley public immutable PARLEY;
     address public immutable HUB;
+    /// @dev A read-only companion, replaceable without touching the archive.
+    address public immutable ROSTER;
 
-    constructor(IParley parley, address hub) {
+    constructor(IParley parley, address hub, address roster) {
         PARLEY = parley;
         HUB = hub;
+        ROSTER = roster;
     }
 
     /*═══════════════════ the data the client runs on ═══════════════════*/
@@ -54,13 +57,19 @@ contract DeskTalk {
         external view returns (string memory)
     {
         (bytes32 said,,,,) = PARLEY.topics();
+        /*  Who keeps this room, so the roster can mark them and the client
+            never has to ask a second time.                              */
+        uint256 keeper;
+        if (room != 0) { (,,,,,, keeper,,) = PARLEY.stateOf(room); }
         return string.concat(
             "<script type=\"application/json\" id=\"T\">{",
             "\"at\":\"", LibNum.hexAddr(address(PARLEY)), "\",",
+            "\"roster\":\"", LibNum.hexAddr(ROSTER), "\",",
             "\"hub\":\"", LibNum.hexAddr(HUB), "\",",
             "\"room\":\"", room.str(), "\",",
             "\"other\":\"", other.str(), "\",",
             "\"group\":", group.str(), ",",
+            "\"steward\":", keeper.str(), ",",
             "\"max\":", PARLEY.MAX_BODY().str(), ",",
             "\"said\":\"", LibNum.hex32(said), "\",",
             "\"sel\":{", _sel(), "}",
@@ -78,6 +87,10 @@ contract DeskTalk {
             "\",\"join\":\"",    _s("join(uint256,uint256)"),
             "\",\"leave\":\"",   _s("leave(uint256,uint256)"),
             "\",\"invite\":\"",  _s("invite(uint256,uint256,uint256)"),
+            "\",\"evict\":\"",   _s("evict(uint256,uint256,uint256)"),
+            "\",\"inWin\":\"",   _s("inWindow(uint256,uint256)"),
+            "\",\"invWin\":\"",  _s("invitedInWindow(uint256,uint256)"),
+            "\",\"stewOf\":\"",  _s("stewardedBy(uint256,uint256,uint256)"),
             "\",\"state\":\"",   _s("stateOf(uint256)"),
             "\",\"heads\":\"",   _s("heads(uint256[])"),
             "\",\"rooms\":\"",   _s("roomsOf(uint256)"),
@@ -377,6 +390,43 @@ contract DeskTalk {
         "if(!v)throw new Error('which token?');d=sel+I.W(T.room)+I.W(me)+I.W(v)}"
         "await I.send(T.at,d)}catch(e){I.say(String(e&&e.message||e),'no')}})};"
         "act('join',S.join);act('leave',S.leave);act('invite',S.invite,'who');"
+
+        /*  The roster. Two hundred and fifty-six memberships arrive as one
+            word from one call, so a collection of a few thousand is a
+            handful of reads and no indexer at all. Each member is drawn
+            with the door beside it; pressing it is `evict`, which the
+            contract refuses for everyone but the steward, so the button is
+            offered to everyone and answered for by the chain.          */
+        "const roster=async()=>{const box=$('roster');if(!box||!T.roster)return;"
+        "const me=K.me();"
+        "let mem=[],pend=[];"
+        "for(let base=1;base<4096;base+=256){"
+        "const r=await I.tryCall(T.roster,S.inWin+I.W(T.room)+I.W(base));"
+        "if(!r)break;const bits=I.word(r,0);"
+        "const p=await I.tryCall(T.roster,S.invWin+I.W(T.room)+I.W(base));"
+        "const pbits=p?I.word(p,0):0n;"
+        "for(let i=0;i<256;i++){"
+        "if((bits>>BigInt(i))&1n)mem.push(base+i);"
+        "if((pbits>>BigInt(i))&1n)pend.push(base+i)}"
+        "if(bits===0n&&pbits===0n&&base>1)break}"
+        "if(!mem.length){box.textContent='nobody has walked in yet';return}"
+        "box.innerHTML='';"
+        "for(const id of mem){"
+        "const row=document.createElement('div');"
+        "const who=document.createElement('span');"
+        "who.textContent='#'+id+(id===Number(T.steward||0)?' \\u00b7 steward':'');"
+        "const b=document.createElement('b');"
+        "const out=document.createElement('button');"
+        "out.textContent='show out';out.className='mx';out.dataset.id=String(id);"
+        "out.addEventListener('click',async()=>{try{"
+        "const m=K.me();if(m==null)throw new Error('connect a wallet that holds a token');"
+        "await I.send(T.at,S.evict+I.W(T.room)+I.W(m)+I.W(id));"
+        "setTimeout(roster,1200)}catch(e){I.say(String(e&&e.message||e),'no')}});"
+        "b.appendChild(out);row.appendChild(who);row.appendChild(b);box.appendChild(row)}"
+        "const pe=$('pend');"
+        "if(pe)pe.textContent=pend.length?('invited, not yet in: '+pend.map(x=>'#'+x).join(' ')):'';"
+        "};"
+        "if($('roster'))setTimeout(()=>roster().catch(e=>{}),700);"
         "if(box)setTimeout(()=>draw().catch(e=>I.say(String(e&&e.message||e),'no')),600);"
         "const g=$('again');if(g)g.addEventListener('click',()=>draw())})();";
 }

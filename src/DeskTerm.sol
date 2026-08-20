@@ -35,11 +35,12 @@ contract DeskTerm {
     address public immutable PARLEY;
     address public immutable KILN;
     address public immutable LOCKER;
+    address public immutable ROSTER;
 
-    constructor(address hub, address pool, address lease,
-                address parley, address kiln, address locker) {
+    constructor(address hub, address pool, address lease, address parley,
+                address kiln, address locker, address roster) {
         HUB = hub; POOL = pool; LEASE = lease;
-        PARLEY = parley; KILN = kiln; LOCKER = locker;
+        PARLEY = parley; KILN = kiln; LOCKER = locker; ROSTER = roster;
     }
 
     /*═══════════════════ the data the terminal runs on ═══════════════════*/
@@ -53,6 +54,7 @@ contract DeskTerm {
             "\",\"parley\":\"", LibNum.hexAddr(PARLEY),
             "\",\"kiln\":\"", LibNum.hexAddr(KILN),
             "\",\"locker\":\"", LibNum.hexAddr(LOCKER),
+            "\",\"roster\":\"", LibNum.hexAddr(ROSTER),
             "\",\"sel\":{", _sel1(), _sel2(), "}}</script>"
         );
     }
@@ -106,6 +108,9 @@ contract DeskTerm {
             "\",\"join\":\"",   _s("join(uint256,uint256)"),
             "\",\"leave\":\"",  _s("leave(uint256,uint256)"),
             "\",\"gkey\":\"",   _s("groupKey(uint256)"),
+            "\",\"invite\":\"", _s("invite(uint256,uint256,uint256)"),
+            "\",\"evict\":\"",  _s("evict(uint256,uint256,uint256)"),
+            "\",\"inWin\":\"",  _s("inWindow(uint256,uint256)"),
             "\",\"launch\":\"",_s("launch(uint256,string,string,uint8,uint256,bytes32)"),
             "\",\"recent\":\"", _s("recent(uint256,uint256)"),
             "\",\"vlock\":\"",  _s("lock(address,uint256,uint64)"),
@@ -356,7 +361,13 @@ contract DeskTerm {
         "});IN.focus()}"
         "put('IPSEITY terminal \\u2014 type help. Writes need a wallet holding a token.');"
 
-        "return{run:run,commands:()=>Object.entries(C).map(([k,c])=>"
+        /*  A door for words this contract has no room for. DeskTerm is
+            already at the byte ceiling, so the commands that arrived last
+            live in their own contract and register through here — the same
+            answer the wallet client got when Desk filled up. One table,
+            one code path, still: `def` is the same function the built-in
+            words were defined with.                                     */
+        "return{def:def,run:run,commands:()=>Object.entries(C).map(([k,c])=>"
         "({cmd:k,usage:c.usage,what:c.what,writes:!!c.writes})),"
         "me:()=>ME,use:id=>{ME=BigInt(id)}}"
         "})();";

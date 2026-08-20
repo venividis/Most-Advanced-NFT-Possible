@@ -28,6 +28,8 @@ import {IHub, IChrome, IDesk, IParley, ITalkDesk} from "./interfaces/Site.sol";
   that claimed otherwise would be lying about a chain to the person standing
   on it.
 ───────────────────────────────────────────────────────────────────────────*/
+interface IRoomsDesk { function core() external pure returns (string memory); }
+
 interface ITermDesk {
     function config() external view returns (string memory);
     function core() external pure returns (string memory);
@@ -43,15 +45,17 @@ contract PageDoor {
     ITalkDesk   public immutable TALK;
     IParley     public immutable PARLEY;
     ITermDesk   public immutable TERM;
+    IRoomsDesk  public immutable ROOMS;
 
     constructor(IHub hub, IChrome chrome, IDesk desk, ITalkDesk talk,
-                IParley parley, ITermDesk term) {
+                IParley parley, ITermDesk term, IRoomsDesk rooms) {
         HUB = hub;
         CHROME = chrome;
         DESK = desk;
         TALK = talk;
         PARLEY = parley;
         TERM = term;
+        ROOMS = rooms;
     }
 
     function door() external view returns (string memory) {
@@ -99,6 +103,7 @@ contract PageDoor {
             CHROME.wallet(),
             DESK.core(),
             TERM.core(),
+            ROOMS.core(),
             TALK.core(),
             TALK.door(),
             CHROME.foot(msg.sender, block.chainid)

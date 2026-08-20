@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {IChrome, IDesk} from "./interfaces/Site.sol";
 
+interface IRoomsDesk { function core() external pure returns (string memory); }
+
 interface ITermDesk {
     function config() external view returns (string memory);
     function core() external pure returns (string memory);
@@ -22,9 +24,10 @@ contract PageTerminal {
     IChrome   public immutable CHROME;
     IDesk     public immutable DESK;
     ITermDesk public immutable TERM;
+    IRoomsDesk public immutable ROOMS;
 
-    constructor(IChrome chrome, IDesk desk, ITermDesk term) {
-        CHROME = chrome; DESK = desk; TERM = term;
+    constructor(IChrome chrome, IDesk desk, ITermDesk term, IRoomsDesk rooms) {
+        CHROME = chrome; DESK = desk; TERM = term; ROOMS = rooms;
     }
 
     function terminal() external view returns (string memory) {
@@ -45,6 +48,7 @@ contract PageTerminal {
             CHROME.wallet(),
             DESK.core(),
             TERM.core(),
+            ROOMS.core(),
             CHROME.foot(msg.sender, block.chainid)
         );
     }

@@ -213,9 +213,19 @@ export async function deploySite(c, A,
   /*  And DeskTalk holds the client that reads a chat off a chain: the walk,
       the calldata, and the rule that nothing off the wire ever reaches the
       DOM as markup.                                                      */
+  /*  A read-only companion over the archive: it answers who is in a room by
+      asking the mapping directly, a window of tokens per call, so nothing
+      needs replaying and nothing about Parley had to change to make
+      membership visible. It can be replaced any week; the archive does not
+      notice.                                                            */
+  const roster = await c.deploy(
+    A("src/Roster.sol", "Roster").bytecode,
+    encodeAddressArg(parley) + encodeAddressArg(hub), "Roster");
+
   const deskTalk = await c.deploy(
     A("src/DeskTalk.sol", "DeskTalk").bytecode,
-    encodeAddressArg(parley) + encodeAddressArg(hub), "DeskTalk");
+    encodeAddressArg(parley) + encodeAddressArg(hub) +
+    encodeAddressArg(roster), "DeskTalk");
   const deskSeal = await c.deploy(
     A("src/DeskSeal.sol", "DeskSeal").bytecode, "", "DeskSeal");
 
@@ -255,12 +265,17 @@ export async function deploySite(c, A,
   const deskTerm = await c.deploy(
     A("src/DeskTerm.sol", "DeskTerm").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
-    encodeAddressArg(parley) + encodeAddressArg(kiln) + encodeAddressArg(locker),
+    encodeAddressArg(parley) + encodeAddressArg(kiln) + encodeAddressArg(locker) +
+    encodeAddressArg(roster),
     "DeskTerm");
+
+  const deskRooms = await c.deploy(
+    A("src/DeskRooms.sol", "DeskRooms").bytecode, "", "DeskRooms");
 
   const pTerminal = await c.deploy(
     A("src/PageTerminal.sol", "PageTerminal").bytecode,
-    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskTerm),
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskTerm) +
+    encodeAddressArg(deskRooms),
     "PageTerminal");
 
   const pGallery = await c.deploy(
@@ -291,7 +306,7 @@ export async function deploySite(c, A,
     A("src/PageDoor.sol", "PageDoor").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(desk) +
     encodeAddressArg(deskTalk) + encodeAddressArg(parley) +
-    encodeAddressArg(deskTerm), "PageDoor");
+    encodeAddressArg(deskTerm) + encodeAddressArg(deskRooms), "PageDoor");
 
   const pTalk = await c.deploy(
     A("src/PageTalk.sol", "PageTalk").bytecode,
@@ -355,7 +370,7 @@ export async function deploySite(c, A,
   }
 
   return {
-    chrome, parley, kiln, locker, venue, nameplate, deskU, deskT, deskL, deskSeal, pSwap, desk, deskTalk, deskTerm,
+    chrome, parley, roster, deskRooms, kiln, locker, venue, nameplate, deskU, deskT, deskL, deskSeal, pSwap, desk, deskTalk, deskTerm,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
     pTerminal, pGallery, pLaunch, pLock, pHook, pCast,
     pSeal, pKeys, pName, premises
