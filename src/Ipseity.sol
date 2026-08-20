@@ -415,11 +415,19 @@ contract Ipseity is
 
     /// @notice Bring the token's bound account into being. Anyone may pay
     ///         for this; the address was already determined at mint.
+    /// @dev    It does NOT stamp the token's operation counter, and the
+    ///         reason is worth writing down. Every other `_bump` sits
+    ///         behind the owner, an operator, or the token's own account —
+    ///         this one is open to the world by design, because the address
+    ///         is deterministic and materialising it is nobody's privilege.
+    ///         A stamp anyone can set is not a record of what the token
+    ///         did; it is a record of what was done to it, and anything
+    ///         reading `lastOp` as a sign of life could be fed one by a
+    ///         stranger for the price of gas. `embodyGrip` never bumped;
+    ///         this was the sibling that disagreed.
     function embody(uint256 id) external returns (address acct) {
         if (_ownerOf[id] == address(0)) revert Nonexistent();
         acct = REGISTRY.createAccount(ACCOUNT_IMPL, REACH_SALT, block.chainid, address(this), id);
-        Stats storage s = _stats[id];
-        _bump(id, s);
         emit Embodied(id, acct);
     }
 

@@ -177,12 +177,35 @@ contract Succession {
 
     /*═══════════════════ the two clocks ═══════════════════*/
 
-    /// @notice The last moment this token showed any sign of life: the
-    ///         later of the hub's own stamp and this contract's.
+    /*  The last moment the OWNER said they were here.
+
+        This read the hub's operation stamp as well, so that ordinary use of
+        the instrument kept the switch alive with nothing to remember. It
+        was the nicest thing about this contract and it was wrong.
+
+        `embody` is open to the world — the account's address is
+        deterministic and materialising it is nobody's privilege — and it
+        stamped the counter. So any stranger could reset the silence, for
+        the price of gas, as often as they liked: an heir could be kept from
+        ever knocking, forever, by somebody with no relationship to the
+        token at all. Measured before it was fixed: after the full quiet
+        period the plan read KNOCKABLE, a passer-by called `embody`, and it
+        read SPEAKING again.
+
+        `embody` no longer stamps. But the deeper point survives the fix:
+        every remaining stamp is reachable by an OPERATOR — an approved
+        address, or a renter under a lease. A renter's ordinary use would
+        hold the switch open for the length of their lease, and a phished
+        approval would hold it open for as long as it went unnoticed. A
+        dead-man's switch that a third party can hold open is not one.
+
+        So the only signal counted here is the owner's own, through
+        `arrange` and `stillHere`, both behind the strict door. What was
+        lost is real: the holder now has to say so, once per quiet period.
+        The page and the terminal both print the exact date, because a
+        promise that needs remembering should at least be legible.       */
     function lastSeen(uint256 id) public view returns (uint64) {
-        (uint64 lastOp, , , ) = HUB.detailOf(id);
-        uint64 seen = _plan[id].seen;
-        return lastOp > seen ? lastOp : seen;
+        return _plan[id].seen;
     }
 
     /// @notice When the silence has run long enough for somebody to knock.

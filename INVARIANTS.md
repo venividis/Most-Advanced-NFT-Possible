@@ -827,8 +827,26 @@ previous holder's key as live until its date, which is the reading that let
 one keep spending in the first place.
 → `src/PageKeys.sol` · `cur()`
 
-> **A note on the numbering.** There are one hundred and twenty-five
-> statements here, numbered to 126: number 96 was retired with the feature it
+**127. A sign of life cannot be forged by a stranger.**
+Succession read the hub's operation stamp so that ordinary use kept the
+switch alive with nothing to remember. `embody` is open to the world — the
+account's address is deterministic and materialising it is nobody's
+privilege — and it stamped that counter, so any passer-by could reset the
+silence for the price of gas and keep an heir from ever knocking. Measured
+before it was fixed: after the full quiet period the plan read KNOCKABLE, a
+stranger called `embody`, and it read SPEAKING again.
+
+`embody` no longer stamps, matching `embodyGrip`, which never did. And the
+succession counts only the owner's own word, because every remaining stamp
+is reachable by an operator — an approved address, or a renter whose
+ordinary use would hold the switch open for the length of their lease. What
+was lost is real: the holder now has to say so once per silence. A
+dead-man's switch a third party can hold open is not one.
+→ `tools/verify-estate.mjs` · *"a stranger calling embody does not reset the
+  silence"*, `src/Ipseity.sol` · `embody`, `src/Succession.sol` · `lastSeen`
+
+> **A note on the numbering.** There are one hundred and twenty-six
+> statements here, numbered to 127: number 96 was retired with the feature it
 > described and its number was not reused, because every entry is referenced
 > by number from commit messages and from the suites. A gap is cheaper than a
 > renumbering that silently repoints an old reference at a new claim.

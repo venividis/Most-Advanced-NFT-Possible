@@ -139,12 +139,24 @@ head("succession · two clocks, and what resets them");
   eq("after the silence, it reads as knockable",
      decUint(await c.read(succ, "wouldPass(uint256)", [id])), 9n);
 
-  /*  Ordinary use of the instrument is the proof of life. Nothing here is
-      called; the hub's own stamp is what moves.                        */
+  /*  Ordinary use of the instrument used to count, through the hub's own
+      operation stamp, and that was the nicest thing about this contract.
+      It is gone on purpose. `record` is gated to the owner or the token's
+      account, so it IS an owner signal — but it lands in the same `lastOp`
+      as `commit` and `setTrait`, which an approved operator or a RENTER
+      can call. A switch a renter can hold open for the length of their
+      lease is not a switch, and nothing on chain distinguishes the two
+      stamps after the fact.                                            */
   await c.exec(nft, "record(uint256)", [id]);
-  eq("one touch of the instrument puts it back to speaking",
+  eq("the hub's own stamp no longer counts as a sign of life",
+     decUint(await c.read(succ, "wouldPass(uint256)", [id])), 9n);
+  ok("so the knock still lands after it",
+     (await (async () => { try { await heir.exec(succ, "summon(uint256)", [id]); return true; }
+                           catch { return false; } })()));
+  await c.exec(succ, "stillHere(uint256)", [id]);
+  eq("and only the owner saying so puts it back to speaking",
      decUint(await c.read(succ, "wouldPass(uint256)", [id])), 7n);
-  await refuses("and the knock is refused again",
+  await refuses("after which the knock is refused again",
     () => heir.exec(succ, "summon(uint256)", [id]));
 
   const seen2 = decUint(await c.read(succ, "lastSeen(uint256)", [id]));
@@ -163,6 +175,61 @@ head("succession · two clocks, and what resets them");
      decUint(await c.read(succ, "wouldPass(uint256)", [id])), 7n);
   await refuses("so the heir who was mid-notice gets nothing",
     () => heir.exec(succ, "claim(uint256)", [id]));
+}
+
+/*  The griefing case, which defeated the whole feature and cost nothing.
+
+    `lastSeen` read the hub's operation stamp so that ordinary use kept the
+    switch alive with nothing to remember. `embody` is open to the world —
+    the account address is deterministic and materialising it is nobody's
+    privilege — and it stamped that counter. So a stranger could reset the
+    silence as often as they liked and keep an heir from ever knocking.
+
+    Both halves are pinned here: the hub no longer stamps on `embody`, and
+    the succession counts only the owner's own signal, because every
+    remaining stamp is reachable by an operator and a renter's ordinary use
+    would hold the switch open for the length of their lease.
+*/
+head("succession · a stranger cannot hold the switch open");
+{
+  const id = 2;
+  await c.exec(succ, "arrange(uint256,address,uint256,uint64,uint64)",
+    [id, heir.from.toString(), 0n, 60n * DAY, 30n * DAY]);
+  await c.exec(nft, "approve(address,uint256)", [succ, id]);
+
+  const t = decUint(await c.read(succ, "lastSeen(uint256)", [id]));
+  warp(t + 61n * DAY);
+  eq("after the silence the plan is knockable",
+     decUint(await c.read(succ, "wouldPass(uint256)", [id])), 9n);
+
+  /*  The attack, run as the attack. `embody` is the one hub call any
+      address may make against somebody else's token.                  */
+  await thief.exec(nft, "embody(uint256)", [id]);
+  eq("a stranger calling embody does not reset the silence",
+     decUint(await c.read(succ, "wouldPass(uint256)", [id])), 9n);
+  await thief.exec(nft, "embody(uint256)", [id]);
+  eq("nor does doing it again", decUint(await c.read(succ, "wouldPass(uint256)", [id])), 9n);
+
+  /*  And the hub itself no longer records that as an operation, so
+      nothing else downstream can be fed a false sign of life either. */
+  const before = decUint(await c.read(nft, "statsOf(uint256)", [id]), 0);
+  await thief.exec(nft, "embody(uint256)", [id]);
+  eq("the hub does not count it as an operation the token performed",
+     decUint(await c.read(nft, "statsOf(uint256)", [id]), 0), before);
+
+  /*  The owner is still the one who can, which is the whole point.    */
+  await c.exec(succ, "stillHere(uint256)", [id]);
+  eq("while the owner saying so does reset it",
+     decUint(await c.read(succ, "wouldPass(uint256)", [id])), 7n);
+
+  /*  And an operator cannot stand in for the owner here either: the door
+      is the strict one, so an approved address is refused.            */
+  await c.exec(nft, "approve(address,uint256)", [thief.from.toString(), id]);
+  await refuses("an approved operator cannot say the owner is here",
+    () => thief.exec(succ, "stillHere(uint256)", [id]));
+  await c.exec(nft, "approve(address,uint256)", [succ, id]);
+  await c.exec(succ, "revoke(uint256)", [id]);
+  await c.exec(nft, "approve(address,uint256)", ["0x" + "00".repeat(20), id]);
 }
 
 head("succession · the token actually passes");
