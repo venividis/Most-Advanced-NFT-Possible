@@ -238,3 +238,53 @@ Base Sepolia    Premises  0x6e5315360522af0203af7a0f84aac8202c1e8ec7   (the divi
 Eth Sepolia     the watcher now deploys site + engine together when funded;
                 the honest ask rose to ~0.08 ETH to cover both
 ```
+
+### Four more doors, and two things found by opening them — 2026-08-20
+
+`/projector` hands the 4-D renderer to anyone: the contract that draws every
+token's still is `public pure`, so the page is eight solids on chips, every
+number of the section word on its own bar, and a picture redrawn by the
+caller's own node. Nothing on it can spend anything. `/seal` reads the three
+seals a token can carry and works the two that belong to the holder.
+`/keys` grants scoped, expiring session keys on a token's Reach and then asks
+the account, selector by selector, what it believes it permits. `/name` binds
+an ENS name to a token, building DNS wire format with string arithmetic
+because this client carries no keccak — and the drive proves that encoding by
+making the contract that *does* hash agree about which node it meant.
+
+Writing the pages found two defects in the contracts they describe, both
+measured before they were fixed and both now run as attacks on every check:
+
+  · **The soulbind did not survive a stolen approval.** `onlyHolder` admits
+    an approved operator, so a thief holding a phished approval could call
+    `unlock` on a bolted token and take it — which is exactly the attack the
+    bolt claims to answer. `lock` and `unlock` now admit the owner and the
+    token's own account and nobody else.
+  · **A token handed to its own hand froze forever.** Transferred to its own
+    Reach or Grip, nothing could ever move it again: the account asks who
+    holds the token, and the holder would be the account. Both are refused,
+    computed rather than looked up so an undeployed account is covered too.
+
+Neither fix can reach the hubs already deployed on the testnets — a collection
+is immutable, which is the point — so Base Sepolia's live hub predates both
+and the source is what mainnet will carry. That is what a rehearsal is for.
+
+```
+Base Sepolia    Premises 0x34a0e6eceef860a6b5c70d092e124904ca797d70   (eleven routes, all 200)
+                Parley   0xe08ff7cf056b2a3a067fa1b00476f663b9bcbfcb   (kept, as ever)
+                https://0x34a0e6eceef860a6b5c70d092e124904ca797d70.basesep.w3link.io/
+                  …/projector  …/seal  …/keys  …/name
+                (the hub, engine and renderer are unchanged from the entries
+                 above; only the site was redeployed)
+Eth Sepolia     still pending the top-up; the watcher ships site and engine
+                together when it lands
+```
+
+The three page contracts were written in parallel by three agents against a
+shared house-style brief, then integrated by hand. Two integration details
+worth recording because they will recur: seventeen flat constructor arguments
+put `Premises` past what even viaIR keeps on the stack, so the pages are now
+passed as one named struct — identical calldata, one memory pointer; and the
+name page needs the resolver's address while the resolver needs the premises
+which needs the name page, so the resolver's address is computed from the
+deployer and the nonce it will hold, and asserted the moment it exists.

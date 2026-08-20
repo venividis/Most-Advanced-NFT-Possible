@@ -353,39 +353,6 @@ ok("collection has an image", String(cMeta.image).startsWith("data:image/svg+xml
 /*  A token handed to its own hand can never be moved again: the account
     asks whether the caller holds the token, and the holder would be the
     account. The hub refuses both hands rather than documenting the hole. */
-/*  Found by writing the page that sells this seal, and measured before it
-    was fixed: `onlyHolder` admits an approved operator, so a thief holding
-    a phished approval could call `unlock` and then take the token. A bolt
-    an attacker can lift stops nobody, so the bolt now answers to the
-    holder alone. This is the attack, run every time.                    */
-head("the bolt survives a stolen approval");
-{
-  const bolted = 2;
-  const thief = await c.as("0x" + "7d".repeat(32));
-  await c.exec(nft, "lock(uint256)", [bolted]);
-  ok("the token is bolted", decBool(await c.read(nft, "locked(uint256)", [bolted])));
-
-  await c.exec(nft, "approve(address,uint256)", [thief.from.toString(), bolted]);
-  let lifted = false;
-  try { await thief.exec(nft, "unlock(uint256)", [bolted]); lifted = true; } catch {}
-  ok("an approved operator cannot lift it", !lifted);
-
-  let taken = false;
-  try {
-    await thief.exec(nft, "transferFrom(address,address,uint256)",
-      [c.from.toString(), thief.from.toString(), bolted]);
-    taken = true;
-  } catch {}
-  ok("and therefore cannot take it", !taken);
-  eq("the token did not move", decAddr(await c.read(nft, "ownerOf(uint256)", [bolted]))
-     .toLowerCase(), c.from.toString().toLowerCase());
-
-  await c.exec(nft, "unlock(uint256)", [bolted]);
-  ok("while the holder lifts it whenever they like",
-     !decBool(await c.read(nft, "locked(uint256)", [bolted])));
-  await c.exec(nft, "approve(address,uint256)", ["0x" + "00".repeat(20), bolted]);
-}
-
 head("the hands cannot hold the token that made them");
 {
   const reach = decAddr(await c.read(nft, "account(uint256)", [1]));
@@ -575,6 +542,40 @@ console.log("      dist/sigil-1.svg    the still, drawn on chain");
 console.log("      dist/quartet-1.svg  four elevations");
 
 /*──────────────────── gas ────────────────────*/
+/*  Found by writing the page that sells this seal, and measured before it
+    was fixed: `onlyHolder` admits an approved operator, so a thief holding
+    a phished approval could call `unlock` and then take the token. A bolt
+    an attacker can lift stops nobody, so the bolt now answers to the
+    holder alone. This is the attack, run every time.                    */
+head("the bolt survives a stolen approval");
+{
+  await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+  const bolted = Number(decUint(await c.read(nft, "totalSupply()")));
+  const thief = await c.as("0x" + "7d".repeat(32));
+  await c.exec(nft, "lock(uint256)", [bolted]);
+  ok("the token is bolted", decBool(await c.read(nft, "locked(uint256)", [bolted])));
+
+  await c.exec(nft, "approve(address,uint256)", [thief.from.toString(), bolted]);
+  let lifted = false;
+  try { await thief.exec(nft, "unlock(uint256)", [bolted]); lifted = true; } catch {}
+  ok("an approved operator cannot lift it", !lifted);
+
+  let taken = false;
+  try {
+    await thief.exec(nft, "transferFrom(address,address,uint256)",
+      [c.from.toString(), thief.from.toString(), bolted]);
+    taken = true;
+  } catch {}
+  ok("and therefore cannot take it", !taken);
+  eq("the token did not move", decAddr(await c.read(nft, "ownerOf(uint256)", [bolted]))
+     .toLowerCase(), c.from.toString().toLowerCase());
+
+  await c.exec(nft, "unlock(uint256)", [bolted]);
+  ok("while the holder lifts it whenever they like",
+     !decBool(await c.read(nft, "locked(uint256)", [bolted])));
+  await c.exec(nft, "approve(address,uint256)", ["0x" + "00".repeat(20), bolted]);
+}
+
 head("gas, measured");
 console.log("      (totals across every call the run made)");
 const order = ["Engine", "Sigil", "Renderer", "Ipseity", "loadHead", "loadBody", "mint",
