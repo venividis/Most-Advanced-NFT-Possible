@@ -327,6 +327,10 @@ const routes = [
   [["gallery", "0"], "text/html", "/gallery/0"],
   [["launch"], "text/html", "/launch"],
   [["lock"], "text/html", "/lock"],
+  [["projector"], "text/html", "/projector"],
+  [["seal"], "text/html", "/seal"],
+  [["keys"], "text/html", "/keys"],
+  [["name"], "text/html", "/name"],
   [["hook"], "text/html", "/hook"],
   [["swap"], "text/html", "/swap"],
   [["rooms"], "text/html", "/rooms"],
@@ -414,7 +418,7 @@ head("and it describes the collection-wide surface too");
      JSON.stringify(m.routes || null).slice(0, 120));
   const paths = (m.routes || []).map((r) => r.path);
   for (const p of ["/", "/terminal", "/chat", "/rooms", "/room/<n>", "/dm/<id>",
-                   "/gallery", "/launch", "/lock", "/hook/<address>", "/swap", "/open",
+                   "/gallery", "/launch", "/lock", "/projector", "/seal", "/keys", "/name", "/hook/<address>", "/swap", "/open",
                    "/services.json"]) {
     ok(`  ${p} is discoverable`, paths.includes(p), paths.join(" "));
   }
@@ -636,6 +640,10 @@ for (const [label, body] of [
   ["the terminal", (await GET(["terminal"])).body],
   ["the launchpad", (await GET(["launch"])).body],
   ["the vault", (await GET(["lock"])).body],
+  ["the projector", (await GET(["projector"])).body],
+  ["the seals", (await GET(["seal"])).body],
+  ["the keys", (await GET(["keys"])).body],
+  ["the nameplate page", (await GET(["name"])).body],
   ["the commons", (await GET(["chat"])).body],
   ["the rooms", (await GET(["rooms"])).body],
   ["a direct message", (await GET(["dm", "1"])).body],
@@ -1558,6 +1566,209 @@ head("the same page wired to the other router");
   from a client with no ABI coder, which is exactly the shape of mistake
   the router drives above exist to catch.
 */
+/*════════════ the seals, actually thrown ════════════
+
+  The soulbind is the one seal a thief meets, so it is driven the way a
+  thief would: bolt it, then try to move the token with an approval that
+  was granted before the bolt went down. An approval is exactly what a
+  drained wallet has given away, and the point of this seal is that it
+  does not care.
+*/
+head("driving the seals");
+{
+  const page = await GET(["seal"]);
+  eq("/seal answers 200", page.status, 200);
+  mount(page.body);
+  wallet(c);
+  runScripts(page.body);
+  await nap(60);
+  const $ = (i) => byId.get(i);
+
+  await $("zbolt").fire("click");            // the first press only connects
+  await nap(200);
+  $("zid").value = String(DRIVEN);
+  await $("zid").fire("change");
+  await nap(400);
+  ok("it reads the token's three states", /\w/.test(String($("zst").textContent || "") +
+     String($("zst").innerHTML || "")), "the state block stayed empty");
+
+  const was = decBool(await c.read(nft, "locked(uint256)", [DRIVEN]));
+  await $("zbolt").fire("click");
+  await nap(300);
+  eq("the bolt flips on chain, not on screen",
+     decBool(await c.read(nft, "locked(uint256)", [DRIVEN])), !was);
+
+  /*  The drain that this defeats: an operator who already holds an
+      approval, which is what a phished signature hands over.          */
+  await c.exec(nft, "approve(address,uint256)", [renter.from.toString(), DRIVEN]);
+  await refuses("a bolted token will not move even for an approved operator",
+    () => renter.exec(nft, "transferFrom(address,address,uint256)",
+      [c.from.toString(), renter.from.toString(), DRIVEN]));
+  ok("and the thief cannot unbolt it, because they do not hold it",
+     !(await (async () => { try {
+       await renter.exec(nft, "unlock(uint256)", [DRIVEN]); return true;
+     } catch { return false; } })()));
+
+  await $("zbolt").fire("click");
+  await nap(300);
+  eq("the holder lifts it again, as many times as they like",
+     decBool(await c.read(nft, "locked(uint256)", [DRIVEN])), was);
+  await c.exec(nft, "approve(address,uint256)", ["0x" + "00".repeat(20), DRIVEN]);
+  console.log("      bolted, refused an approved operator, refused the thief, lifted");
+}
+
+
+/*════════════ session keys, actually granted ════════════
+
+  The grant is two dynamic arrays in one call, and the two are encoded
+  differently: an address is right-aligned in its word and a bytes4 is
+  left-aligned. Getting that backwards does not revert — it grants a
+  permission nobody chose. So the page's own grant is sent, and then the
+  account is asked what it believes it permits, selector by selector.
+*/
+head("driving the session keys");
+{
+  const page = await GET(["keys"]);
+  eq("/keys answers 200", page.status, 200);
+  ok("and says the two things that have bitten people",
+     /empty/i.test(page.body) && /bytes4\(0\)|bare value/i.test(page.body));
+
+  mount(page.body);
+  wallet(c);
+  runScripts(page.body);
+  await nap(60);
+  const $ = (i) => byId.get(i);
+
+  /*  The card computes its expiry from the clock in front of the person,
+      and this chain is born a year and a half behind that. An expiry the
+      slider calls "tomorrow" is therefore eighteen months out to the
+      account, which refuses anything past MAX_SESSION — so the two clocks
+      are brought into agreement before a session is asked for at all.
+      Nothing about the page is being adjusted here; the harness is.    */
+  warp(BigInt(Math.floor(Date.now() / 1000)));
+
+  const reach = decAddr(await c.read(nft, "account(uint256)", [DRIVEN]));
+  if ((await c.codeSize(reach)) === 0) {
+    await c.exec(nft, "embody(uint256)", [DRIVEN]);
+  }
+
+  await $("kgo").fire("click");              // the first press only connects
+  await nap(200);
+  $("ktok").value = String(DRIVEN);
+  await $("ktok").fire("change");
+  await nap(400);
+  ok("the page found the token's Reach",
+     String($("kacct").textContent || $("kacct").innerHTML || "")
+       .toLowerCase().includes(reach.slice(2, 10).toLowerCase()),
+     String($("kacct").textContent || $("kacct").innerHTML || "").slice(0, 80));
+
+  const keyAddr = "0x" + "5a".repeat(20);
+  $("kkey").value = keyAddr;
+  await $("kkey").fire("input");
+  $("ktgt").value = pool;
+  await $("ktgt").fire("input");
+
+  /*  One chip, pressed: the pool's own swap. Whatever the page grants
+      must be exactly this and nothing adjacent.                       */
+  const chips = globalThis.document.querySelectorAll("[data-sel]");
+  ok("the permissions are offered as chips carrying their selectors",
+     chips.length >= 4, `${chips.length} chips`);
+  const swapSel = evm.sel("swap(uint256,bool,uint256,uint256,address,uint256)");
+  const chip = chips.find((x) => String(x.dataset.sel || "").toLowerCase() === swapSel);
+  ok("including the pool's swap, hashed on chain", !!chip,
+     chips.map((x) => x.dataset.sel).join(" "));
+  await chip.fire("click");
+  await nap(60);
+
+  await $("kgo").fire("click");
+  await nap(500);
+
+  const allows = async (target, s) => decBool(await c.read(reach,
+    "sessionAllows(address,address,bytes4)", [keyAddr, target, s]));
+  ok("the account permits exactly the selector that was chosen",
+     await allows(pool, swapSel));
+  ok("and not one the person never pressed",
+     !(await allows(pool, evm.sel("withdraw(uint256,uint256,uint256,address)"))));
+  ok("and not the same selector at another address",
+     !(await allows(nft, swapSel)));
+  console.log("      granted one permission at one address, and the account agrees");
+
+  await $("krev").fire("click");
+  await nap(400);
+  ok("revoking takes it back", !(await allows(pool, swapSel)));
+}
+
+
+/*════════════ a name, actually bound ════════════
+
+  The client builds DNS wire format with string arithmetic because it
+  carries no keccak — so the proof that it built it right is that the
+  contract, which does hash, agrees about which node it meant.
+*/
+head("driving the nameplate page");
+{
+  /*  The site's own resolver has no registry on this chain, and the page
+      must say so rather than offer buttons that always revert.        */
+  const bare = await GET(["name"]);
+  eq("/name answers 200", bare.status, 200);
+  ok("with no registry here, it says so instead of offering controls",
+     /no ENS|no registry|not deployed/i.test(bare.body), "no honest refusal found");
+
+  /*  And the same page against a resolver that does have one.        */
+  const mockEns2 = await c.deploy(A("test/mocks/MockENS.sol", "MockENS").bytecode, "", "MockENS2");
+  const plate2 = await c.deploy(A("src/Nameplate.sol", "Nameplate").bytecode,
+    encodeAddressArg(mockEns2) + encodeAddressArg(nft) + encodeAddressArg(site.premises),
+    "Nameplate3");
+  const pName2 = await c.deploy(A("src/PageName.sol", "PageName").bytecode,
+    encodeAddressArg(site.chrome) + encodeAddressArg(site.desk) +
+    encodeAddressArg(plate2) + encodeAddressArg(nft), "PageName2");
+
+  const body = decString(await c.read(pName2, "namePage()"));
+  ok("with a registry, the page offers to bind", /bind/i.test(body));
+
+  const dnsOf = (nm) => "0x" + nm.split(".").map(
+    (l) => l.length.toString(16).padStart(2, "0") +
+           Buffer.from(l, "utf8").toString("hex")).join("") + "00";
+  const wire = dnsOf("mine.eth");
+  const node = await c.read(plate2, "nodeOf(bytes)", [wire]);
+  await c.exec(mockEns2, "setOwner(bytes32,address)", [node, c.from.toString()]);
+
+  mount(body);
+  wallet(c);
+  runScripts(body);
+  await nap(60);
+  const $ = (i) => byId.get(i);
+
+  await $("ngo").fire("click");              // the first press only connects
+  await nap(200);
+  $("nnm").value = "mine.eth";
+  await $("nnm").fire("input");
+  await nap(700);
+  ok("the client shows the very bytes the test encoded independently",
+     String($("nwire").innerHTML || "").toLowerCase().includes(wire.slice(2)),
+     `${String($("nwire").innerHTML || "").slice(0, 80)} vs ${wire}`);
+
+  $("ntok").value = String(DRIVEN);
+  await $("ntok").fire("input");
+  await $("ngo").fire("click");
+  await nap(500);
+
+  eq("the name the client encoded is the name the contract hashed",
+     decUint(await c.read(plate2, "tokenForName(bytes)", [wire])), BigInt(DRIVEN));
+  eq("and it answers with the token's own account",
+     decAddr(await c.read(plate2, "addr(bytes32)", [node])).toLowerCase(),
+     decAddr(await c.read(nft, "account(uint256)", [DRIVEN])).toLowerCase());
+
+  const cc = decString(await c.read(plate2, "text(bytes32,string)", [node, "contentcontract"]));
+  ok("and carries the ERC-6821 record that points a browser at this site",
+     cc.toLowerCase().includes(site.premises.toLowerCase().slice(2)), cc);
+
+  await $("nun").fire("click");
+  await nap(400);
+  eq("unbinding gives the name back", decUint(await c.read(plate2, "tokenForName(bytes)", [wire])), 0n);
+  console.log("      built the wire by hand, and the contract that hashes agreed");
+}
+
 head("driving the launchpad");
 let gateAt = null;
 {
@@ -2050,6 +2261,44 @@ head("two tokens whisper through a sealed room");
   console.log("      derived from a signature, sealed with WebCrypto, bytes to everyone else");
 }
 
+
+/*════════════ the projector, actually turned ════════════*/
+head("the projector answers anyone");
+{
+  const page = await GET(["projector"]);
+  eq("/projector answers 200", page.status, 200);
+  ok("and arrives with the picture already drawn", page.body.includes("<svg"));
+  ok("eight solids on chips, every number on a bar",
+     (page.body.match(/type=range/g) || []).length >= 9 &&
+     (page.body.match(/<button class=\"chip cf/g) || []).length === 8,
+     (page.body.match(/type=range/g) || []).length + ' bars, ' +
+     (page.body.match(/<button class=\"chip cf/g) || []).length + ' chips');
+
+  mount(page.body);
+  wallet(c);
+  runScripts(page.body);
+  await nap(80);
+  const $ = (i) => byId.get(i);
+
+  $("chue").value = "200";
+  await $("chue").fire("input");
+  await nap(600);
+  const drawn = String($("stage").innerHTML || "");
+  ok("moving a bar redraws through the caller's own node",
+     drawn.includes("svg") && drawn.length > 200, `stage holds ${drawn.length} chars`);
+
+  const chips = globalThis.document.querySelectorAll("[data-f]");
+  ok("the chips carry their solids as data", chips.length === 8);
+  await chips[5].fire("click");
+  await nap(600);
+  const redrawn = String($("stage").innerHTML || "");
+  ok("a different solid is a different picture",
+     redrawn.includes("svg") && redrawn !== drawn,
+     `lens ${drawn.length} -> ${redrawn.length}`);
+  console.log("      drawn by the chain, redrawn by the chain, free either way");
+}
+
+
 head("driving the holder's side");
 {
   const pg = await GET(["token", String(DRIVEN), "pool"]);
@@ -2300,7 +2549,8 @@ for (const [file, name] of [
   ["src/PageTerminal.sol", "PageTerminal"], ["src/PageGallery.sol", "PageGallery"],
   ["src/PageLaunch.sol", "PageLaunch"], ["src/PageLock.sol", "PageLock"],
   ["src/PageHook.sol", "PageHook"], ["src/DeskLaunch.sol", "DeskLaunch"],
-  ["src/DeskSeal.sol", "DeskSeal"],
+  ["src/DeskSeal.sol", "DeskSeal"], ["src/PageCast.sol", "PageCast"], ["src/PageSeal.sol", "PageSeal"],
+  ["src/PageKeys.sol", "PageKeys"], ["src/PageName.sol", "PageName"],
   ["src/PageSwap.sol", "PageSwap"], ["src/DeskUni.sol", "DeskUni"],
   ["src/DeskTrade.sol", "DeskTrade"], ["src/Venue.sol", "Venue"],
   ["src/DeskTerm.sol", "DeskTerm"],

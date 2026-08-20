@@ -232,6 +232,25 @@ contract Ipseity is
     }
 
     /// @dev The holder, or anyone the holder has approved. Not the renter.
+    /// @dev The bolt answers to the holder alone. `onlyHolder` admits an
+    ///      approved operator, which is right for trading and wrong here:
+    ///      an approval is precisely what a phished wallet has already
+    ///      given away, so a bolt an operator can lift is a bolt that
+    ///      stops nobody. Measured before this existed \x2014 an approved
+    ///      address could `unlock` and then take the token, which is the
+    ///      whole attack the bolt claims to answer. The token's own
+    ///      account is allowed because it is the holder wearing its other
+    ///      hand.
+    modifier onlyOwner(uint256 id) {
+        address o = _ownerOf[id];
+        if (o == address(0)) revert Nonexistent();
+        if (msg.sender != o) {
+            if (address(REGISTRY).code.length == 0 || msg.sender != account(id))
+                revert NotHolder();
+        }
+        _;
+    }
+
     modifier onlyHolder(uint256 id) {
         address o = _ownerOf[id];
         if (o == address(0)) revert Nonexistent();
@@ -597,13 +616,13 @@ contract Ipseity is
 
     /*═══════════════ binding · ERC-5192 / ERC-6454 ═══════════════*/
 
-    function lock(uint256 id) external onlyHolder(id) {
+    function lock(uint256 id) external onlyOwner(id) {
         _locked[id] = true;
         emit Locked(id);
         emit MetadataUpdate(id);
     }
 
-    function unlock(uint256 id) external onlyHolder(id) {
+    function unlock(uint256 id) external onlyOwner(id) {
         _locked[id] = false;
         emit Unlocked(id);
         emit MetadataUpdate(id);
@@ -622,6 +641,17 @@ contract Ipseity is
         if (to == address(0)) return false;                 // nothing is burned here
         if (from == address(0)) return true;                // minting is always allowed
         if (_ownerOf[id] == address(0)) return false;
+        /*  A token handed to its own hand is a token nobody can ever move
+            again: the account asks whether the caller holds the token, the
+            holder is the account, and only the account can answer for
+            itself. Both hands are refused, and the Grip doubly so  14 it
+            has no function that sends anything, including a token. The
+            addresses are computed rather than looked up, so the refusal
+            holds for an account nobody has deployed yet  14 and where no
+            registry exists at all there is no hand to hold anything, so
+            the question is skipped rather than reverted.               */
+        if (address(REGISTRY).code.length > 0
+            && (to == account(id) || to == grip(id))) return false;
         return !_locked[id];          // the same flag locked() reports
     }
 

@@ -144,6 +144,12 @@ export class RpcChain {
     return this.send({ to, data: enc(sig, args), value, label: label || sig });
   }
 
+  /// Same question as the local chain's, asked of a node.
+  async nonceNow() {
+    return BigInt(await this.rpc("eth_getTransactionCount",
+      [this.from.toString(), "pending"]));
+  }
+
   async call(to, data, from, tag = "latest") {
     const r = await this.rpc("eth_call", [{
       from: from || this.from.toString(), to,

@@ -7,6 +7,7 @@
   is a tool that keeps passing against a wiring nobody ships.
 ───────────────────────────────────────────────────────────────────────────*/
 import { sel, encodeAddressArg } from "./evm.mjs";
+import { keccak256 } from "ethereum-cryptography/keccak.js";
 
 /*  ABI encoding for exactly the two shapes this file needs: a `string[]`
     going out, and a `(uint16,string,(string,string)[])` coming back. Both
@@ -85,6 +86,26 @@ export const UNISWAP = {
     ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
   }
 };
+
+/*  The address CREATE will produce for `sender` at `nonce` — keccak of the
+    two, RLP-encoded. Used to hand a page the address of a contract that
+    deploys after it; the deploy asserts the prediction held, so a reordered
+    pipeline fails loudly instead of wiring a page to nothing.            */
+export function predictCreate(sender, nonce) {
+  const a = Buffer.from(sender.replace(/^0x/, ""), "hex");
+  const n = BigInt(nonce);
+  let nb;
+  if (n === 0n) nb = Buffer.from([0x80]);
+  else if (n < 0x80n) nb = Buffer.from([Number(n)]);
+  else {
+    let h = n.toString(16); if (h.length % 2) h = "0" + h;
+    const raw = Buffer.from(h, "hex");
+    nb = Buffer.concat([Buffer.from([0x80 + raw.length]), raw]);
+  }
+  const payload = Buffer.concat([Buffer.from([0x80 + a.length]), a, nb]);
+  const rlp = Buffer.concat([Buffer.from([0xc0 + payload.length]), payload]);
+  return "0x" + Buffer.from(keccak256(rlp)).toString("hex").slice(24);
+}
 
 /** A chain with no verified deployment: every read degrades to "no venue". */
 export const NO_VENUE = {
@@ -261,6 +282,10 @@ export async function deploySite(c, A,
   const pHook = await c.deploy(
     A("src/PageHook.sol", "PageHook").bytecode,
     encodeAddressArg(chrome), "PageHook");
+  const pCast = await c.deploy(
+    A("src/PageCast.sol", "PageCast").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(sigil),
+    "PageCast");
 
   const pDoor = await c.deploy(
     A("src/PageDoor.sol", "PageDoor").bytecode,
@@ -279,6 +304,31 @@ export async function deploySite(c, A,
     encodeAddressArg(chrome) + encodeAddressArg(desk) +
     encodeAddressArg(deskTalk) + encodeAddressArg(parley), "PageRooms");
 
+  const pSeal = await c.deploy(
+    A("src/PageSeal.sol", "PageSeal").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(hub),
+    "PageSeal");
+
+  const pKeys = await c.deploy(
+    A("src/PageKeys.sol", "PageKeys").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(hub),
+    "PageKeys");
+
+  /*  Three contracts, one cycle: the name page must know the resolver, the
+      resolver must know the premises, and the premises must know the name
+      page. Somebody has to be told where a contract will be before it is
+      there, so the resolver's address is computed from the deployer and the
+      nonce it will hold — this deploy, then the premises, then it — and
+      asserted the moment it exists. A prediction that quietly missed would
+      wire this page to an address with nothing at it.                    */
+  const nameplateWillBe = predictCreate(c.from.toString(), (await c.nonceNow()) + 2n);
+
+  const pName = await c.deploy(
+    A("src/PageName.sol", "PageName").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) +
+    encodeAddressArg(nameplateWillBe) + encodeAddressArg(hub),
+    "PageName");
+
   const premises = await c.deploy(
     A("src/Premises.sol", "Premises").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(pDoor) +
@@ -286,7 +336,9 @@ export async function deploySite(c, A,
     encodeAddressArg(pServices) + encodeAddressArg(pManifest) +
     encodeAddressArg(pTalk) + encodeAddressArg(pRooms) +
     encodeAddressArg(pTerminal) + encodeAddressArg(pSwap) + encodeAddressArg(pGallery) +
-    encodeAddressArg(pLaunch) + encodeAddressArg(pLock) + encodeAddressArg(pHook),
+    encodeAddressArg(pLaunch) + encodeAddressArg(pLock) + encodeAddressArg(pHook) +
+    encodeAddressArg(pCast) + encodeAddressArg(pSeal) +
+    encodeAddressArg(pKeys) + encodeAddressArg(pName),
     "Premises");
 
   /*  The resolver deploys on every chain so the address matches
@@ -297,9 +349,15 @@ export async function deploySite(c, A,
     encodeAddressArg(uniswap.ens || ZERO) + encodeAddressArg(hub) +
     encodeAddressArg(premises), "Nameplate");
 
+  if (nameplate.toLowerCase() !== nameplateWillBe.toLowerCase()) {
+    throw new Error(`the resolver landed at ${nameplate}, not the ${nameplateWillBe} ` +
+      `the name page was given — a deploy was inserted between them`);
+  }
+
   return {
     chrome, parley, kiln, locker, venue, nameplate, deskU, deskT, deskL, deskSeal, pSwap, desk, deskTalk, deskTerm,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
-    pTerminal, pGallery, pLaunch, pLock, pHook, premises
+    pTerminal, pGallery, pLaunch, pLock, pHook, pCast,
+    pSeal, pKeys, pName, premises
   };
 }

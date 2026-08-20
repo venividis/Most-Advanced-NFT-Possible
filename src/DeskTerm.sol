@@ -326,7 +326,7 @@ contract DeskTerm {
         "lock, social, market, archive, manifest, door',async(a)=>{"
         "const M={door:'/',terminal:'/terminal',swap:'/swap',launch:'/launch',"
         "lock:'/lock',social:'/chat',chat:'/chat',market:'/gallery',gallery:'/gallery',"
-        "archive:'/open',open:'/open',manifest:'/services.json',json:'/services.json'};"
+        "archive:'/open',open:'/open',projector:'/projector',name:'/name',ens:'/name',keys:'/keys',session:'/keys',seal:'/seal',manifest:'/services.json',json:'/services.json'};"
         "const t=M[String(a[0]||'').toLowerCase()];"
         "if(!t)return'go where? '+Object.keys(M).join(' \u00b7 ');"
         "location.href=t;return'\u2192 '+t});"

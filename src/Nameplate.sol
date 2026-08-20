@@ -117,6 +117,40 @@ contract Nameplate {
         emit ParentClaimed(node, msg.sender);
     }
 
+    /*  The same three writes, taking the name as DNS wire format instead
+        of a namehash — length-prefixed labels, which a client can build
+        with string arithmetic alone. The contract does the hashing,
+        because this collection's clients carry no keccak on purpose.   */
+
+    function nodeOf(bytes calldata name) external pure returns (bytes32) {
+        return _namehash(name, 0);
+    }
+
+    function bindByName(bytes calldata name, uint256 token) external {
+        bytes32 node = _namehash(name, 0);
+        if (!_ownsNode(node, msg.sender)) revert NotTheNameOwner();
+        if (msg.sender != HUB.ownerOf(token) && msg.sender != HUB.account(token))
+            revert NotTheTokenHolder();
+        tokenOf[node] = token;
+        emit Bound(node, token, msg.sender);
+    }
+
+    function unbindByName(bytes calldata name) external {
+        bytes32 node = _namehash(name, 0);
+        if (!_ownsNode(node, msg.sender)) revert NotTheNameOwner();
+        uint256 t = tokenOf[node];
+        delete tokenOf[node];
+        emit Unbound(node, t);
+    }
+
+    function claimParentByName(bytes calldata name) external {
+        bytes32 node = _namehash(name, 0);
+        if (parentNode != bytes32(0)) revert ParentAlreadyClaimed();
+        if (!_ownsNode(node, msg.sender)) revert NotTheNameOwner();
+        parentNode = node;
+        emit ParentClaimed(node, msg.sender);
+    }
+
     /// @dev Registry owner, or — when the registry hands the name to a
     ///      wrapper contract — the wrapper's ERC-721 owner of the node.
     function _ownsNode(bytes32 node, address who) private view returns (bool) {

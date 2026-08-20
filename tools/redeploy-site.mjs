@@ -57,7 +57,7 @@ const GET = getter(c, site.premises);
 /*  A load-balanced public RPC answers from replicas, and a replica that has
     not seen the deploy yet answers `0x` for a contract that exists. That is
     lag, not absence — so a failed probe is retried before it is believed. */
-for (const p of [[], ["terminal"], ["swap"], ["launch"], ["lock"], ["chat"], ["gallery"]]) {
+for (const p of [[], ["terminal"], ["swap"], ["launch"], ["lock"], ["projector"], ["seal"], ["keys"], ["name"], ["chat"], ["gallery"]]) {
   let r = null, err = null;
   for (let t = 0; t < 6 && (!r || r.status !== 200); t++) {
     if (t) await new Promise((res) => setTimeout(res, 4000));

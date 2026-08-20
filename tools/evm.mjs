@@ -182,6 +182,13 @@ export class Chain {
     return other;
   }
 
+  /// The deployer's next nonce, read from state — the number CREATE hashes
+  /// with the sender to decide where a contract lands.
+  async nonceNow() {
+    const acct = await this.vm.stateManager.getAccount(this.from);
+    return acct ? acct.nonce : 0n;
+  }
+
   async balanceOf(addrHex) {
     const acct = await this.vm.stateManager.getAccount(createAddressFromString(addrHex));
     return acct ? acct.balance : 0n;

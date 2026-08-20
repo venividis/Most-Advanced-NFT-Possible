@@ -154,6 +154,12 @@ web3://<premises>/hook/0x…              what a hook's address already says,
                                         read with no call at all
 web3://<premises>/lock                  the vault: tokens in, a date on a bar
                                         (up to ten years), no early exit
+web3://<premises>/projector             the 4-D renderer, free for anyone:
+                                        any word, any seed, the picture
+web3://<premises>/seal                  the three seals: soulbind, account,
+                                        kernel
+web3://<premises>/keys                  session keys: scoped, expiring
+web3://<premises>/name                  bind an ENS name to a token
 web3://<premises>/chat                  the commons: one room, every token in it
 web3://<premises>/rooms                 the groups this token has entered
 web3://<premises>/room/3                one group
@@ -450,7 +456,7 @@ shipped), and what crosses the chain is AES-GCM ciphertext that renders as
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and fifteen such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and nineteen such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1242,7 +1248,7 @@ test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy the collection, load, seal
 script/Site.s.sol       deploy the parley, the desks, the pages and the router
 
-INVARIANTS.md           one hundred and fifteen statements that must hold, and the test for each
+INVARIANTS.md           one hundred and nineteen statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 

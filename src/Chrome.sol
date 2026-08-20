@@ -241,6 +241,18 @@ contract Chrome {
         ".tdoor{min-height:6.5rem;max-height:11rem;overflow-y:auto}"
         ".tess4 p{min-height:1.1em;font-size:.72rem;letter-spacing:.3em;"
         "text-transform:uppercase;color:#b39a5e;margin:.1rem 0 0}"
+        /*  the projector's studio                                         */
+        ".cast{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);"
+        "gap:2rem;align-items:start;margin:1.4rem 0}"
+        "@media(max-width:52rem){.cast{grid-template-columns:1fr}}"
+        "#stage{margin:0;border:1px solid #2b2314;border-radius:1.3rem;overflow:hidden;"
+        "background:radial-gradient(30rem 30rem at 50% 40%,#171022,#060409);"
+        "box-shadow:0 24px 70px rgba(0,0,0,.5)}"
+        "#stage svg{display:block;width:100%;height:auto;border:0;background:none;"
+        "max-width:none}"
+        ".deck label{margin:.9rem 0 .2rem}"
+        ".chip{margin:.25rem .3rem .25rem 0;padding:.4rem .8rem;font-size:10.5px}"
+        ".chip.on{background:rgba(224,193,132,.14);border-color:#8a6f3a;color:#f4dda6}"
         /*  the bars: a launch and a lock are both dragged before they are
             typed                                                          */
         "input[type=range]{width:100%;accent-color:#e0c184;background:transparent;"
@@ -353,6 +365,10 @@ contract Chrome {
             _tab("/lock", "lock", here == 18),
             _tab("/chat", "social", here == 16),
             _tab("/gallery", "market", here == 22),
+            _tab("/projector", "projector", here == 17),
+            _tab("/name", "name", here == 12),
+            _tab("/keys", "keys", here == 13),
+            _tab("/seal", "seal", here == 14),
             _tab("/services.json", "manifest", here == 6),
             "</nav>"
         );

@@ -649,6 +649,41 @@ modules is untouched.
 → `engine/ipseity.html` · `DOORS`, gated by `DOORED`; seen live on every
   token the moment the hub was re-pointed
 
+**108. The bolt answers to the holder alone.**
+Soulbinding exists to survive the one attack that actually empties wallets:
+a phished approval. It did not. `onlyHolder` admits an approved operator,
+so a thief holding an approval could call `unlock` and then take the token
+— measured, on chain, before it was fixed. `lock` and `unlock` now take a
+stricter door that admits the owner and the token's own account and nobody
+else, and the attack is run on every check so it cannot come back.
+→ `tools/verify.mjs` · *"the bolt survives a stolen approval"*,
+  `src/Ipseity.sol` · `onlyOwner`
+
+**109. A token cannot be given to its own hand.**
+Transferred to its own Reach or Grip, a token is frozen forever: the account
+asks who holds the token, and the holder would be the account. Both hands are
+refused, computed rather than looked up so the refusal covers an account
+nobody has deployed yet.
+→ `tools/verify.mjs` · *"the hands cannot hold the token that made them"*,
+  `src/Ipseity.sol` · `isTransferable`
+
+**110. A page that carries no keccak proves its encoding against one that does.**
+The name page builds DNS wire format with string arithmetic because the
+browser here has no hash function; the resolver hashes what it is handed. The
+drive encodes the same name independently and requires the contract to agree
+about which node it meant — the only way a hand-built encoding can be checked
+by something other than itself.
+→ `tools/verify-site.mjs` · *"the name the client encoded is the name the
+  contract hashed"*, `src/PageName.sol`
+
+**111. A granted permission is exactly the one that was pressed.**
+`grantSession` carries two dynamic arrays whose items align opposite ways —
+an address right in its word, a `bytes4` left — and getting it backwards
+grants something nobody chose without reverting. The drive presses one chip,
+sends the page's own calldata, and then asks the account, selector by
+selector and address by address, what it believes it permits.
+→ `tools/verify-site.mjs` · *"driving the session keys"*, `src/PageKeys.sol`
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

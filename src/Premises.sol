@@ -39,6 +39,10 @@ interface IPageGallery  { function gallery(uint256 page) external view returns (
 interface IPageLaunch   { function launch() external view returns (string memory); }
 interface IPageLock     { function lockPage() external view returns (string memory); }
 interface IPageHook     { function hook(address at) external view returns (string memory); }
+interface IPageCast     { function cast() external view returns (string memory); }
+interface IPageSeal     { function sealPage() external view returns (string memory); }
+interface IPageKeys     { function keys() external view returns (string memory); }
+interface IPageName     { function namePage() external view returns (string memory); }
 
 interface IPageServices {
     function rent(uint256 id) external view returns (string memory);
@@ -96,6 +100,10 @@ interface IPageManifest {
       /launch                    a v4 launchpad: token, hook, pool
       /hook/<address>            what a hook's address already says
       /lock                      the vault: tokens in, a date, no early exit
+      /projector                 the 4-D renderer, free for anyone
+      /seal                      the three seals: soulbind, account, kernel
+      /keys                      session keys: scoped, expiring permissions
+      /name                      an ENS name, bound to a token
       /chat                      the commons: one room, every token in it
       /rooms                     the groups this token has entered
       /room/<n>                  one group, numbered from 1
@@ -144,6 +152,10 @@ contract Premises {
     IPageLaunch   public immutable P_LAUNCH;
     IPageLock     public immutable P_LOCK;
     IPageHook     public immutable P_HOOK;
+    IPageCast     public immutable P_CAST;
+    IPageSeal     public immutable P_SEAL;
+    IPageKeys     public immutable P_KEYS;
+    IPageName     public immutable P_NAME;
 
     struct KeyValue { string key; string value; }
 
@@ -156,40 +168,38 @@ contract Premises {
     ///      and a cached market is a market that quotes last minute's price.
     string private constant CACHE = "public, max-age=15";
 
-    constructor(
-        IHub hub,
-        IChrome chrome,
-        IPageDoor pDoor,
-        IPageToken pToken,
-        IPageMarket pMarket,
-        IPagePool pPool,
-        IPageServices pServices,
-        IPageManifest pManifest,
-        IPageTalk pTalk,
-        IPageRooms pRooms,
-        IPageTerminal pTerminal,
-        IPageSwap pSwap,
-        IPageGallery pGallery,
-        IPageLaunch pLaunch,
-        IPageLock pLock,
-        IPageHook pHook
-    ) {
+    struct Pages {
+        IPageDoor door; IPageToken token; IPageMarket market; IPagePool pool;
+        IPageServices services; IPageManifest manifest; IPageTalk talk;
+        IPageRooms rooms; IPageTerminal terminal; IPageSwap swap;
+        IPageGallery gallery; IPageLaunch launch; IPageLock lock;
+        IPageHook hook; IPageCast cast; IPageSeal seal; IPageKeys keys;
+        IPageName name;
+    }
+
+    /// @dev Seventeen flat addresses is past what even viaIR keeps on a
+    ///      stack; a named struct is the same calldata, one memory pointer.
+    constructor(IHub hub, IChrome chrome, Pages memory p) {
         HUB = hub;
         CHROME = chrome;
-        P_DOOR = pDoor;
-        P_TOKEN = pToken;
-        P_MARKET = pMarket;
-        P_POOL = pPool;
-        P_SERVICES = pServices;
-        P_MANIFEST = pManifest;
-        P_TALK = pTalk;
-        P_ROOMS = pRooms;
-        P_TERMINAL = pTerminal;
-        P_SWAP = pSwap;
-        P_GALLERY = pGallery;
-        P_LAUNCH = pLaunch;
-        P_LOCK = pLock;
-        P_HOOK = pHook;
+        P_DOOR = p.door;
+        P_TOKEN = p.token;
+        P_MARKET = p.market;
+        P_POOL = p.pool;
+        P_SERVICES = p.services;
+        P_MANIFEST = p.manifest;
+        P_TALK = p.talk;
+        P_ROOMS = p.rooms;
+        P_TERMINAL = p.terminal;
+        P_SWAP = p.swap;
+        P_GALLERY = p.gallery;
+        P_LAUNCH = p.launch;
+        P_LOCK = p.lock;
+        P_HOOK = p.hook;
+        P_CAST = p.cast;
+        P_SEAL = p.seal;
+        P_KEYS = p.keys;
+        P_NAME = p.name;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -301,6 +311,26 @@ contract Premises {
         if (_eq(resource[0], "lock")) {
             if (n != 1) return _notFound();
             return (200, P_LOCK.lockPage(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "projector")) {
+            if (n != 1) return _notFound();
+            return (200, P_CAST.cast(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "seal")) {
+            if (n != 1) return _notFound();
+            return (200, P_SEAL.sealPage(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "keys")) {
+            if (n != 1) return _notFound();
+            return (200, P_KEYS.keys(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "name")) {
+            if (n != 1) return _notFound();
+            return (200, P_NAME.namePage(), _headers(HTML));
         }
 
         if (_eq(resource[0], "hook")) {

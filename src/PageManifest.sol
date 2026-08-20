@@ -321,6 +321,10 @@ contract PageManifest {
         "says, with no call\"},"
         "{\"path\":\"/lock\",\"is\":\"the vault: tokens in, a date, no early "
         "exit \u2014 ten years on a slider\"},"
+        "{\"path\":\"/projector\",\"is\":\"the 4-D renderer, pure and public\"},"
+        "{\"path\":\"/name\",\"is\":\"bind an ENS name to a token, ERC-6821 included\"},"
+        "{\"path\":\"/keys\",\"is\":\"session keys: scoped, expiring permissions\"},"
+        "{\"path\":\"/seal\",\"is\":\"the three seals: soulbind, account, kernel\"},"
         "{\"path\":\"/open\",\"is\":\"every open market here\",\"paged\":true},"
         "{\"path\":\"/services.json\",\"is\":\"this document\",\"paged\":true}"
         "]";

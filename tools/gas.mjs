@@ -207,6 +207,10 @@ const routes = [];
     [["gallery"], "/gallery", "the collection, wearing its stills"],
     [["launch"], "/launch", "the launchpad: token, hook, pool"],
     [["lock"], "/lock", "the vault: ten years on a slider"],
+    [["projector"], "/projector", "the 4-D renderer, free for anyone"],
+    [["seal"], "/seal", "the three seals"],
+    [["keys"], "/keys", "session keys"],
+    [["name"], "/name", "a name bound to a token"],
     [["swap"], "/swap", "the Uniswap card (venueless on this bare chain)"]
   ]) {
     routes.push({ label, note, ...(await hit(path)) });

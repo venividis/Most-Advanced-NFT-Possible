@@ -350,6 +350,63 @@ const cMeta = JSON.parse(Buffer.from(cURI.split(",")[1], "base64").toString("utf
 eq("collection name", cMeta.name, "IPSEITY");
 ok("collection has an image", String(cMeta.image).startsWith("data:image/svg+xml;base64,"));
 
+/*  A token handed to its own hand can never be moved again: the account
+    asks whether the caller holds the token, and the holder would be the
+    account. The hub refuses both hands rather than documenting the hole. */
+/*  Found by writing the page that sells this seal, and measured before it
+    was fixed: `onlyHolder` admits an approved operator, so a thief holding
+    a phished approval could call `unlock` and then take the token. A bolt
+    an attacker can lift stops nobody, so the bolt now answers to the
+    holder alone. This is the attack, run every time.                    */
+head("the bolt survives a stolen approval");
+{
+  const bolted = 2;
+  const thief = await c.as("0x" + "7d".repeat(32));
+  await c.exec(nft, "lock(uint256)", [bolted]);
+  ok("the token is bolted", decBool(await c.read(nft, "locked(uint256)", [bolted])));
+
+  await c.exec(nft, "approve(address,uint256)", [thief.from.toString(), bolted]);
+  let lifted = false;
+  try { await thief.exec(nft, "unlock(uint256)", [bolted]); lifted = true; } catch {}
+  ok("an approved operator cannot lift it", !lifted);
+
+  let taken = false;
+  try {
+    await thief.exec(nft, "transferFrom(address,address,uint256)",
+      [c.from.toString(), thief.from.toString(), bolted]);
+    taken = true;
+  } catch {}
+  ok("and therefore cannot take it", !taken);
+  eq("the token did not move", decAddr(await c.read(nft, "ownerOf(uint256)", [bolted]))
+     .toLowerCase(), c.from.toString().toLowerCase());
+
+  await c.exec(nft, "unlock(uint256)", [bolted]);
+  ok("while the holder lifts it whenever they like",
+     !decBool(await c.read(nft, "locked(uint256)", [bolted])));
+  await c.exec(nft, "approve(address,uint256)", ["0x" + "00".repeat(20), bolted]);
+}
+
+head("the hands cannot hold the token that made them");
+{
+  const reach = decAddr(await c.read(nft, "account(uint256)", [1]));
+  const grip  = decAddr(await c.read(nft, "grip(uint256)", [1]));
+  ok("a token is not transferable to its own Reach",
+     !decBool(await c.read(nft, "isTransferable(uint256,address,address)",
+       [1, c.from.toString(), reach])), reach);
+  ok("nor to its own Grip",
+     !decBool(await c.read(nft, "isTransferable(uint256,address,address)",
+       [1, c.from.toString(), grip])), grip);
+  let froze = false;
+  try {
+    await c.exec(nft, "transferFrom(address,address,uint256)",
+      [c.from.toString(), reach, 1]);
+  } catch { froze = true; }
+  ok("and the transfer itself reverts, not merely the view", froze);
+  ok("while an ordinary address is still fine",
+     decBool(await c.read(nft, "isTransferable(uint256,address,address)",
+       [1, c.from.toString(), "0x" + "33".repeat(20)])));
+}
+
 head("ERC-5192 / ERC-6454 · binding");
 ok("transferable to begin with",
    decBool(await c.read(nft, "isTransferable(uint256,address,address)",

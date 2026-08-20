@@ -129,6 +129,10 @@ const pages = [
   [["gallery"], "gallery.html", "the collection, wearing its stills"],
   [["launch"], "launch.html", "the launchpad: token, hook, pool"],
   [["lock"], "lock.html", "the vault: ten years on a slider"],
+  [["projector"], "projector.html", "the 4-D renderer, free for anyone"],
+  [["seal"], "seal.html", "the three seals"],
+  [["keys"], "keys.html", "session keys"],
+  [["name"], "name.html", "a name bound to a token"],
   [["swap"], "swap.html", "any pair, on the venue with the liquidity"],
   [["chat"], "chat.html", "the commons"],
   [["rooms"], "rooms.html", "the groups"],
@@ -154,6 +158,10 @@ for (const [route, file, what] of pages) {
       .replace(/href="\/gallery"/g, 'href="gallery.html"')
       .replace(/href="\/launch"/g, 'href="launch.html"')
       .replace(/href="\/lock"/g, 'href="lock.html"')
+      .replace(/href="\/name"/g, 'href="name.html"')
+      .replace(/href="\/keys"/g, 'href="keys.html"')
+      .replace(/href="\/seal"/g, 'href="seal.html"')
+      .replace(/href="\/projector"/g, 'href="projector.html"')
       .replace(/href="\/swap"/g, 'href="swap.html"')
       .replace(/href="\/chat"/g, 'href="chat.html"')
       .replace(/href="\/rooms"/g, 'href="rooms.html"')
