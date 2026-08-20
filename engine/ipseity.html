@@ -258,6 +258,36 @@ pre.code b{color:var(--a);font-weight:400}
 #nestbar{position:absolute;top:-19px;left:0;font-size:8px;letter-spacing:.2em;
   text-transform:uppercase;color:var(--a);white-space:nowrap}
 
+/*  The two the thumb needs. `/` opens the command list on a keyboard and
+    there is no keyboard on a phone, so the list gets a button; and the
+    door nodes orbit, which means on a narrow screen they can be behind
+    you when you want them, so the way out to the 2-D site is always on
+    the rail as well.                                                    */
+/*  The rail is a row of fixed cells and a phone is 412 points wide, so
+    without this the two buttons on the end are simply past the edge —
+    which is how the way out of the instrument came to be unreachable on
+    the device most people hold. The buttons hug the right, and the one
+    cell that is decoration rather than navigation stands aside when
+    there is no room for it.                                           */
+#link{margin-left:auto;flex:none}
+#r2d,#rcmd{flex:none}
+/*  The identity cells give way before the actions do: a chain name can be
+    an ellipsis and still tell you what you need, but a button past the
+    edge is a button that does not exist.                              */
+.cell{flex:0 1 auto;overflow:hidden}
+/*  The chain cell used to take every spare point on the rail (`flex:1`,
+    an id selector, so nothing a class says can argue). On a desk that is
+    invisible; on a phone it pushed the two buttons past the right edge,
+    which is how the way out of the instrument came to be missing on the
+    device most people use. It takes what it needs now.                */
+#c-net{flex:0 1 auto}
+.cell .v{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:560px){ #c-form{display:none} }
+#r2d,#rcmd{background:none;border:0;border-left:1px solid var(--rule);
+  color:var(--mid);font:600 11px/1 var(--mono);letter-spacing:.14em;
+  padding:0 14px;cursor:pointer;align-self:stretch}
+#r2d:hover,#rcmd:hover,#r2d:focus-visible,#rcmd:focus-visible{color:var(--a);outline:none}
+#r2d[hidden]{display:none}
 /*──────────────────────── palette ────────────────────────*/
 #pal{position:fixed;inset:0;z-index:13;background:rgba(4,5,10,.7);backdrop-filter:blur(6px);
   display:none;align-items:flex-start;justify-content:center;padding:12vh 16px 16px}
@@ -320,6 +350,8 @@ pre.code b{color:var(--a);font-weight:400}
   <div class="cell" id="c-form"><span class="k">Section</span><span class="v" id="v-form">—</span></div>
   <div class="cell" id="c-net"><span class="k">Chain</span><span class="v" id="v-net">—</span></div>
   <button id="link" type="button"><span class="led" id="v-led"></span><span id="v-link">Connect</span></button>
+  <button id="r2d" type="button" hidden>2D</button>
+  <button id="rcmd" type="button" title="every command">&#8230;</button>
 </div>
 
 <div id="tick" role="status" aria-live="polite">Drag the field to orbit. The slider moves you through the fourth axis.</div>
@@ -476,8 +508,8 @@ const DOORS = [
     blurb:"The whole collection, wearing its stills. Opens the 2-D gallery." },
   { id:"DARCHIVE", name:"Archive",  ring:2, key:"", door:"/open",
     blurb:"Every market open for business. Opens the 2-D archive." },
-  { id:"DSITE",    name:"Site",     ring:2, key:"", door:"/",
-    blurb:"The 2-D site entire, from its own front door." }
+  { id:"DSITE",    name:"2D Site",  ring:2, key:"", door:"/door",
+    blurb:"The flat site entire, from its own front page \u2014 what you hold, the chains, the roll." }
 ];
 if(DOORED) MODULES.push(...DOORS);
 
@@ -1437,7 +1469,21 @@ function layout(){
     }
     if(!e.vis){ e.d.style.display = ""; e.w.style.display = ""; e.vis = true; }
     const vx = p.x - cx, vy = p.y - cy, len = Math.hypot(vx, vy) || 1;
-    const lx = p.x + (vx / len) * 48, ly = p.y + (vy / len) * 48;
+    let lx = p.x + (vx / len) * 48, ly = p.y + (vy / len) * 48;
+    /*  A door is a way out, not a decoration, so it is never allowed to
+        drift past the edge and become unreachable. The instrument's own
+        nodes are geometry and stay where the geometry puts them; only
+        the doors are pinned, and the wire still runs to where the node
+        actually is, so nothing is lied about — the handle is just kept
+        inside the room. This is the difference between a phone in
+        portrait and a desk: the field is projected against the taller
+        side, so on a narrow screen the outermost orbit spends most of
+        its time off both edges.                                        */
+    if(n.door){
+      const m = 54;
+      lx = Math.min(Math.max(lx, m), innerWidth - m);
+      ly = Math.min(Math.max(ly, m), innerHeight - m);
+    }
     e.d.style.transform = "translate(-50%,-50%) translate(" + lx.toFixed(1) + "px," + ly.toFixed(1) + "px)";
     e.d.style.opacity = clamp(2.3 - p.z * 0.21, 0.34, 1).toFixed(2);
     e.d.className = "nd" + (VIS.sel === i ? " on" : "") + (isOpen(i) ? "" : " shut");
@@ -3465,6 +3511,17 @@ const COMMANDS = [
     k: "i", run: () => { VIS.spin = [0,0,0, 0.26, 0, 0.26]; say("Isoclinic: xw and zw together, at equal rate. In three dimensions there is no such motion."); paintDock(); } },
   { t: "Stop every rotation", d: "Hold the solid still.", k: "s", run: () => { VIS.spin = [0,0,0,0,0,0]; wDrift = false; $("#wauto").classList.remove("on"); paintDock(); say("Held."); } },
   { t: "Centre the section", d: "Put the cut back at w = 0.", k: "0", run: () => { setW(0); say("Section returned to the origin."); } },
+  ...(DOORED ? [
+    { t: "launch 2D", d: "Open the flat site \u2014 the 2-D interface, with every surface on one row.",
+      k: "", run: () => { location.href = "/door"; } },
+    { t: "launch 2D swap", d: "Open the 2-D swap surface.", k: "", run: () => { location.href = "/swap"; } },
+    { t: "launch 2D launch", d: "Open the 2-D launchpad.", k: "", run: () => { location.href = "/launch"; } },
+    { t: "launch 2D lock", d: "Open the 2-D vault.", k: "", run: () => { location.href = "/lock"; } },
+    { t: "launch 2D social", d: "Open the 2-D social layer.", k: "", run: () => { location.href = "/chat"; } },
+    { t: "launch 2D gallery", d: "Open the 2-D gallery.", k: "", run: () => { location.href = "/gallery"; } },
+    { t: "launch 2D terminal", d: "Open the 2-D terminal, where one line does anything.",
+      k: "", run: () => { location.href = "/terminal"; } }
+  ] : []),
   { t: "Connect a wallet", d: "Announce for EIP-6963 providers and bind one.", k: "", run: () => connect() },
   { t: "Copy this token's URL", d: "The contract, chain and id, as a link.", k: "", run: () => {
       const u = (chainOf(S.chainId).ex || "") + "/token/" + S.collection + "?a=" + S.id;
@@ -3504,6 +3561,20 @@ const COMMANDS = [
   });
   box.addEventListener("click", e => { if(e.target === box) box.classList.remove("open"); });
   window.__palette = show;
+})();
+
+/*  The two thumb-sized ways in. `/` opens the command list on a keyboard;
+    a phone has none, so the rail carries a button for it. And `2D` is the
+    way out to the flat site — always on the rail, because a door that
+    orbits is a door you sometimes cannot reach.                        */
+(function reach(){
+  const cmd = $("#rcmd"), two = $("#r2d");
+  if(cmd) cmd.addEventListener("click", () => window.__palette());
+  if(!DOORED){ if(two) two.remove(); return; }
+  if(two){
+    two.hidden = false;
+    two.addEventListener("click", () => { location.href = "/door"; });
+  }
 })();
 
 addEventListener("keydown", e => {

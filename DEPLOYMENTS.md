@@ -288,3 +288,36 @@ passed as one named struct — identical calldata, one memory pointer; and the
 name page needs the resolver's address while the resolver needs the premises
 which needs the name page, so the resolver's address is computed from the
 deployer and the nonce it will hold, and asserted the moment it exists.
+
+### The token is the front page — 2026-08-20
+
+Clicking a link to this NFT used to land you on a page *about* the NFT, with
+the artwork one link further in. That was backwards, and it is now the other
+way round: `/` serves the live instrument, and the flat pages — still the
+right shape for anything a form does better than an orbit — sit behind its
+doors and at `/door`. Before the first mint there is no token to render and
+the flat page answers instead.
+
+Three things were wrong with reaching the 2-D site *from* the instrument, and
+all three only appeared on a phone:
+
+  · the command list opened with `/` and a phone has no `/` key, so on touch
+    there was no way to open it at all — the rail carries a button now;
+  · the door nodes orbit at the widest radius, and the field is projected
+    against the taller side of the screen, so in portrait they spent most of
+    their time off both edges — door labels are pinned inside the viewport
+    now, with the wire still running to where the node actually is;
+  · and the rail's chain cell was `flex:1` behind an id selector, so it took
+    every spare point and pushed the buttons past the right edge. Measured,
+    not guessed: at a 500-point viewport the cell was 237 points wide and the
+    buttons began at 418. It takes what it needs now.
+
+The palette also learned the verb a person would actually type: `launch 2D`,
+and `launch 2D swap`, `lock`, `social`, `gallery`, `terminal` beside it.
+
+```
+Base Sepolia    Premises 0x3045c6db8cc685b9312f7209f2ee36b04ed0648a   (/ is the instrument; /door the flat page)
+                Engine   0x7db52df6a2f5e02fe6dc22918ec1770aa629dc60   (frozen; 4 shards, 40,771 B packed)
+                Renderer 0xfa5c47d8201ae204f261d2b78e6357e2dd7a0ed4
+                https://0x3045c6db8cc685b9312f7209f2ee36b04ed0648a.basesep.w3link.io/
+```

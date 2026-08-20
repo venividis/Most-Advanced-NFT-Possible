@@ -327,6 +327,7 @@ const routes = [
   [["gallery", "0"], "text/html", "/gallery/0"],
   [["launch"], "text/html", "/launch"],
   [["lock"], "text/html", "/lock"],
+  [["door"], "text/html", "/door"],
   [["projector"], "text/html", "/projector"],
   [["seal"], "text/html", "/seal"],
   [["keys"], "text/html", "/keys"],
@@ -417,7 +418,7 @@ head("and it describes the collection-wide surface too");
   ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 11,
      JSON.stringify(m.routes || null).slice(0, 120));
   const paths = (m.routes || []).map((r) => r.path);
-  for (const p of ["/", "/terminal", "/chat", "/rooms", "/room/<n>", "/dm/<id>",
+  for (const p of ["/", "/door", "/terminal", "/chat", "/rooms", "/room/<n>", "/dm/<id>",
                    "/gallery", "/launch", "/lock", "/projector", "/seal", "/keys", "/name", "/hook/<address>", "/swap", "/open",
                    "/services.json"]) {
     ok(`  ${p} is discoverable`, paths.includes(p), paths.join(" "));
@@ -636,7 +637,7 @@ head("the app parses as JavaScript");
 const scriptsOf = (body) =>
   [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 for (const [label, body] of [
-  ["the door", (await GET([])).body],
+  ["the flat door", (await GET(["door"])).body],
   ["the terminal", (await GET(["terminal"])).body],
   ["the launchpad", (await GET(["launch"])).body],
   ["the vault", (await GET(["lock"])).body],
@@ -680,8 +681,8 @@ for (const [label, path] of [["the counter", ["token", "1"]]]) {
      signing.length === 0, `${signing.length} wallet-touching block(s)`);
 }
 {
-  const b = (await GET([])).body;
-  ok("the door ships one, because it is the way in",
+  const b = (await GET(["door"])).body;
+  ok("the flat door ships one, because it is a way in",
      scriptsOf(b).length > 0 && b.includes("balanceOf"),
      "the door cannot tell you what you hold");
 }
@@ -1151,9 +1152,32 @@ head("driving a direct message, and the room nobody founded");
   eq("without touching the commons", commonsNow, commonsWas);
 }
 
+/*  The root used to be a page about the collection with the artwork on a
+    link. It is the artwork now: a visitor who follows a link to an NFT
+    arrives at the NFT, and the flat pages sit behind its doors.        */
+head("the front page is the instrument");
+{
+  const root = await GET([]);
+  eq("/ answers 200", root.status, 200);
+  /*  The instrument arrives packed: a short loader, then the document as
+      gzip the browser inflates itself. So the proof it is the artwork and
+      not a page about the artwork is the loader and its shards, not the
+      word "canvas" — which is inside the compressed body where no string
+      match can reach it.                                              */
+  ok("and what it answers with is the instrument, not a page about one",
+     /\$IPSE\s*=\s*\[/.test(root.body) && /DecompressionStream/.test(root.body),
+     root.body.slice(0, 100));
+  ok("carrying the token's own state rather than a placeholder",
+     /IPSE\s*=|window\.IPSE/.test(root.body), "no injected state found");
+  const flat = await GET(["door"]);
+  eq("and the flat front page still answers at /door", flat.status, 200);
+  ok("with the whole row of surfaces on it", flat.body.includes("/swap")
+     && flat.body.includes("/lock") && flat.body.includes("/gallery"));
+}
+
 head("the door is the solid itself");
 {
-  const page = await GET([]);
+  const page = await GET(["door"]);
   ok("the 4-polytope is on the door", page.body.includes("<canvas id=tess")
      && page.body.includes("class=tess4"));
   ok("and the terminal speaks from the door itself",
@@ -1185,7 +1209,7 @@ head("the door is the solid itself");
 
 head("the door hands over what the wallet holds");
 {
-  const page = await GET([]);
+  const page = await GET(["door"]);
   mount(page.body);
   wallet(c);
   runScripts(page.body);

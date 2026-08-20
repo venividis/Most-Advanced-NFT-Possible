@@ -305,7 +305,8 @@ contract PageManifest {
         obviously small.                                                 */
     string internal constant ROUTES =
         "["
-        "{\"path\":\"/\",\"is\":\"the door: what you hold, and the way into it\"},"
+        "{\"path\":\"/\",\"is\":\"the instrument itself, live \\u2014 the token is the interface\"},"
+        "{\"path\":\"/door\",\"is\":\"the flat front page: what you hold, the chains, the roll\"},"
         "{\"path\":\"/terminal\",\"is\":\"every function, one line at a time; "
         "window.TERM.run() for agents\"},"
         "{\"path\":\"/chat\",\"is\":\"the commons: one room, every token\"},"

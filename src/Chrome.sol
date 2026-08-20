@@ -358,7 +358,8 @@ contract Chrome {
     function navTop(uint8 here) external pure returns (string memory) {
         return string.concat(
             "<nav>",
-            _tab("/", "door", here == 0),
+            _tab("/", "instrument", here == 30),
+            _tab("/door", "door", here == 0),
             _tab("/terminal", "terminal", here == 20),
             _tab("/swap", "swap", here == 9),
             _tab("/launch", "launch", here == 15),

@@ -241,7 +241,33 @@ contract Premises {
         uint256 n = resource.length;
         if (n > 0 && bytes(resource[n - 1]).length == 0) --n;
 
+        /*  The front page is the instrument itself.
+
+            For a long time this answered with a page *about* the
+            collection, and the artwork was a link on it. That is the
+            wrong way round: the token is the interface, and a visitor who
+            clicks a link to an NFT should arrive at the NFT. So the root
+            serves the live instrument for the collection's first token,
+            and the flat pages — which are still the way to do everything
+            a form does better than an orbit — sit behind its doors and at
+            `/door`.
+
+            Before the first mint there is no token to render, so the flat
+            page answers instead. A door with nothing behind it is worse
+            than a door that says so.                                   */
         if (n == 0) {
+            if (HUB.totalSupply() == 0) {
+                return (200, P_DOOR.door(), _headers(HTML));
+            }
+            return (
+                200,
+                string(IRendererDoc(HUB.renderer()).document(HUB.viewOf(1))),
+                _headers(HTML)
+            );
+        }
+
+        if (_eq(resource[0], "door")) {
+            if (n != 1) return _notFound();
             return (200, P_DOOR.door(), _headers(HTML));
         }
 
