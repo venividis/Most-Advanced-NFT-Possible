@@ -183,14 +183,48 @@ contract PoolTest is Test {
         assertTrue(pool.quote(1, true, WAD) != before_, "the holder's sync should move it");
     }
 
-    function test_turningThroughWConcentratesTheCurve() public {
-        uint256 flat = Curve.concentration(Section.pack([uint16(0), 0, 0, 0, 0, 0], 0, 0, 0));
-        uint256 spun = Curve.concentration(Section.pack([uint16(32768), 32768, 32768, 0, 0, 0], 0, 0, 0));
-        uint256 edge = Curve.concentration(Section.pack([uint16(0), 0, 0, 32768, 32768, 32768], 0, 0, 0));
+    /*  Rewritten, because both of the things it used to assert were the
+        old implementation rather than properties of the geometry.
 
-        assertEq(flat, 0, "an unturned solid is plain constant product");
+        It passed `0` as the offset, which is not the centre — the centre
+        is 32768, and 0 is the far edge of w. The old concentration read
+        only the w-angles, so the offset could be anything and the number
+        did not move. It does now, and should: a cut at the edge really
+        does catch less of the solid.
+
+        And it asserted that a HALF turn in each w-plane is maximally
+        concentrated. A half turn about each w-plane returns the cut plane
+        exactly where it started, so that word renders an untouched solid.
+        Pricing it at maximum was the market disagreeing with the picture,
+        which is the defect this whole library was rewritten to remove.  */
+    function test_turningThroughWConcentratesTheCurve() public {
+        uint16 mid = 32768;                                     // the centre of w
+        uint256 flat  = Curve.concentration(Section.pack([uint16(0), 0, 0, 0, 0, 0], mid, 0, 0));
+        uint256 spun  = Curve.concentration(Section.pack([uint16(32768), 12345, 54321, 0, 0, 0], mid, 0, 0));
+        uint256 half  = Curve.concentration(Section.pack([uint16(0), 0, 0, 32768, 32768, 0], mid, 0, 0));
+        uint256 quart = Curve.concentration(Section.pack([uint16(0), 0, 0, 16384, 0, 0], mid, 0, 0));
+        uint256 offw  = Curve.concentration(Section.pack([uint16(0), 0, 0, 0, 0, 0], 0, 0, 0));
+
+        assertEq(flat, 0, "an unturned, centred solid is plain constant product");
         assertEq(spun, 0, "spinning the section must not touch the market");
-        assertEq(edge, Curve.MAX_CONCENTRATION, "edge on is fully concentrated");
+        assertEq(half, flat, "half a turn is the same cut plane, so the same market");
+        assertGt(quart, flat, "a quarter turn really does tip the plane, and concentrates");
+        assertGt(offw, flat, "and so does sliding the cut off centre");
+    }
+
+    /// @dev The headline claim of the market design, which was false for the
+    ///      whole life of the contract: `form` never reached the curve, so
+    ///      every solid priced identically.
+    function test_theCurveIsTheSolid() public {
+        uint16 mid = 32768;
+        uint256 seen;
+        uint256[8] memory at;
+        for (uint8 f = 0; f < 8; ++f) {
+            at[f] = Curve.concentration(
+                Section.pack([uint16(0), 0, 0, 11000, 4000, 0], mid, f, 0));
+            for (uint8 g = 0; g < f; ++g) if (at[g] == at[f]) { seen++; break; }
+        }
+        assertEq(seen, 0, "two solids priced the same at the same cut");
     }
 
     /*═════════ the market travels with the token ═════════*/

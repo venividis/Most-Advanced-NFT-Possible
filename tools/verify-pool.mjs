@@ -221,11 +221,27 @@ ok("no round trip ever came back with more than it started", leaks === 0);
 /*──────────────────── the shape is the curve ────────────────────*/
 head("rotating the solid re-prices the market");
 const priceNow = () => c.read(pool, "quote(uint256,bool,uint256)", [1, true, WAD]).then(decUint);
+/*  Anchor at the reserves as they stand before measuring anything. The
+    trades above moved them, and the stored offsets are from before that —
+    so without this the comparison below is between a stale anchor and a
+    fresh one, and reports re-anchoring as if it were concentration.    */
+await c.exec(pool, "syncCurve(uint256)", [1], { label: "syncCurve" });
 const flat = await priceNow();
 const cFlat = decUint(await c.read(pool, "market(uint256)", [1]), 6);
 
-// turn the three planes that contain w all the way over
-const turned = (32768n << 48n) | (32768n << 64n) | (32768n << 80n) |
+/*  A QUARTER turn in the w-planes, not a half.
+
+    This fixture used to set all three to 32768 — half a turn — and called
+    it "edge on". It is not: half a turn about each w-plane returns the cut
+    plane exactly where it started, so the section is identical to rest and
+    the picture shows an unturned solid. The old concentration was a sum of
+    angles, which happened to read that as maximal, and the fixture was
+    built to match. Both were wrong in the same direction, which is how a
+    test comes to certify a bug.
+
+    A quarter turn genuinely tips the cut plane out of the holder's
+    3-space, and the section really does narrow.                         */
+const turned = (16384n << 48n) | (16384n << 64n) | (16384n << 80n) |
                (32768n << 96n) | (2n << 112n) | (33n << 120n);
 await c.exec(nft, "commit(uint256,uint256)", [1, turned], { label: "commit (re-price)" });
 ok("the market has not moved yet — the curve is a copy", (await priceNow()) === flat);

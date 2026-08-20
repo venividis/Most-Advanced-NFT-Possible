@@ -271,15 +271,32 @@ await property("concentration is bounded, at every word there is",
     return true;
   });
 
-await property("only the three planes that contain w move the price",
-  () => [pick(0, 65535), pick(0, 65535), pick(0, 65535), pick(0, 7), pick(0, 255), pick(0, 65535)],
+/*  This used to assert that with the three w-planes at zero the price was
+    exactly zero, which encoded the old implementation rather than a
+    property: concentration was a sum of the w-angles and nothing else, so
+    the solid and the offset could not reach it. Both do now, and should —
+    moving the cut off centre genuinely makes the section smaller.
+
+    The invariant that was actually meant, and that survives, is the one
+    about degrees of freedom: the three planes NOT containing w only spin
+    the picture. They are applied before the others and never touch index
+    3, so the cut plane, and therefore the market, is untouched by them.  */
+await property("the three planes that do not contain w never move the price",
+  () => [pick(0, 65535), pick(0, 65535), pick(0, 65535),
+         pick(0, 65535), pick(0, 65535), pick(0, 65535),
+         pick(0, 65535), pick(0, 65535), pick(0, 65535),
+         pick(0, 7), pick(0, 255), pick(0, 65535)],
   async (v) => {
-    const [xy, xz, yz, f, h, w] = v.map(BigInt);
-    // a word with the three w-planes at zero: spinning the section only
-    const word = (xy & 0xffffn) | ((xz & 0xffffn) << 16n) | ((yz & 0xffffn) << 32n) |
-                 ((w & 0xffffn) << 96n) | ((f % 8n) << 112n) | ((h & 0xffn) << 120n);
-    const conc = decUint(await c.read(probe, "concentration(uint256)", [word]));
-    if (conc !== 0n) return `spinning the section moved the price to ${conc}`;
+    const b = v.map(BigInt);
+    const [xy1, xz1, yz1, xy2, xz2, yz2, xw, yw, zw, f, h, w] = b;
+    const mk = (a, bb, cc) =>
+      (a & 0xffffn) | ((bb & 0xffffn) << 16n) | ((cc & 0xffffn) << 32n) |
+      ((xw & 0xffffn) << 48n) | ((yw & 0xffffn) << 64n) | ((zw & 0xffffn) << 80n) |
+      ((w & 0xffffn) << 96n) | ((f % 8n) << 112n) | ((h & 0xffn) << 120n);
+    const one = decUint(await c.read(probe, "concentration(uint256)", [mk(xy1, xz1, yz1)]));
+    const two = decUint(await c.read(probe, "concentration(uint256)", [mk(xy2, xz2, yz2)]));
+    if (one !== two)
+      return `spinning the picture repriced the market: ${one} vs ${two}`;
     return true;
   });
 
