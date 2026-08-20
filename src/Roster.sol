@@ -53,12 +53,47 @@ contract Roster {
     ///      without counting: it is the return value, whole.
     uint256 public constant WINDOW = 256;
 
+    /*  Parley's three kinds, and a fourth this contract needs. A room that
+        was never opened reads back with kind zero, and kind zero is also
+        the commons — so a reader asking about a key nobody founded would be
+        told it is looking at the room that holds everybody. That is the
+        exact confusion this contract exists to remove, so the no-such-room
+        case is given a number of its own here.                          */
+    uint256 public constant COMMONS    = 0;
+    uint8   public constant IS_COMMONS = 0;
+    uint8   public constant IS_GROUP   = 1;
+    uint8   public constant IS_PAIR    = 2;
+    uint8   public constant NO_ROOM    = 3;
+
     constructor(IParleyRead parley, IHubRead hub) {
         PARLEY = parley;
         HUB = hub;
     }
 
     /*═══════════════════ who is in a room ═══════════════════*/
+
+    /// @notice Which of the four this key names. A caller that does not ask
+    ///         cannot tell an empty group from the commons, and those two
+    ///         answers are opposites.
+    function kindOf(uint256 room) public view returns (uint8) {
+        if (room == COMMONS) return IS_COMMONS;
+        (, , , , uint8 k, , , ,) = PARLEY.stateOf(room);
+        return k == IS_COMMONS ? NO_ROOM : k;
+    }
+
+    /*  Membership is not one question, because Parley does not store it one
+        way. A group keeps a mapping and the mapping is the authority. The
+        commons keeps nothing, because everyone is in it — `speak` waves
+        every token through by key alone, so a roster that consulted the
+        mapping would report a room of thousands as empty. A pair keeps
+        nothing either, and for a better reason: its key is the hash of its
+        two members, so holding the key *is* the proof, and there is no
+        third token to ask about.                                        */
+    function _in(uint256 room, uint8 k, uint256 id) private view returns (bool) {
+        if (k == IS_COMMONS) return true;
+        if (k == IS_GROUP)   return PARLEY.inRoom(room, id);
+        return false;
+    }
 
     /// @notice Membership for tokens `from` … `from + 255`, one bit each,
     ///         bit 0 being `from`. A set bit is a token in the room.
@@ -69,10 +104,11 @@ contract Roster {
         external view returns (uint256 bits)
     {
         uint256 supply = HUB.totalSupply();
+        uint8 k = kindOf(room);
         for (uint256 i; i < WINDOW; ++i) {
             uint256 id = from + i;
             if (id == 0 || id > supply) continue;
-            if (PARLEY.inRoom(room, id)) bits |= (1 << i);
+            if (_in(room, k, id)) bits |= (1 << i);
         }
     }
 
@@ -83,10 +119,11 @@ contract Roster {
         external view returns (uint256 bits)
     {
         uint256 supply = HUB.totalSupply();
+        uint8 k = kindOf(room);
         for (uint256 i; i < WINDOW; ++i) {
             uint256 id = from + i;
             if (id == 0 || id > supply) continue;
-            if (!PARLEY.inRoom(room, id) && PARLEY.invited(room, id)) bits |= (1 << i);
+            if (!_in(room, k, id) && PARLEY.invited(room, id)) bits |= (1 << i);
         }
     }
 
@@ -96,12 +133,13 @@ contract Roster {
         external view returns (uint256[] memory ids)
     {
         uint256 supply = HUB.totalSupply();
+        uint8 k = kindOf(room);
         uint256[] memory buf = new uint256[](WINDOW);
         uint256 n;
         for (uint256 i; i < WINDOW; ++i) {
             uint256 id = from + i;
             if (id == 0 || id > supply) continue;
-            if (PARLEY.inRoom(room, id)) { buf[n] = id; unchecked { ++n; } }
+            if (_in(room, k, id)) { buf[n] = id; unchecked { ++n; } }
         }
         ids = new uint256[](n);
         for (uint256 i; i < n; ++i) ids[i] = buf[i];

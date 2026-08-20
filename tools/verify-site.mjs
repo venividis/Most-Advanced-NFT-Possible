@@ -1661,6 +1661,35 @@ head("who is in the room, and who may show them out");
     [keeper, 1, 32]);
   ok("the rooms a token keeps are found from the token alone",
      decUint(mine, 2) >= 1n, `${decUint(mine, 2)} rooms`);
+
+  /*  The commons is not a room anyone joined. Parley waves every token
+      through it by key alone and never writes the mapping, so a roster
+      that consulted the mapping would report the room holding the entire
+      collection as empty — and it did, live on Base Sepolia, before this.
+      The bug is worth a test of its own because the wrong answer is not a
+      revert or a blank: it is a confident sentence saying nobody is here,
+      about a room containing everybody.                                */
+  const supply = decUint(await c.read(nft, "totalSupply()"));
+  const commons = await bit(0n, 1);
+  let everyone = true;
+  for (let i = 0n; i < supply && i < 256n; i++)
+    if (!((commons >> i) & 1n)) everyone = false;
+  ok("the commons holds every token, not none of them",
+     everyone && commons !== 0n, `${supply} minted, bitmap ${commons.toString(16)}`);
+  ok("and a token nobody minted is not in it",
+     !((commons >> supply) & 1n));
+
+  /*  Which is only safe to say because the four cases are told apart. An
+      unfounded key reads back with kind zero from Parley, and kind zero is
+      also the commons — so a reader who did not ask would be told an
+      invented key names the room that holds everybody.               */
+  const kind = async (r) => decUint(await c.read(site.roster, "kindOf(uint256)", [r]));
+  ok("the commons, a group and a key nobody founded are three different answers",
+     (await kind(0n)) === 0n && (await kind(key)) === 1n &&
+     (await kind(0xf00dn)) === 3n,
+     `${await kind(0n)} / ${await kind(key)} / ${await kind(0xf00dn)}`);
+  ok("and a room nobody founded holds nobody",
+     (await bit(0xf00dn, 1)) === 0n);
   console.log("      invited, joined, listed, shown out \u2014 over a Parley nothing changed");
 }
 

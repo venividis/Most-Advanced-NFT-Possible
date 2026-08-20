@@ -412,20 +412,30 @@ contract DeskTalk {
         "if(bits===0n&&pbits===0n&&base>1)break}"
         "if(!mem.length){box.textContent='nobody has walked in yet';return}"
         "box.innerHTML='';"
+
+        /*  The commons is not a room anyone joined, so it is not a room
+            anyone can be shown out of — `evict` wants a group and the chain
+            refuses it here. A button that is always refused is worse than
+            no button, so the commons gets the list without the doors.  */
+        "const all=Number(T.room)===0;"
         "for(const id of mem){"
         "const row=document.createElement('div');"
         "const who=document.createElement('span');"
         "who.textContent='#'+id+(id===Number(T.steward||0)?' \\u00b7 steward':'');"
         "const b=document.createElement('b');"
+        "if(!all){"
         "const out=document.createElement('button');"
         "out.textContent='show out';out.className='mx';out.dataset.id=String(id);"
         "out.addEventListener('click',async()=>{try{"
         "const m=K.me();if(m==null)throw new Error('connect a wallet that holds a token');"
         "await I.send(T.at,S.evict+I.W(T.room)+I.W(m)+I.W(id));"
         "setTimeout(roster,1200)}catch(e){I.say(String(e&&e.message||e),'no')}});"
-        "b.appendChild(out);row.appendChild(who);row.appendChild(b);box.appendChild(row)}"
+        "b.appendChild(out)}"
+        "row.appendChild(who);row.appendChild(b);box.appendChild(row)}"
         "const pe=$('pend');"
-        "if(pe)pe.textContent=pend.length?('invited, not yet in: '+pend.map(x=>'#'+x).join(' ')):'';"
+        "if(pe)pe.textContent=all?"
+        "'the commons is every token in the collection \\u2014 nobody joins it, and nobody can be shown out of it':"
+        "(pend.length?('invited, not yet in: '+pend.map(x=>'#'+x).join(' ')):'');"
         "};"
         "if($('roster'))setTimeout(()=>roster().catch(e=>{}),700);"
         "if(box)setTimeout(()=>draw().catch(e=>I.say(String(e&&e.message||e),'no')),600);"
