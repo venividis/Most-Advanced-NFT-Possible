@@ -114,7 +114,7 @@ const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
 const reach = await c.deploy(A("src/IpseityAccount.sol", "IpseityAccount").bytecode, "", "Reach");
 const grip = await c.deploy(A("src/GripVault.sol", "GripVault").bytecode, "", "Grip");
 const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode,
-  encodeAddressArg(renderer) + encodeAddressArg(reach) + encodeAddressArg(grip), "Ipseity");
+  encodeAddressArg(renderer) + encodeAddressArg(reach) + encodeAddressArg(grip) + (1).toString(16).padStart(64, "0") + (4096).toString(16).padStart(64, "0"), "Ipseity");
 const pool = await c.deploy(A("src/Pool.sol", "Pool").bytecode,
   encodeAddressArg(nft) + w(10n ** 27n) + encodeAddressArg(c.from.toString()) + w(0), "Pool");
 await c.exec(nft, "setPool(address)", [pool]);

@@ -68,7 +68,7 @@ const sigil    = await c.deploy(A("src/Sigil.sol", "Sigil").bytecode);
 const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
   encodeAddressArg(engine) + encodeAddressArg(sigil));
 const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode,
-  encodeAddressArg(renderer) + encodeAddressArg(impl) + encodeAddressArg(gripImpl));
+  encodeAddressArg(renderer) + encodeAddressArg(impl) + encodeAddressArg(gripImpl) + (1).toString(16).padStart(64, "0") + (4096).toString(16).padStart(64, "0"));
 
 const succ = await c.deploy(A("src/Succession.sol", "Succession").bytecode,
   encodeAddressArg(nft), "Succession");

@@ -59,7 +59,7 @@ const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
 const acctImpl = await c.deploy(A("src/IpseityAccount.sol", "IpseityAccount").bytecode);
 const gripImpl = await c.deploy(A("src/GripVault.sol", "GripVault").bytecode);
 const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode,
-  encodeAddressArg(renderer) + encodeAddressArg(acctImpl) + encodeAddressArg(gripImpl));
+  encodeAddressArg(renderer) + encodeAddressArg(acctImpl) + encodeAddressArg(gripImpl) + (1).toString(16).padStart(64, "0") + (4096).toString(16).padStart(64, "0"));
 
 const CAP = 10n ** 24n;   // 1,000,000 tokens per side while unaudited
 const timelock = await c.deploy(A("src/lib/Timelock.sol", "Timelock").bytecode,

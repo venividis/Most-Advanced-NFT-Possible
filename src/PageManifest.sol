@@ -277,6 +277,12 @@ contract PageManifest {
             ",\"collection\":\"", LibNum.hexAddr(address(HUB)),
             "\",\"issued\":", supply.str(),
             ",\"ceiling\":", HUB.MAX_SUPPLY().str(),
+            /*  The edition is split into contiguous bands, one per chain,
+                fixed at deployment. A program reading only `ceiling` would
+                conclude this chain is the whole collection.            */
+            ",\"band\":{\"first\":", HUB.FIRST_ID().str(),
+            ",\"last\":", HUB.LAST_ID().str(),
+            ",\"collection\":", HUB.COLLECTION().str(), "}",
             ",\"mintPriceWei\":\"", HUB.price().str(),
             "\",\"pool\":\"", LibNum.hexAddr(address(POOL)),
             "\",\"lease\":\"", LibNum.hexAddr(address(LEASE)),

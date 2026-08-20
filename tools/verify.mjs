@@ -89,7 +89,7 @@ const renderer = await c.deploy(
 const acctImpl = await c.deploy(A.Account.bytecode, "", "IpseityAccount");
 const gripImpl = await c.deploy(A.Grip.bytecode, "", "GripVault");
 const nft = await c.deploy(A.Ipseity.bytecode,
-  encodeAddressArg(renderer) + encodeAddressArg(acctImpl) + encodeAddressArg(gripImpl), "Ipseity");
+  encodeAddressArg(renderer) + encodeAddressArg(acctImpl) + encodeAddressArg(gripImpl) + (1).toString(16).padStart(64, "0") + (4096).toString(16).padStart(64, "0"), "Ipseity");
 console.log(`      Engine ${engine}\n      Sigil  ${sigil}\n      Renderer ${renderer}\n      Ipseity ${nft}`);
 
 /*──────────────────── load the document ────────────────────*/
@@ -574,6 +574,73 @@ head("the bolt survives a stolen approval");
   ok("while the holder lifts it whenever they like",
      !decBool(await c.read(nft, "locked(uint256)", [bolted])));
   await c.exec(nft, "approve(address,uint256)", ["0x" + "00".repeat(20), bolted]);
+}
+
+/*════════════ one collection, several chains, one numbering ════════════
+
+  The edition is four thousand and ninety-six and it is cut into contiguous
+  bands, one per chain, fixed in the constructor. A token minted on Base is
+  numbered inside Base's band, so #1337 names exactly one token in the world
+  and nothing has to be asked of another chain to know it — no bridge, no
+  oracle, no shared counter, and nothing to trust. The whole mechanism is a
+  constructor argument and a bounds check, which is the point: the cheapest
+  correct answer beat the expensive one.
+
+  What is tested here is the arithmetic, because the arithmetic is the
+  guarantee. A band that could start at zero, run backwards, or run past the
+  edition would let two chains issue the same number, and the number is the
+  only thing this design says is global.
+*/
+head("a chain owns a band, and can issue nothing outside it");
+{
+  const band = async (first, last) => c.deploy(A.Ipseity.bytecode,
+    encodeAddressArg(renderer) + encodeAddressArg(acctImpl) + encodeAddressArg(gripImpl) +
+    BigInt(first).toString(16).padStart(64, "0") +
+    BigInt(last).toString(16).padStart(64, "0"));
+
+  const refused = async (name, first, last) => {
+    let threw = false;
+    try { await band(first, last); } catch { threw = true; }
+    ok(name, threw, "it deployed");
+  };
+  await refused("a band starting at zero is refused", 0, 10);
+  await refused("a band that runs backwards is refused", 10, 5);
+  await refused("and one that runs past the edition is refused", 4000, 4097);
+
+  /*  The second chain's band. Nothing about this deployment knows the
+      first one exists, which is exactly what makes it free.           */
+  const two = await band(1025, 2048);
+  eq("the edition is the same everywhere", decUint(await c.read(two, "COLLECTION()")), 4096n);
+  eq("this chain may issue its band and no more",
+     decUint(await c.read(two, "MAX_SUPPLY()")), 1024n);
+  eq("and it says where its band starts", decUint(await c.read(two, "FIRST_ID()")), 1025n);
+  eq("and ends", decUint(await c.read(two, "LAST_ID()")), 2048n);
+
+  await c.exec(two, "mint()", [], { value: 10n ** 16n });
+  eq("the first token it issues is the first of its band",
+     decUint(await c.read(two, "tokenByIndex(uint256)", [0])), 1025n);
+  eq("held by whoever minted it",
+     decAddr(await c.read(two, "ownerOf(uint256)", [1025])).toLowerCase(), c.from.toString().toLowerCase());
+  await c.exec(two, "mint()", [], { value: 10n ** 16n });
+  eq("and the next is the next", decUint(await c.read(two, "tokenByIndex(uint256)", [1])), 1026n);
+  eq("while its own supply counts from zero, as ERC-721 expects",
+     decUint(await c.read(two, "totalSupply()")), 2n);
+
+  /*  The ids this chain will never issue are not merely unminted here —
+      they are somebody else's, and asking about one is a plain refusal
+      rather than an empty answer that could be mistaken for a free id. */
+  let vacant = false;
+  try { await c.read(two, "ownerOf(uint256)", [1]); } catch { vacant = true; }
+  ok("a number outside the band belongs to no token here", vacant);
+
+  /*  And the hands are derived from the id, so two chains that shared a
+      number would derive the same account address for two different
+      tokens. The band is what stops that, one level down.            */
+  const a1 = decAddr(await c.read(two, "account(uint256)", [1025]));
+  const a2 = decAddr(await c.read(nft, "account(uint256)", [1]));
+  ok("and two tokens on two chains never derive the same hand",
+     a1.toLowerCase() !== a2.toLowerCase(), `${a1} vs ${a2}`);
+  console.log("      bands are a constructor argument and a bounds check \u2014 no bridge, nothing to trust");
 }
 
 head("gas, measured");

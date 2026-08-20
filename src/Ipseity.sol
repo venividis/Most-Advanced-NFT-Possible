@@ -77,7 +77,36 @@ contract Ipseity is
     string public constant name   = "IPSEITY";
     string public constant symbol = "IPSE";
 
-    uint256 public constant MAX_SUPPLY = 4096;
+    /*═══ one collection, several chains, one numbering ═══
+
+      The whole edition is four thousand and ninety-six, and it is cut into
+      contiguous bands — one per chain, fixed in the constructor and never
+      moved. A token minted here is numbered inside this chain's band, so
+      #1337 names exactly one token in the world, and nothing has to be
+      asked of another chain to know it. No bridge, no oracle, no shared
+      counter, no trust: an arithmetic fact about a constructor argument,
+      settled before the first mint and unable to drift afterwards.
+
+      Why not a full edition per chain: four collections of four thousand
+      are four collections, however they are branded.
+
+      Why not a token that travels: everything this collection is about
+      hangs off the token through an ERC-6551 account whose address is
+      derived from `block.chainid` and from this contract's own address.
+      A token that crossed would arrive with correct artwork and empty
+      hands — no vault, no Grip, no rooms it stewards, no seal. The number
+      can travel. The thing it names cannot.                            */
+    uint256 public constant COLLECTION = 4096;
+
+    /// @notice The first and last id this deployment may ever issue.
+    uint256 public immutable FIRST_ID;
+    uint256 public immutable LAST_ID;
+
+    /// @notice How many this chain can issue. The global edition is
+    ///         `COLLECTION`; this is one band of it.
+    uint256 public immutable MAX_SUPPLY;
+
+    error BadBand();
 
     /// @dev The instruments that only look are open from birth. The ones
     ///      that move value are sealed until the holder deliberately opens
@@ -280,8 +309,18 @@ contract Ipseity is
         _lock = 1;
     }
 
-    constructor(IRenderer renderer_, address accountImpl_, address gripImpl_) {
+    constructor(IRenderer renderer_, address accountImpl_, address gripImpl_,
+                uint256 firstId_, uint256 lastId_) {
         if (accountImpl_ == address(0) || gripImpl_ == address(0)) revert ZeroAddress();
+        /*  Zero is not a token id anywhere in this collection — `_exists`
+            reads an owner of the zero address as "no such token" — and a
+            band that runs past the edition would let two chains issue the
+            same number, which is the one thing the partition exists to
+            prevent.                                                     */
+        if (firstId_ == 0 || lastId_ < firstId_ || lastId_ > COLLECTION) revert BadBand();
+        FIRST_ID = firstId_;
+        LAST_ID = lastId_;
+        unchecked { MAX_SUPPLY = lastId_ - firstId_ + 1; }
         ACCOUNT_IMPL = accountImpl_;
         GRIP_IMPL = gripImpl_;
         emit OwnershipTransferred(address(0), msg.sender);
@@ -312,7 +351,7 @@ contract Ipseity is
         if (address(renderer) == address(0)) revert NoRenderer();
         if (totalSupply >= MAX_SUPPLY) revert SoldOut();
 
-        unchecked { id = ++totalSupply; }
+        unchecked { id = FIRST_ID + totalSupply; totalSupply += 1; }
 
         bytes32 seed = keccak256(abi.encodePacked(
             block.number == 0 ? bytes32(0) : blockhash(block.number - 1),
@@ -867,7 +906,8 @@ contract Ipseity is
 
     function tokenByIndex(uint256 i) external view returns (uint256) {
         if (i >= totalSupply) revert BadIndex();
-        unchecked { return i + 1; }          // ids are 1..totalSupply, in order
+        // ids run FIRST_ID .. FIRST_ID + totalSupply - 1, in order
+        unchecked { return FIRST_ID + i; }
     }
 
     function tokenOfOwnerByIndex(address o, uint256 i) external view returns (uint256) {
@@ -956,14 +996,14 @@ contract Ipseity is
     function setPool(address p) external onlyCurator {
         if (rendererSealed) revert AlreadySealed();
         pool = p;
-        emit BatchMetadataUpdate(1, totalSupply == 0 ? 1 : totalSupply);
+        emit BatchMetadataUpdate(FIRST_ID, totalSupply == 0 ? FIRST_ID : FIRST_ID + totalSupply - 1);
     }
 
     function setRenderer(IRenderer r) external onlyCurator {
         if (rendererSealed) revert AlreadySealed();
         renderer = r;
         emit RendererChanged(address(r));
-        emit BatchMetadataUpdate(1, totalSupply == 0 ? 1 : totalSupply);
+        emit BatchMetadataUpdate(FIRST_ID, totalSupply == 0 ? FIRST_ID : FIRST_ID + totalSupply - 1);
     }
 
     /// @notice Irreversible. After this the renderer can never be replaced,

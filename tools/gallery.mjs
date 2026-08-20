@@ -98,7 +98,7 @@ const renderer = await c.deploy(A.Renderer.bytecode, encodeAddressArg(engine) + 
 const acctImpl = await c.deploy(A.Account.bytecode, "", "IpseityAccount");
 const gripImpl = await c.deploy(A.Grip.bytecode, "", "GripVault");
 const nft = await c.deploy(A.Ipseity.bytecode,
-  encodeAddressArg(renderer) + encodeAddressArg(acctImpl) + encodeAddressArg(gripImpl), "Ipseity");
+  encodeAddressArg(renderer) + encodeAddressArg(acctImpl) + encodeAddressArg(gripImpl) + (1).toString(16).padStart(64, "0") + (4096).toString(16).padStart(64, "0"), "Ipseity");
 note(`Ipseity ${nft}`);
 
 for (const s of plan.head) await c.exec(engine, "loadHead(bytes)", [s.data]);

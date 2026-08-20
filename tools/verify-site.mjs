@@ -85,7 +85,7 @@ const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
 const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode,
   encodeAddressArg(renderer) +
   encodeAddressArg(await c.deploy(A("src/IpseityAccount.sol", "IpseityAccount").bytecode)) +
-  encodeAddressArg(await c.deploy(A("src/GripVault.sol", "GripVault").bytecode)));
+  encodeAddressArg(await c.deploy(A("src/GripVault.sol", "GripVault").bytecode)) + (1).toString(16).padStart(64, "0") + (4096).toString(16).padStart(64, "0"));
 
 /* a small real document, so tokenURI returns something whole */
 const { gzipSync } = await import("node:zlib");

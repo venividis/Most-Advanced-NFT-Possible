@@ -46,7 +46,7 @@ contract PoolTest is Test {
         engine.freeze();
 
         token = new Ipseity(IRenderer(address(renderer)),
-            address(new IpseityAccount()), address(new GripVault()));
+            address(new IpseityAccount()), address(new GripVault()), 1, 4096);
         // admin is the test contract; in production it is the Timelock
         pool = new Pool(IIpseity(address(token)), CAP, address(this), false);
         token.setPool(address(pool));

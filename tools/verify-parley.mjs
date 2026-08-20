@@ -57,7 +57,7 @@ const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
 const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode,
   encodeAddressArg(renderer) +
   encodeAddressArg(await c.deploy(A("src/IpseityAccount.sol", "IpseityAccount").bytecode)) +
-  encodeAddressArg(await c.deploy(A("src/GripVault.sol", "GripVault").bytecode)), "Ipseity");
+  encodeAddressArg(await c.deploy(A("src/GripVault.sol", "GripVault").bytecode)) + (1).toString(16).padStart(64, "0") + (4096).toString(16).padStart(64, "0"), "Ipseity");
 const parley = await c.deploy(A("src/Parley.sol", "Parley").bytecode,
   encodeAddressArg(nft), "Parley");
 ok("the parley is deployed", (await c.codeSize(parley)) > 0);

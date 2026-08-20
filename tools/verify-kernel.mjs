@@ -71,7 +71,7 @@ const sigil = await c.deploy(A("src/Sigil.sol", "Sigil").bytecode);
 const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
   encodeAddressArg(engine) + encodeAddressArg(sigil));
 const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode,
-  encodeAddressArg(renderer) + encodeAddressArg(impl) + encodeAddressArg(gripImpl), "Ipseity");
+  encodeAddressArg(renderer) + encodeAddressArg(impl) + encodeAddressArg(gripImpl) + (1).toString(16).padStart(64, "0") + (4096).toString(16).padStart(64, "0"), "Ipseity");
 ok("deployed", (await c.codeSize(nft)) > 0);
 
 await c.exec(nft, "mint()", [], { value: 10n ** 16n });

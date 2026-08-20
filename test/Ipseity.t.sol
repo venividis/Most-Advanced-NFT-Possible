@@ -48,7 +48,7 @@ contract IpseityTest is Test {
         sigil    = new Sigil();
         renderer = new Renderer(engine, sigil);
         token    = new Ipseity(IRenderer(address(renderer)),
-            address(new IpseityAccount()), address(new GripVault()));
+            address(new IpseityAccount()), address(new GripVault()), 1, 4096);
 
         engine.loadHead(HEAD);
         engine.loadBody(BODY);

@@ -288,7 +288,7 @@ contract PageDoor {
             "</td><td>nobody &mdash; it is free</td></tr>"
             "<tr><td>verify</td><td>check a signature the token made as itself</td>"
             "<td>nobody &mdash; it is free</td></tr></table>"
-            "<dl><dt>issued</dt><dd>", supply.str(), " of ", HUB.MAX_SUPPLY().str(), "</dd>"
+            "<dl><dt>issued here</dt><dd>", _band(supply), "</dd>"
             "<dt>mint price</dt><dd>", Web.amount(HUB.price(), 18, 4), " ETH</dd>"
             "<dt>collection</dt><dd><code>", LibNum.hexAddr(address(HUB)), "</code></dd>"
             "<dt>parley</dt><dd><code>", LibNum.hexAddr(address(PARLEY)), "</code></dd></dl>"
@@ -323,4 +323,21 @@ contract PageDoor {
         if (f == 6) return "Ditorus";
         return "Quaternion Julia";
     }
+    /*  Two numbers, because either alone misleads. This chain may issue a
+        band of the edition and nothing outside it, so "3 of 1024" is true
+        here and silent about the collection, while "of 4096" is the
+        collection and silent about what is left to mint here.
+
+        In its own function because six reads inside the page's single
+        `string.concat` put it past what even viaIR keeps on the stack —
+        the same wall the premises hit at seventeen constructor arguments. */
+    function _band(uint256 supply) private view returns (string memory) {
+        return string.concat(
+            supply.str(), " of ", HUB.MAX_SUPPLY().str(),
+            " \xe2\x80\x94 this chain holds #", HUB.FIRST_ID().str(),
+            "\xe2\x80\x93#", HUB.LAST_ID().str(),
+            " of ", HUB.COLLECTION().str(), " across every chain"
+        );
+    }
+
 }
