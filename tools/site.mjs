@@ -58,14 +58,42 @@ const ZERO = "0x0000000000000000000000000000000000000000";
   A chain is in this table only if all three held.
 ───────────────────────────────────────────────────────────────────────────*/
 export const LAYERZERO = {
-  1:     { name: "Ethereum",  eid: 30101, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
-  10:    { name: "Optimism",  eid: 30111, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
-  56:    { name: "BNB",       eid: 30102, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
-  130:   { name: "Unichain",  eid: 30320, endpoint: "0x6f475642a6e85809b1c36fa62763669b1b48dd5b" },
-  4663:  { name: "Robinhood", eid: 30416, endpoint: "0x6f475642a6e85809b1c36fa62763669b1b48dd5b" },
-  8453:  { name: "Base",      eid: 30184, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
-  42161: { name: "Arbitrum",  eid: 30110, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+  1:     { name: "Ethereum",  eid: 30101, read: true,  endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+  10:    { name: "Optimism",  eid: 30111, read: true,  endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+  56:    { name: "BNB",       eid: 30102, read: true,  endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+  130:   { name: "Unichain",  eid: 30320, read: true,  endpoint: "0x6f475642a6e85809b1c36fa62763669b1b48dd5b" },
+  4663:  { name: "Robinhood", eid: 30416, read: false, endpoint: "0x6f475642a6e85809b1c36fa62763669b1b48dd5b" },
+  8453:  { name: "Base",      eid: 30184, read: true,  endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+  42161: { name: "Arbitrum",  eid: 30110, read: true,  endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
 };
+
+/*  `read` is a SEPARATE capability from messaging and the difference is
+    easy to state wrongly — I did, twice.
+
+    Every chain above can send AND receive. What only some carry is
+    ReadLib1002 (v10.0.2, 23,471 bytes), the library behind lzRead: a
+    pull, where the answer lands on the chain that asked instead of a
+    push that lands on the chain being told. Measured from Unichain,
+    reading Ethereum costs 1.957e-5 ETH against 3.404e-4 to message it —
+    seventeen times cheaper, because the answer arrives at 0.0005 gwei.
+
+    Robinhood mainnet carries SendUln302 and ReceiveUln302 at v3.0.2 and
+    a 623-byte BlockedMessageLib, and no read library; its read channels
+    resolve to nothing. So it can speak and be spoken to, and it cannot
+    take part in a read in either direction — it can neither ask nor be
+    asked. That is the whole of the limitation, and the first two ways I
+    wrote it down were both wrong: "can never be heard" is false, it
+    receives perfectly.
+
+    Robinhood's TESTNET (46630) has no endpoint at any of the three
+    canonical addresses — mainnet-early, mainnet-late, or the testnet
+    address 0x6EDCE654…f10f. The chain answers; LayerZero is simply not
+    deployed on it. An earlier probe of mine checked the testnet with
+    mainnet addresses and concluded the same thing for the wrong reason,
+    which is how a right answer can still be a bad measurement. Base
+    Sepolia was used as the control: the same probe finds its endpoint at
+    the testnet address, eid 40245, with three read libraries.          */
+export const canRead = (chainId) => !!(LAYERZERO[Number(chainId)] || {}).read;
 
 /*───────────────────────────────────────────────────────────────────────────
   THE PARTITION — one edition of 4096, cut into five bands

@@ -41,7 +41,7 @@ Ethereum    #1    – #1024     1024      the first band, where #1 should be
 Base        #1025 – #2048     1024
 Unichain    #2049 – #3072     1024      cheapest place to turn a solid
 BNB         #3073 – #3584      512
-Robinhood   #3585 – #4096      512      the only one that cannot be read from
+Robinhood   #3585 – #4096      512      sends and receives; no lzRead
 ```
 
 Two tokens can never be numbered the same, and nothing has to be trusted for
@@ -52,10 +52,20 @@ print run can be signed in five cities.
 
 The bands are powers of two on power-of-two boundaries because the edition is
 2^12 and a split you can check in your head is a split a buyer can audit.
-Robinhood's is the smallest not as a judgement of the chain but because it is
-the only one of the five carrying a LayerZero endpoint without a read library
-— a token minted there can speak and can never be heard by the others, and
-the smallest band is the honest size for the least connected place.
+
+Robinhood's is the smallest, and the reason needs stating precisely because
+it is easy to get wrong. LayerZero *is* integrated there: the mainnet
+endpoint carries SendUln302 and ReceiveUln302 at v3.0.2, and a production
+OApp quotes Robinhood to Ethereum at 3.709e-4 ETH today. It sends and it
+receives. What it does not carry is ReadLib1002, the library behind lzRead —
+so it can neither ask another chain a question nor be asked one. Every other
+chain of the five can. That matters because reading is seventeen times
+cheaper than messaging (1.957e-5 ETH against 3.404e-4, measured from
+Unichain, because the answer lands on the chain that asked), so the cheap way
+for this collection to see all of itself at once reaches four of the five and
+not the fifth. The smallest band is the honest size for the least connected
+place — and "least connected" means exactly that one thing, not that the
+chain is worse.
 
 The partition is written down twice, which is a bug waiting for a redeploy
 unless something checks: `tools/site.mjs` holds the table the deploy reads,
