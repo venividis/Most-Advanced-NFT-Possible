@@ -283,6 +283,15 @@ contract PageManifest {
             ",\"band\":{\"first\":", HUB.FIRST_ID().str(),
             ",\"last\":", HUB.LAST_ID().str(),
             ",\"collection\":", HUB.COLLECTION().str(), "}",
+            /*  And where the rest of the edition is issued from. Without
+                this a program can learn which numbers THIS chain owns and
+                has no way to discover that the other three thousand exist
+                somewhere — it would read one band as the whole collection
+                and be wrong by a factor of four. Static, because the
+                partition is fixed at deployment on every chain and a
+                lookup that could disagree between chains would be worse
+                than no lookup at all.                                  */
+            ",\"edition\":", EDITION,
             ",\"mintPriceWei\":\"", HUB.price().str(),
             "\",\"pool\":\"", LibNum.hexAddr(address(POOL)),
             "\",\"lease\":\"", LibNum.hexAddr(address(LEASE)),
@@ -309,6 +318,22 @@ contract PageManifest {
         token offers and would say nothing about the place they all talk.
         An index that is silently partial is worse than one that is
         obviously small.                                                 */
+    /*  The partition, as it is written in tools/site.mjs, which is the one
+        table the deploy reads. The suite checks these two against each
+        other on every run: a constant that has drifted from the table
+        that built the collection would publish a map to the wrong place.
+
+        Chain ids rather than names, because a chain's number is the one
+        name it cannot lose.                                             */
+    string internal constant EDITION =
+        "["
+        "{\"chainId\":1,\"name\":\"Ethereum\",\"first\":1,\"last\":1024},"
+        "{\"chainId\":8453,\"name\":\"Base\",\"first\":1025,\"last\":2048},"
+        "{\"chainId\":130,\"name\":\"Unichain\",\"first\":2049,\"last\":3072},"
+        "{\"chainId\":56,\"name\":\"BNB\",\"first\":3073,\"last\":3584},"
+        "{\"chainId\":4663,\"name\":\"Robinhood\",\"first\":3585,\"last\":4096}"
+        "]";
+
     string internal constant ROUTES =
         "["
         "{\"path\":\"/\",\"is\":\"the instrument itself, live \\u2014 the token is the interface\"},"

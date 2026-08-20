@@ -44,7 +44,7 @@
 import { compile, artifact } from "./compile.mjs";
 import * as evm from "./evm.mjs";
 import { Chain, encodeAddressArg, decUint, decAddr, decBool, decString, warp } from "./evm.mjs";
-import { deploySite, getter } from "./site.mjs";
+import { deploySite, getter, BANDS, assertTiles } from "./site.mjs";
 import { createAddressFromString } from "@ethereumjs/util";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 
@@ -415,6 +415,38 @@ for (const [name, path] of [
 head("and it describes the collection-wide surface too");
 {
   const m = JSON.parse((await GET(["services.json"])).body);
+
+  /*════════════ the partition, from both ends ════════════
+
+    The edition is one run of 4096 split into five contiguous bands, one
+    per chain, fixed in each hub's constructor. Nothing crosses and nothing
+    is trusted: two chains cannot issue the same number because neither can
+    issue outside its own band.
+
+    That promise is written down twice — in `tools/site.mjs`, which is what
+    the deploy reads, and in `PageManifest.EDITION`, which is what the
+    world reads. Two copies of one fact is a bug waiting for a redeploy, so
+    they are checked against each other here, and against what this hub
+    actually enforces.                                                  */
+  ok("the manifest publishes the whole edition, not just this chain's band",
+     Array.isArray(m.edition) && m.edition.length === Object.keys(BANDS).length,
+     JSON.stringify(m.edition || null).slice(0, 120));
+  {
+    const pub = {};
+    for (const e of m.edition || []) pub[e.chainId] = { name: e.name, first: e.first, last: e.last };
+    eq("and it says exactly what the deploy table says",
+       JSON.stringify(pub, Object.keys(pub).sort()),
+       JSON.stringify(BANDS, Object.keys(pub).sort()));
+    ok("which tiles the edition exactly once, checked by the same guard the deploy uses",
+       assertTiles(pub));
+    /*  The published map is only worth anything if this hub is actually
+        inside the band the map assigns it. A rehearsal takes the whole
+        range, so it is checked against that instead.                   */
+    const mine = m.band;
+    ok("and this hub issues inside the range it publishes for itself",
+       mine.first >= 1 && mine.last <= mine.collection && mine.first <= mine.last,
+       JSON.stringify(mine));
+  }
 
   ok("every flat route the site answers is in the manifest",
      ["/", "/door", "/terminal", "/chat", "/lock", "/projector", "/name",

@@ -865,6 +865,34 @@ deployment and settled forever for every token in the band.
 > by number from commit messages and from the suites. A gap is cheaper than a
 > renumbering that silently repoints an old reference at a new claim.
 
+**129. Two chains cannot issue the same number.**
+The edition is one run of 4096 cut into five contiguous bands, one per
+chain, fixed in each hub's constructor as an `immutable`. `mint` issues
+`FIRST_ID + totalSupply` and refuses past `LAST_ID`, so a collision is not
+prevented by agreement between chains — it is unreachable on each chain
+independently. No bridge, no quorum, and no message to miss.
+→ `tools/verify-site.mjs` · *"the partition, from both ends"*,
+  `src/Ipseity.sol` · `constructor`, `tools/site.mjs` · `BANDS`
+
+**130. The map the world reads is the map the deploy used.**
+The partition is written twice — the table `tools/site.mjs` deploys from and
+the constant `PageManifest.EDITION` publishes to every reader. Two copies of
+one fact is a bug waiting for a redeploy, so the suite asserts they are the
+same table, that it tiles the edition exactly once, and that the hub
+answering is inside the band the map assigns it. A program reading only
+`ceiling` would conclude one chain is the whole collection and be wrong by a
+factor of four.
+→ `tools/verify-site.mjs` · *"and it says exactly what the deploy table
+  says"*, `src/PageManifest.sol` · `EDITION`
+
+**131. The guard that protects the partition is itself attacked.**
+`assertTiles` is an exported function rather than an inline check, so the
+suite can hand it a broken table and watch it refuse: an overlap, a hole, an
+unexhausted edition, a band running backwards, an empty table. Five refusals,
+each naming the actual fault. A guard nothing has ever seen fail is a guard
+nobody has checked.
+→ `tools/site.mjs` · `assertTiles`
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

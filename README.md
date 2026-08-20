@@ -29,6 +29,47 @@ at read time.
 
 ---
 
+## One edition, five chains, no bridge
+
+The collection is one run of 4096, cut into five contiguous bands and issued
+from five chains. Each hub is handed its band in the constructor as an
+`immutable`, and `mint` issues `FIRST_ID + totalSupply` and refuses past
+`LAST_ID`.
+
+```
+Ethereum    #1    – #1024     1024      the first band, where #1 should be
+Base        #1025 – #2048     1024
+Unichain    #2049 – #3072     1024      cheapest place to turn a solid
+BNB         #3073 – #3584      512
+Robinhood   #3585 – #4096      512      the only one that cannot be read from
+```
+
+Two tokens can never be numbered the same, and nothing has to be trusted for
+that to hold: neither chain is able to issue outside its own band, so there
+is no message to miss, no quorum to compromise, and no bridge. Nothing
+crosses. There is one edition and five places it is issued from, the way one
+print run can be signed in five cities.
+
+The bands are powers of two on power-of-two boundaries because the edition is
+2^12 and a split you can check in your head is a split a buyer can audit.
+Robinhood's is the smallest not as a judgement of the chain but because it is
+the only one of the five carrying a LayerZero endpoint without a read library
+— a token minted there can speak and can never be heard by the others, and
+the smallest band is the honest size for the least connected place.
+
+The partition is written down twice, which is a bug waiting for a redeploy
+unless something checks: `tools/site.mjs` holds the table the deploy reads,
+`PageManifest.EDITION` holds the one the world reads, and the suite asserts
+they are the same table and that it tiles 1..4096 exactly once. The guard
+itself is tested against an overlap, a hole, an unexhausted edition, a band
+that runs backwards, and an empty table — a guard nothing has ever seen fail
+is a guard nobody has checked.
+
+Every chain's `/services.json` publishes the whole map, so a program that
+finds one chain can find the other four. Reading only `ceiling` would tell it
+this chain is the entire collection, and it would be wrong by a factor of
+four.
+
 ## What is actually new here
 
 Plenty of NFTs put HTML on chain. These are the parts that are not just that.
@@ -459,7 +500,7 @@ shipped), and what crosses the chain is AES-GCM ciphertext that renders as
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and twenty-seven such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and thirty such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1251,7 +1292,7 @@ test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy the collection, load, seal
 script/Site.s.sol       deploy the parley, the desks, the pages and the router
 
-INVARIANTS.md           one hundred and twenty-seven statements that must hold, and the test for each
+INVARIANTS.md           one hundred and thirty statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 

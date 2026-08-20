@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import { compile, artifact } from "./compile.mjs";
 import { enc, sel, decUint, decAddr, decBool, decString, encodeAddressArg } from "./evm.mjs";
 import { RpcChain, DEV_KEYS } from "./rpc.mjs";
-import { deploySite, getter, UNISWAP } from "./site.mjs";
+import { deploySite, getter, UNISWAP, bandArgs, bandOrWhole, bandFor } from "./site.mjs";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -113,8 +113,24 @@ const renderer = await c.deploy(A("src/Renderer.sol", "Renderer").bytecode,
   encodeAddressArg(engine) + encodeAddressArg(sigil), "Renderer");
 const reach = await c.deploy(A("src/IpseityAccount.sol", "IpseityAccount").bytecode, "", "Reach");
 const grip = await c.deploy(A("src/GripVault.sol", "GripVault").bytecode, "", "Grip");
+/*  The band this chain issues from, read from the one table rather than
+    typed here. A mainnet chain gets its slice of the edition; a testnet
+    is a rehearsal and takes the whole range, because the point of a
+    rehearsal is to exercise every id and no token on it is ever the
+    token it is pretending to be.                                      */
+const band = bandOrWhole(chainId);
+console.log(`      band  ${band.name} · #${band.first}–#${band.last} ` +
+            `(${band.last - band.first + 1} of 4096)` +
+            (bandFor(chainId) ? "" : "  \x1b[2m— rehearsal, not part of the edition\x1b[0m"));
 const nft = await c.deploy(A("src/Ipseity.sol", "Ipseity").bytecode,
-  encodeAddressArg(renderer) + encodeAddressArg(reach) + encodeAddressArg(grip) + (1).toString(16).padStart(64, "0") + (4096).toString(16).padStart(64, "0"), "Ipseity");
+  encodeAddressArg(renderer) + encodeAddressArg(reach) + encodeAddressArg(grip) +
+  bandArgs(chainId), "Ipseity");
+{
+  const f = decUint(await c.read(nft, "FIRST_ID()")), l = decUint(await c.read(nft, "LAST_ID()"));
+  if (f !== BigInt(band.first) || l !== BigInt(band.last))
+    throw new Error(`the hub took band ${f}..${l}, not the ${band.first}..${band.last} it was given`);
+  ok(`the hub issues #${band.first}–#${band.last} and refuses past it`, true);
+}
 const pool = await c.deploy(A("src/Pool.sol", "Pool").bytecode,
   encodeAddressArg(nft) + w(10n ** 27n) + encodeAddressArg(c.from.toString()) + w(0), "Pool");
 await c.exec(nft, "setPool(address)", [pool]);
