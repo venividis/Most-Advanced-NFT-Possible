@@ -144,8 +144,15 @@ export class RpcChain {
     return this.send({ to, data: enc(sig, args), value, label: label || sig });
   }
 
-  /// Same question as the local chain's, asked of a node.
+  /*  The nonce this chain will use next. Read from the tracker rather
+      than from the node: `eth_getTransactionCount` at "pending" lags
+      transactions this process has already sent and is still waiting on,
+      so asking the node mid-deploy answers about the past and any address
+      predicted from it is wrong. The tracker is seeded from the node at
+      open and stepped once per send, which is exactly the sequence CREATE
+      hashes.                                                             */
   async nonceNow() {
+    if (this.nonce !== null && this.nonce !== undefined) return BigInt(this.nonce);
     return BigInt(await this.rpc("eth_getTransactionCount",
       [this.from.toString(), "pending"]));
   }

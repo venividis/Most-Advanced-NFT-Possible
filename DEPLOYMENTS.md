@@ -321,3 +321,53 @@ Base Sepolia    Premises 0x3045c6db8cc685b9312f7209f2ee36b04ed0648a   (/ is the 
                 Renderer 0xfa5c47d8201ae204f261d2b78e6357e2dd7a0ed4
                 https://0x3045c6db8cc685b9312f7209f2ee36b04ed0648a.basesep.w3link.io/
 ```
+
+### A room you can see the edges of — 2026-08-20
+
+Membership in the rooms was real but invisible: the archive knew exactly who
+was in a group and who had been asked, and nothing anywhere would tell you.
+`Roster` answers that without touching the deployed `Parley` — it reads the
+public mappings a window at a time and hands back a bitmap, so a steward's
+panel can draw the members it has and offer to show one of them out, and a
+token can ask which rooms it stewards. The archive did not have to be
+replaced to become legible, which is the whole reason it was built additive.
+
+The terminal learned `invite`, `evict` and `roster` to match. Those three
+words live in their own contract: `DeskTerm` was at 25,195 bytes, which is
+103% of what a chain will accept, so the words register themselves through
+the same `def` the built-ins use — a split, not a rewrite.
+
+Opening the sealed-DM page to check the roster work found something worse
+than a missing feature. The banner said *only #A and #B can read what is said
+here*, and it said so after checking one key: the sender's. The sealing keys
+are derived from a wallet signature, so they belong to a wallet and not to a
+token — publish a key, sell the token, and the person who used to hold it can
+still derive that key and open everything addressed to it. The page now keeps
+its keys per token, offers to republish the moment the key on file is not the
+one this wallet derives, and reads the far token's transfer count before it
+promises anything:
+
+  · never moved since mint → *#N has held this key since it was minted*
+  · moved → *a key published before a sale can still be opened by whoever
+    held it then*, as a warning, with the count
+
+The same sentence is rendered by the contract into `/dm/*` as well, so it
+survives with JavaScript switched off.
+
+One tooling bug worth the record, because the guard caught it rather than the
+tests. `nonceNow()` asked the node for its pending transaction count, and a
+node that has not yet mined what this process just sent answers about the
+past — so the address predicted for the ENS resolver was wrong, and the
+assertion added last week refused to wire `/name` to it: *the resolver landed
+at 0x4352… not the 0xbb9c… the name page was given*. The tracker this process
+already keeps is the sequence CREATE actually hashes; `nonceNow` reads that.
+
+```
+Base Sepolia    Premises 0x0f6b6921ea8d98733dcee0d981afca7726ecbbd9   (eleven routes, all 200)
+                Roster   0xd5ea1f139d88c9b68917ee5c8a8c28c45d50bb8a
+                DeskRooms 0x9229d8a28d7697194a24b1a0d02e6182c2bf5b61
+                Parley   0xe08ff7cf056b2a3a067fa1b00476f663b9bcbfcb   (unchanged, as ever)
+                Engine   0x7db52df6a2f5e02fe6dc22918ec1770aa629dc60   (frozen)
+                https://0x0f6b6921ea8d98733dcee0d981afca7726ecbbd9.basesep.w3link.io/
+Eth Sepolia     still pending the top-up to 0x5f1191a432EA9d3f36EbA62c0Ca797bf0A754337
+```
