@@ -42,8 +42,23 @@ html,body{height:100%;overflow:hidden;background:var(--void);color:var(--txt);
   -webkit-font-smoothing:antialiased}
 body{opacity:0;transition:opacity .9s var(--ease)}
 body.up{opacity:1}
-canvas#field{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;z-index:0}
-svg#wires{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
+/*  --fx and --fy are the strip the deck has taken off the right and the
+    bottom. The field is inset by them rather than covered by them, so the
+    solid shrinks into the room that is left and every gesture it had —
+    orbit, wheel, pinch, node picking — keeps working on a smaller
+    rectangle whose origin is still (0,0).                              */
+/*  Sized by calc rather than by insets. A canvas is a replaced element:
+    given left, right and `width:auto` together, CSS drops the right offset
+    and uses the intrinsic width — which for an untouched canvas is 2px,
+    and resize() then reads that 2px back and keeps it. Measured, not
+    reasoned about: the first build of this laid out an 1180x860 field as
+    2x2 and drew nothing.                                              */
+canvas#field{position:fixed;left:0;top:0;
+  width:calc(100% - var(--fx,0px));height:calc(100% - var(--fy,0px));
+  display:block;touch-action:none;z-index:0}
+svg#wires{position:fixed;left:0;top:0;
+  width:calc(100% - var(--fx,0px));height:calc(100% - var(--fy,0px));
+  pointer-events:none;z-index:2}
 
 /*──────────────────────────── type ────────────────────────────*/
 .k{font-size:9px;letter-spacing:.26em;text-transform:uppercase;color:var(--dim);white-space:nowrap}
@@ -84,19 +99,79 @@ hr{border:0;height:1px;background:var(--rule);margin:12px 0}
 .led.live{background:var(--ok);box-shadow:0 0 9px var(--ok)}
 .led.ro{background:var(--a);box-shadow:0 0 9px var(--a-dim)}
 
-/*──────────────────────── the veil ────────────────────────*/
-#veil{position:fixed;inset:0;z-index:40;display:none;flex-direction:column;
-  background:hsl(230 33% 3% / .82);backdrop-filter:blur(10px)}
-#veil.open{display:flex}
-#veilbar{display:flex;align-items:center;justify-content:space-between;
-  padding:10px 16px;border-bottom:1px solid var(--rule-2);
-  font:600 11px/1 var(--mono);letter-spacing:.22em;color:var(--mid)}
-#veilx{background:none;border:1px solid var(--rule-2);border-radius:8px;
-  color:var(--mid);font:16px/1 var(--mono);padding:2px 10px;cursor:pointer}
-#veilx:hover{color:var(--lit);border-color:var(--rule-3)}
-#veilf{flex:1;width:100%;border:0;background:transparent}
+/*──────────────────────── the deck ────────────────────────*/
+/*  Up to four flat surfaces, loaded at once and shown one at a time. The
+    previous arrangement was a single full-screen veil for the terminal and
+    a new browser tab for everything else, which meant the instrument was
+    something you left in order to use the site.
+
+    The geometry does not change with the number of panes. One pane and
+    four panes give the field exactly the same rectangle; the strip grows
+    by one button. That is deliberate: a layout that reflows the field when
+    a fourth surface opens makes the count something you have to hold in
+    your head, and the count is the least interesting thing about it.
+
+    Why one visible rather than four tiled: every flat page here is laid
+    out against `max-width:60rem` with a `dl` whose first column alone is
+    9.5rem. At 390pt a full-width pane leaves 342px of content and the page
+    renders in its own mobile layout; a half-width phone pane leaves 147px,
+    less than that first column, and the site's own layout breaks and
+    scrolls sideways. That is a measurement, not a preference.          */
+#deck{position:fixed;z-index:5;display:none;flex-direction:column;
+  background:var(--void-2);border:1px solid var(--rule-2)}
+#deck.on{display:flex}
+#dkbar{display:flex;height:30px;flex:0 0 auto;border-bottom:1px solid var(--rule);
+  overflow-x:auto;scrollbar-width:none}
+#dkbar::-webkit-scrollbar{display:none}
+.dt{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:7px;
+  padding:0 9px;cursor:pointer;background:transparent;border:0;
+  border-right:1px solid var(--rule);border-top:1px solid transparent;
+  font:inherit;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dt.on{color:var(--a);border-top-color:var(--a);background:var(--a-ghost)}
+/*  A tab that has not been loaded says so. Without the label three of four
+    tabs claim, by being there, to hold a surface they do not hold.     */
+.dt.cold{color:#3d4457}
+/*  The destructive target exists only on the tab you are already looking
+    at. A mis-tap on any other tab costs a focus change, never a form.  */
+.dt i{display:none;font-style:normal;flex:0 0 auto;padding:0 6px}
+.dt.on i{display:block}
+#dkwrap{flex:1 1 auto;position:relative;background:var(--void)}
+#dkwrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0;
+  background:var(--void);visibility:hidden}
+/*  visibility, not display. `display:none` removes the layout box, so a
+    responsive page relayouts from zero width when it comes back and loses
+    its scroll offset; visibility keeps box, offset and layout and still
+    stops the hidden document painting.                                 */
+#dkwrap iframe.on{visibility:visible}
+/*  Without this a resize drag dies the moment the pointer crosses into a
+    frame, because the frame swallows it. It is not dead CSS.           */
+#deck.drag #dkwrap iframe{pointer-events:none}
+#dkedge{position:absolute;z-index:2;touch-action:none}
+#dkedge:hover{background:var(--a-ghost)}
+@media (min-width:781px){
+  #deck{top:0;right:0;bottom:0;width:var(--dw,min(560px,46vw));border-width:0 0 0 1px}
+  #dkedge{left:0;top:0;bottom:0;width:10px;cursor:ew-resize}
+  body.dk #dock{right:var(--fx,0px)}
+  body.dk #coach{left:calc((100% - var(--fx,0px)) / 2)}
+}
+@media (min-width:1100px){ body.dk #sheet{right:var(--fx,0px)} }
+@media (max-width:780px){
+  #deck{left:0;right:0;bottom:calc(var(--dock) + var(--safeB));height:var(--dh,60%);
+    border-width:1px 0 0 0}
+  /*  The handle sits fully inside the deck. Overhanging it by even a few
+      pixels would start the drag on the canvas, which takes pointer
+      capture, and the gesture would orbit instead of resize.           */
+  #dkedge{left:0;right:0;top:0;height:12px;cursor:ns-resize}
+  /*  Forty rather than thirty: on a phone this is the only thumb target
+      in the whole deck.                                                */
+  #dkbar{height:40px}
+  .dt{font-size:10px}
+}
 /*──────────────────────── node labels ────────────────────────*/
-#nodes{position:fixed;inset:0;z-index:3;pointer-events:none}
+#nodes{position:fixed;left:0;top:0;
+  width:calc(100% - var(--fx,0px));height:calc(100% - var(--fy,0px));
+  z-index:3;pointer-events:none}
 .nd{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;
   padding:5px 10px;white-space:nowrap;font-size:9px;letter-spacing:.21em;
   text-transform:uppercase;color:var(--mid);background:rgba(4,5,10,.62);
@@ -108,7 +183,8 @@ hr{border:0;height:1px;background:var(--rule);margin:12px 0}
 .nd.shut::after{content:" ·";color:var(--a-dim)}
 
 /*──────────────────────── ticker ────────────────────────*/
-#tick{position:fixed;left:0;bottom:calc(var(--dock) + var(--safeB));z-index:5;
+#tick{position:fixed;left:0;z-index:6;
+  bottom:max(calc(var(--dock) + var(--safeB)), calc(var(--fy,0px) + 6px));
   padding:6px 13px;max-width:min(56vw,440px);pointer-events:none;
   font-size:10px;letter-spacing:.06em;color:var(--mid);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -339,9 +415,9 @@ pre.code b{color:var(--a);font-weight:400}
 <body>
 
 <canvas id="field"></canvas>
-<div id="veil" aria-hidden="true"><div id="veilbar">
-<span id="veilt">TERMINAL</span><button id="veilx" type="button" aria-label="close">&times;</button>
-</div><iframe id="veilf" title="site surface"></iframe></div>
+<section id="deck" aria-label="the flat site">
+<div id="dkedge"></div><div id="dkbar" role="tablist"></div><div id="dkwrap"></div>
+</section>
 <svg id="wires" aria-hidden="true"></svg>
 <div id="nodes"></div>
 
@@ -494,7 +570,7 @@ const NN = MODULES.length;
     and the picking ray know them; the field does not.                  */
 const DOORED = /^(https?|web3):$/.test(location.protocol);
 const DOORS = [
-  { id:"TERMINAL", name:"Terminal", ring:2, key:"", door:"/terminal", veil:true,
+  { id:"TERMINAL", name:"Terminal", ring:2, key:"", door:"/terminal",
     blurb:"The site's terminal, drawn over the instrument. Every function, one line at a time; an agent drives the same words." },
   { id:"DSWAP",    name:"Swap",     ring:2, key:"", door:"/swap",
     blurb:"Any ERC-20 with a pool, against this chain's own Uniswap. Opens the 2-D swap surface." },
@@ -1209,10 +1285,31 @@ function allocate(w, h){
   accFrames = 0;
 }
 
+/*  The field's own rectangle, which stopped being the window's the day the
+    deck could take a strip off one edge. Everything that used to read
+    innerWidth/innerHeight — the framebuffer, the projection, the picking
+    ray, the label clamp — reads these instead, so a pane makes the solid
+    smaller rather than hiding half of it, and every gesture keeps working
+    on the part that is left. The canvas is inset by --fx/--fy in CSS; its
+    origin is still (0,0), which is why `pick()` needs no offset at all.  */
+let FW = innerWidth, FH = innerHeight, fieldDirty = true;
+/*  Reading offsetWidth forces a synchronous layout, and resize() runs once
+    a frame. Measuring there unconditionally put a forced layout in the
+    frame loop for a number that changes only when the window changes or
+    the deck moves — so it is measured on those two events instead, which
+    is exactly when it can differ.                                      */
+const remeasure = () => { fieldDirty = true; };
+addEventListener("resize", remeasure);
+
 function resize(){
   dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = Math.max(2, Math.round(innerWidth  * dpr * scale));
-  const h = Math.max(2, Math.round(innerHeight * dpr * scale));
+  if(fieldDirty){
+    fieldDirty = false;
+    FW = Math.max(2, cvs.offsetWidth  || innerWidth);
+    FH = Math.max(2, cvs.offsetHeight || innerHeight);
+  }
+  const w = Math.max(2, Math.round(FW * dpr * scale));
+  const h = Math.max(2, Math.round(FH * dpr * scale));
   if(w === W && h === H) return;
   W = w; H = h;
   cvs.width = w; cvs.height = h;
@@ -1267,11 +1364,11 @@ function project(p){
   if(z <= 0.06) return null;
   const x = V.dot(v, basis.right) / (z * 1.42);
   const y = V.dot(v, basis.up)    / (z * 1.42);
-  return { x: innerWidth * 0.5 + x * innerHeight, y: innerHeight * 0.5 - y * innerHeight, z };
+  return { x: FW * 0.5 + x * FH, y: FH * 0.5 - y * FH, z };
 }
 function pick(sx, sy){
-  const ux = (sx - innerWidth * 0.5) / innerHeight;
-  const uy = (innerHeight * 0.5 - sy) / innerHeight;
+  const ux = (sx - FW * 0.5) / FH;
+  const uy = (FH * 0.5 - sy) / FH;
   const rd = V.norm(V.add(V.mul(basis.fwd, 1.42),
              V.add(V.mul(basis.right, ux), V.mul(basis.up, uy))));
   let best = null, bt = 1e9;
@@ -1462,7 +1559,7 @@ const labels = nodes.map(n => {
 });
 
 function layout(){
-  const cx = innerWidth * 0.5, cy = innerHeight * 0.5;
+  const cx = FW * 0.5, cy = FH * 0.5;
   for(let i = 0; i < nodes.length; i++){
     const n = nodes[i], e = labels[i], p = project(n.pos);
     if(!p){
@@ -1483,8 +1580,8 @@ function layout(){
         its time off both edges.                                        */
     if(n.door){
       const m = 54;
-      lx = Math.min(Math.max(lx, m), innerWidth - m);
-      ly = Math.min(Math.max(ly, m), innerHeight - m);
+      lx = Math.min(Math.max(lx, m), FW - m);
+      ly = Math.min(Math.max(ly, m), FH - m);
     }
     e.d.style.transform = "translate(-50%,-50%) translate(" + lx.toFixed(1) + "px," + ly.toFixed(1) + "px)";
     e.d.style.opacity = clamp(2.3 - p.z * 0.21, 0.34, 1).toFixed(2);
@@ -2244,14 +2341,37 @@ const liveWord = () => packSection(L.rot, L.w, L.form, L.hue);
 const sheet = $("#sheet"), sbody = $("#sbody");
 let current = -1;
 
+/*  Which nodes have a flat surface worth opening, and which do not.
+
+    The rule, and it is the whole rule: a node opens a pane when the flat
+    site does something this frame cannot. It keeps its own controls when
+    the control IS the demonstration — ROTATE and SECTION commit the
+    orientation you are looking at right now, and that operand lives in
+    this frame's camera and nowhere on chain until the transaction lands.
+    There is no page that could show it, and there should not be.
+
+    SEND, ERC20, CALL, SIGN and SCAN keep their controls for a different
+    reason: no route does what they do. The site's only ERC-20 surface is
+    a Uniswap swap, and pointing "move a balance" at "trade a balance"
+    would be a lie told by a menu.                                      */
+const TWIN = {
+  SELF:   ["/token/$",        "Counter"],
+  VAULT:  ["/token/$/vault",  "Vault"],
+  MARKET: ["/token/$/market", "Market"],
+  /*  The mint node. /door is the only flat surface that can actually mint
+      — it carries the price and the terminal core — so ISSUE opens it,
+      and the pane is labelled Door rather than Issue because a tab that
+      claimed to be the node would be the misdirection.                 */
+  MINT:   ["/door",           "Door"]
+};
+
 function open(i){
   const dm = MODULES[i];
-  if(dm && dm.door){
-    VIS.sel = i; shock();
-    if(dm.veil) return veil(dm.door);
-    window.open(dm.door, "_blank", "noopener");
-    return;
-  }
+  if(dm && dm.door) return dkOpen(dm.door, dm.name, i);
+  /*  A node with a twin opens the surface and offers the native panel
+      beside it, rather than choosing for the reader.                   */
+  const tw = dm && TWIN[dm.id];
+  if(tw && DOORED && !isOpen(i)) return dkOpen(dkPath(tw[0]), tw[1], i);
   if(!isOpen(i)){
     VIS.sel = i;
     return panel(MODULES[i].name,
@@ -2283,16 +2403,232 @@ function shut(){
   VIS.sel = -1; current = -1;
 }
 $("#shut").onclick = shut;
-function veil(p){
-  const v = $("#veil");
-  $("#veilf").src = p;
-  v.classList.add("open"); v.setAttribute("aria-hidden", "false");
-}
-$("#veilx").onclick = () => {
-  const v = $("#veil");
-  v.classList.remove("open"); v.setAttribute("aria-hidden", "true");
-  $("#veilf").src = "about:blank";
+/*───────────────────────────────────────────────────────────────────────────
+  10b · THE DECK — the flat site, inside the instrument
+
+  Every surface the collection serves is a page a contract renders, and
+  until now reaching one meant leaving this document. The deck holds up to
+  four of them at once, live, in a strip the field gives up rather than one
+  laid over it.
+
+  The rules that are not obvious, and that a later reader will otherwise
+  break:
+
+    · `#dkwrap` is never written with innerHTML and a frame is never
+      re-parented or reordered. Moving an <iframe> in the DOM reloads its
+      document. That single rule is what makes "four live surfaces" true,
+      and violating it produces a bug report about a half-filled swap form
+      rather than an error.
+    · No `sandbox` attribute, deliberately. `allow-scripts` without
+      `allow-same-origin` gives the frame an opaque origin, no wallet
+      injects into it, and the pane reproduces exactly the failure the
+      premises contract documents for data: URLs — renders perfectly,
+      can never connect. The pair together grants nothing on a same-origin
+      frame, since the frame can reach up and remove the attribute.
+    · Only absolute paths built from SURF ever become a pane. Nothing
+      typed reaches a src.
+───────────────────────────────────────────────────────────────────────────*/
+const DKMAX = 4;
+
+/*  The whole vocabulary of the deck, and the only allowlist of routes it
+    will load. `#` takes a number; `$` is this token's id. /live and /raw
+    are deliberately absent: one is this document again, the other is not
+    a page.                                                             */
+const SURF = {
+  door:"/door", terminal:"/terminal", chat:"/chat", rooms:"/rooms", room:"/room/#",
+  dm:"/dm/#", swap:"/swap", gallery:"/gallery", launch:"/launch", lock:"/lock",
+  seal:"/seal", keys:"/keys", name:"/name", estate:"/estate", archive:"/open",
+  projector:"/projector", services:"/services.json", self:"/token/$",
+  faces:"/token/$/faces", market:"/token/$/market", pool:"/token/$/pool",
+  rent:"/token/$/rent", vault:"/token/$/vault"
 };
+/*  The words people actually say, rather than the ones the routes are
+    named. "open world chat" has to work because that is what someone
+    types when they mean the commons.                                   */
+const ALIAS = {
+  chat:"world commons social say", archive:"open markets",
+  door:"site front home 2d index mint issue", self:"token counter",
+  rooms:"messages groups", market:"exchange trade", vault:"assets grip reach hands",
+  terminal:"console words", lock:"vault timelock", estate:"will succession consign",
+  seal:"soulbind bolt", keys:"session grant", name:"ens"
+};
+
+let dkTabs = [], dkI = -1, dkClock = 0;
+
+const dkPath = (t) => t.replace("$", String(S.id));
+
+/*  Same origin, so the deck can ask a pane whether closing it would throw
+    away typing. Where a gateway splits routes across origins this throws
+    and the answer is no — which is the same answer a browser gives about
+    a tab it cannot see into.                                           */
+function dkTyped(t){
+  try {
+    return Array.from(t.fr.contentDocument.querySelectorAll("input,textarea"))
+      .some(e => e.value && e.type !== "hidden");
+  } catch(e){ return false; }
+}
+
+function dkStage(){
+  const on = dkTabs.length > 0;
+  document.body.classList.toggle("dk", on);
+  $("#deck").classList.toggle("on", on);
+  const wide = innerWidth >= 781;
+  const r = on ? $("#deck").getBoundingClientRect() : null;
+  /*  From the edge, not from the size. On a phone the deck floats above
+      the dock, so its height alone understates the strip by exactly the
+      dock — and the field would draw underneath it.                   */
+  document.documentElement.style.setProperty("--fx",
+    on && wide  ? Math.round(innerWidth  - r.left) + "px" : "0px");
+  document.documentElement.style.setProperty("--fy",
+    on && !wide ? Math.round(innerHeight - r.top)  + "px" : "0px");
+  remeasure(); resize(); accFrames = 0;
+}
+
+function dkPaint(){
+  const bar = $("#dkbar");
+  bar.innerHTML = dkTabs.map((t, k) =>
+    '<button class="dt' + (k === dkI ? " on" : "") + (t.cold ? " cold" : "") +
+    '" data-k="' + k + '" role="tab">' + esc(t.label) +
+    (t.cold ? " · not loaded" : "") + '<i data-x="' + k + '">×</i></button>').join("");
+  dkTabs.forEach((t, k) => t.fr.classList.toggle("on", k === dkI));
+  dkStage();
+}
+
+function dkLoad(k){
+  const t = dkTabs[k];
+  if(!t.cold) return;
+  t.cold = false;
+  t.fr.src = t.path;
+}
+
+function dkFocus(k){
+  if(k < 0 || k >= dkTabs.length) return;
+  dkI = k;
+  dkTabs[k].t = ++dkClock;
+  dkLoad(k);
+  if(dkTabs[k].node != null) VIS.sel = dkTabs[k].node;
+  dkPaint();
+}
+
+function dkShed(k){
+  const t = dkTabs[k];
+  /*  about:blank before remove(), so the document is torn down now rather
+      than at the collector's convenience.                              */
+  try { t.fr.src = "about:blank"; } catch(e){}
+  t.fr.remove();
+  dkTabs.splice(k, 1);
+  if(dkI >= dkTabs.length) dkI = dkTabs.length - 1;
+  else if(dkI > k) dkI -= 1;
+}
+
+function dkClose(k){
+  if(k < 0 || k >= dkTabs.length) return;
+  dkShed(k);
+  dkPaint();
+  if(!dkTabs.length){ VIS.sel = -1; say("The deck is closed."); }
+}
+
+function dkCloseAll(){
+  while(dkTabs.length) dkShed(0);
+  dkI = -1; VIS.sel = -1; dkPaint();
+}
+
+function dkOpen(path, label, node){
+  if(!DOORED) return say("This copy is not served from an origin, so there is no flat site to reach. Open the token on a gateway.", "err");
+  if(!/^\/[^\/]/.test(path)) return say("That is not a path this deck will load.", "err");
+
+  /*  Dedupe by ROUTE and not by name: the ISSUE node and the 2D-SITE door
+      both point at /door, and two slots holding the same page would spend
+      a second page read to show the same bytes.                        */
+  const same = dkTabs.findIndex(t => t.path === path);
+  if(same >= 0){ if(node != null) dkTabs[same].node = node; return dkFocus(same); }
+
+  if(dkTabs.length >= DKMAX){
+    const clean = dkTabs.slice().sort((a, b) => a.t - b.t).filter(t => !dkTyped(t));
+    if(!clean.length)
+      return say("Four surfaces are open and every one has something typed in it. Close one — " +
+                 dkTabs.map(t => esc(t.label)).join(", ") + ".", "err");
+    const lru = clean[0];
+    say("Four is the limit; <b>" + esc(lru.label) + "</b> was closed to make room.");
+    dkShed(dkTabs.indexOf(lru));
+  }
+
+  const fr = document.createElement("iframe");
+  fr.title = label;
+  fr.setAttribute("referrerpolicy", "no-referrer");
+  $("#dkwrap").appendChild(fr);
+  dkTabs.push({ path: path, label: label, fr: fr, cold: true, t: ++dkClock, node: node });
+  dkFocus(dkTabs.length - 1);
+  shock();
+}
+
+$("#dkbar").addEventListener("click", e => {
+  const x = e.target.closest("i");
+  if(x) return dkClose(Number(x.dataset.x));
+  const b = e.target.closest(".dt");
+  if(!b) return;
+  const k = Number(b.dataset.k);
+  /*  Re-tapping the tab you are already on cycles the deck's height. A
+      thumb gesture rather than a drag, and on a phone the primary one. */
+  if(k === dkI && innerWidth < 781) return dkDetent();
+  dkFocus(k);
+});
+
+const DETENTS = ["42%", "60%", "85%"];
+let detent = 1;
+function dkDetent(){
+  detent = (detent + 1) % DETENTS.length;
+  document.documentElement.style.setProperty("--dh", DETENTS[detent]);
+  dkStage();
+}
+
+/*  One handle, one axis. The deck owns one edge and the field owns the
+    rest, so there is no window that can be dragged half off a phone and
+    lost.                                                               */
+(function splitter(){
+  const edge = $("#dkedge"), deck = $("#deck");
+  let on = false;
+  edge.addEventListener("pointerdown", e => {
+    on = true; edge.setPointerCapture(e.pointerId);
+    deck.classList.add("drag"); e.preventDefault();
+  });
+  edge.addEventListener("pointermove", e => {
+    if(!on) return;
+    if(innerWidth >= 781){
+      const w = Math.min(Math.max(innerWidth - e.clientX, 320), innerWidth * 0.72);
+      document.documentElement.style.setProperty("--dw", Math.round(w) + "px");
+    } else {
+      const h = Math.min(Math.max(innerHeight - e.clientY, 140), innerHeight * 0.85);
+      document.documentElement.style.setProperty("--dh", Math.round(h) + "px");
+    }
+    dkStage();
+  });
+  const up = () => { if(!on) return; on = false; deck.classList.remove("drag"); dkStage(); };
+  edge.addEventListener("pointerup", up);
+  edge.addEventListener("pointercancel", up);
+})();
+
+addEventListener("resize", () => { if(dkTabs.length) dkStage(); });
+
+/*  Every query word must be a prefix of some word in the surface's name or
+    its aliases, which is what makes `open wor ch` reach the commons. On a
+    phone the characters saved are the difference between the palette
+    being the fast path and the slow one.                               */
+function dkNames(q){
+  const w = String(q).toLowerCase().split(/\s+/).filter(Boolean);
+  const num = w.find(x => /^\d+$/.test(x));
+  const ws = w.filter(x => x !== num);
+  const hit = Object.keys(SURF).filter(n =>
+    ws.every(x => (n + " " + (ALIAS[n] || "")).split(" ").some(y => y.startsWith(x))));
+  /*  Ambiguity is the palette's normal condition and needs no apology —
+      `open l` offering launch and lock is right. But a surface whose own
+      name is exactly what was typed must come first, or `open room 7`
+      loads /rooms and `open vault` loads /lock, because `rooms` starts
+      with `room` and `lock` answers to the alias `vault`.             */
+  const exact = ws.join(" ");
+  hit.sort((a, b) => (b === exact) - (a === exact));
+  return { hit: hit, num: num };
+}
 $("#confirm").addEventListener("click", e => { if(e.target.id === "confirm"){ $("#confirm").classList.remove("open"); pending = null; } });
 
 const kv  = (k, v, id) => '<div class="kv"><span class="k">' + esc(k) + '</span><span class="vv"' +
@@ -3513,18 +3849,17 @@ const COMMANDS = [
     k: "i", run: () => { VIS.spin = [0,0,0, 0.26, 0, 0.26]; say("Isoclinic: xw and zw together, at equal rate. In three dimensions there is no such motion."); paintDock(); } },
   { t: "Stop every rotation", d: "Hold the solid still.", k: "s", run: () => { VIS.spin = [0,0,0,0,0,0]; wDrift = false; $("#wauto").classList.remove("on"); paintDock(); say("Held."); } },
   { t: "Centre the section", d: "Put the cut back at w = 0.", k: "0", run: () => { setW(0); say("Section returned to the origin."); } },
+  /*  Two verbs, and they document themselves: with nothing typed after
+      them the row's description is the vocabulary. Eight `launch 2D`
+      entries used to sit here, each hard-coding one route and each
+      leaving the document; `open` reaches twenty-three surfaces and
+      leaves nothing.                                                  */
   ...(DOORED ? [
-    { t: "launch 2D", d: "Open the flat site \u2014 the 2-D interface, with every surface on one row.",
-      k: "", run: () => { location.href = "/door"; } },
-    { t: "launch 2D swap", d: "Open the 2-D swap surface.", k: "", run: () => { location.href = "/swap"; } },
-    { t: "launch 2D launch", d: "Open the 2-D launchpad.", k: "", run: () => { location.href = "/launch"; } },
-    { t: "launch 2D lock", d: "Open the 2-D vault.", k: "", run: () => { location.href = "/lock"; } },
-    { t: "launch 2D social", d: "Open the 2-D social layer.", k: "", run: () => { location.href = "/chat"; } },
-    { t: "launch 2D gallery", d: "Open the 2-D gallery.", k: "", run: () => { location.href = "/gallery"; } },
-    { t: "launch 2D estate", d: "Open the 2-D estate: succession, and consignment.",
-      k: "", run: () => { location.href = "/estate"; } },
-    { t: "launch 2D terminal", d: "Open the 2-D terminal, where one line does anything.",
-      k: "", run: () => { location.href = "/terminal"; } }
+    { t: "open", d: "open a flat surface in the deck \u2014 try: open swap, open world chat, open room 7",
+      k: "", run: () => window.__palette("open ") },
+    { t: "close", d: "close a surface, or: close all", k: "", run: () => window.__palette("close ") },
+    { t: "leave for the flat site", d: "Open /door in this tab instead of a pane.",
+      k: "", run: () => { location.href = "/door"; } }
   ] : []),
   { t: "Connect a wallet", d: "Announce for EIP-6963 providers and bind one.", k: "", run: () => connect() },
   { t: "Copy this token's URL", d: "The contract, chain and id, as a link.", k: "", run: () => {
@@ -3546,15 +3881,67 @@ const COMMANDS = [
   const paint = () => {
     list.innerHTML = items.map((c, i) =>
       '<div class="pi' + (i === sel ? " sel" : "") + '" data-i="' + i + '">' +
-      '<span class="pt">' + esc(c.t) + '</span><span class="pd">' + esc(c.d) + '</span>' +
+      '<span class="pt">' + esc(c.t) + '</span><span class="pd"' +
+      (c.shut ? ' style="color:var(--warn)"' : "") + '>' + esc(c.d) + '</span>' +
       (c.k ? '<span class="pk">' + esc(c.k) + "</span>" : "") + "</div>").join("");
     Array.from(list.children).forEach(el => el.onclick = () => run(+el.dataset.i));
   };
   const run = i => { const c = items[i]; box.classList.remove("open"); if(c) c.run(); };
-  const show = () => { box.classList.add("open"); q.value = ""; items = COMMANDS; sel = 0; paint(); q.focus(); };
+  const show = (seed) => {
+    box.classList.add("open"); q.value = seed || ""; sel = 0;
+    if(seed) q.dispatchEvent(new Event("input")); else { items = COMMANDS; paint(); }
+    q.focus();
+  };
+  /*  A row that will not run says why, in place of its description, and
+      says it again through the ticker when pressed so the reason
+      survives the palette closing. A reason attached to the control beats
+      a reason that arrives after the control failed.                   */
+  const shut = (t, why) => ({ t: t, d: why, k: "", shut: true, run: () => say(why, "err") });
+
+  /*  `open <name>` and `close <name>`, parsed before the filter runs,
+      because a single entry titled "open" can never match the string
+      "open swap" by substring. The leading slash a person actually types
+      is stripped, so `/open swap` costs them nothing.                  */
+  const rows = (verb, arg) => {
+    const set = verb === "close"
+      ? dkTabs.map(t => t.label.toLowerCase())
+      : Object.keys(SURF);
+    if(verb === "close"){
+      if(!dkTabs.length) return [shut("close", "nothing is open")];
+      const all = { t: "close all", d: "close every surface", k: "", run: () => dkCloseAll() };
+      const q2 = arg.trim();
+      if(!q2 || "all".startsWith(q2)) return [all].concat(dkTabs.map((t, k) =>
+        ({ t: "close " + t.label.toLowerCase(), d: t.path, k: "",
+           run: () => dkClose(dkTabs.indexOf(t)) })));
+      const m = dkTabs.filter(t => t.label.toLowerCase().startsWith(q2));
+      return m.length ? m.map(t => ({ t: "close " + t.label.toLowerCase(), d: t.path, k: "",
+                                      run: () => dkClose(dkTabs.indexOf(t)) }))
+                      : [shut("close " + q2, 'nothing open is named "' + q2 + '"')];
+    }
+    if(!DOORED) return [shut("open " + arg,
+      "this copy is not served from an origin, so there is no flat site to reach")];
+    const found = dkNames(arg);
+    const mk = (n) => {
+      const raw = SURF[n];
+      if(raw.indexOf("#") >= 0 && !found.num)
+        return shut("open " + n, 'needs a number \u2014 try "open ' + n + ' 7"');
+      const path = dkPath(raw).replace("#", String(found.num || 1));
+      return { t: "open " + n, d: path, k: "", run: () => dkOpen(path, n.toUpperCase()) };
+    };
+    if(!arg.trim()) return Object.keys(SURF).map(mk);
+    /*  An unknown name answers the question actually being asked, which
+        is "what is there?" — the refusal, then the whole vocabulary.  */
+    if(!found.hit.length)
+      return [shut("open " + arg, 'no surface is named "' + arg.trim() + '"')]
+        .concat(Object.keys(SURF).map(mk));
+    return found.hit.map(mk);
+  };
+
   q.addEventListener("input", () => {
-    const t = q.value.toLowerCase().trim();
-    items = t ? COMMANDS.filter(c => (c.t + " " + c.d).toLowerCase().includes(t)) : COMMANDS;
+    const raw = q.value.toLowerCase().trim().replace(/^\//, "");
+    const m = /^(open|close)\b\s*(.*)$/.exec(raw);
+    items = m ? rows(m[1], m[2])
+              : (raw ? COMMANDS.filter(c => (c.t + " " + c.d).toLowerCase().includes(raw)) : COMMANDS);
     sel = 0; paint();
   });
   q.addEventListener("keydown", e => {
@@ -3577,7 +3964,7 @@ const COMMANDS = [
   if(!DOORED){ if(two) two.remove(); return; }
   if(two){
     two.hidden = false;
-    two.addEventListener("click", () => { location.href = "/door"; });
+    two.addEventListener("click", () => dkOpen("/door", "Door"));
   }
 })();
 
@@ -3585,7 +3972,19 @@ addEventListener("keydown", e => {
   if(/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
   const k = e.key;
   if(k === "/" || (k === "k" && (e.metaKey || e.ctrlKey))){ window.__palette(); e.preventDefault(); return; }
-  if(k === "Escape"){ $("#confirm").classList.remove("open"); $("#pal").classList.remove("open"); shut(); return; }
+  if(k === "Escape"){
+    /*  Innermost first. Closing everything at once used to be the
+        behaviour and it made the deck a room you could not back out of
+        one step at a time.                                            */
+    if($("#confirm").classList.contains("open")){ $("#confirm").classList.remove("open"); pending = null; return; }
+    if($("#pal").classList.contains("open")){ $("#pal").classList.remove("open"); return; }
+    if(sheet.classList.contains("open")) return shut();
+    if(dkI >= 0) return dkClose(dkI);
+    return;
+  }
+  /*  Forward through the open surfaces. A phone has no backtick and does
+      not need one: the strip is right there.                          */
+  if(k === "`" && dkTabs.length){ dkFocus((dkI + 1) % dkTabs.length); return; }
   const m = MODULES.find(x => x.key === k);
   if(m){ open(m.i); return; }
   if(k === "]") COMMANDS.find(c => c.t === "Next solid").run();
