@@ -799,5 +799,71 @@ head("a guarded piece cannot be dropped from inside the call that moves it");
   eq("and still named by it", decUint(await c.read(v, "pieces()"), 1), 1);
 }
 
+/*════════════ a key does not survive the sale of what it spends from ════════
+
+  `sessionOf` is storage on the account and `executeAsSession` authorises out
+  of that mapping alone; the hub's `transferFrom` clears the ERC-4907 lease
+  and the lease agent and nothing else. So a key the seller handed to a bot
+  went on spending from the buyer's Reach, bounded only by its own expiry —
+  up to a year — with nothing anywhere telling the buyer to go looking.
+
+  The mark is the hub's transfer counter and not the granting holder's
+  address, because an address is not enough: sold to a stranger and bought
+  back, an identity check would wake every retired key up. Both cases run
+  here.
+*/
+head("a session key does not survive the sale");
+{
+  await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+  const id = decUint(await c.read(nft, "totalSupply()"));
+  const v = decAddr(await c.read(nft, "account(uint256)", [id]));
+  await c.exec(nft, "embody(uint256)", [id]);
+  await c.exec(GOLD, "mint(address,uint256)", [v, 100n * WAD]);
+
+  const bot = await c.as("0x" + "7e".repeat(32));
+  const key = bot.from.toString();
+  const move = enc("transfer(address,uint256)", [me, 1n * WAD]);
+  const XFER = "0xa9059cbb";
+
+  await c.exec(v, "grantSession(address,uint64,uint128,address[],bytes4[])",
+    [key, evm.GENESIS_TIME + 300n * 86400n, 0n, [GOLD], [XFER]]);
+  ok("the key is granted and current",
+     decBool(await c.read(v, "sessionAllows(address,address,bytes4)", [key, GOLD, XFER])));
+  await bot.exec(v, "executeAsSession(address,uint256,bytes)", [GOLD, 0n, move]);
+  eq("and it spends", decUint(await c.read(GOLD, "balanceOf(address)", [v])), 99n * WAD);
+
+  /*  Now sell the token. Nothing is called on the account; the hub does
+      not know it exists.                                               */
+  const buyer = await c.as("0x" + "b1".repeat(32));
+  await c.exec(nft, "transferFrom(address,address,uint256)", [me, buyer.from.toString(), id]);
+  eq("the Reach follows the token", decAddr(await c.read(v, "owner()")).toLowerCase(),
+     buyer.from.toString().toLowerCase());
+
+  await refuses("the seller's key cannot spend from the buyer's Reach",
+    () => bot.exec(v, "executeAsSession(address,uint256,bytes)", [GOLD, 0n, move]),
+    "a key granted before the sale kept spending for up to a year afterwards");
+  eq("not one wei moved", decUint(await c.read(GOLD, "balanceOf(address)", [v])), 99n * WAD);
+  ok("and the page-facing read says so rather than showing it as live",
+     !decBool(await c.read(v, "sessionAllows(address,address,bytes4)", [key, GOLD, XFER])));
+  ok("`sessionCurrent` names the reason", !decBool(await c.read(v, "sessionCurrent(address)", [key])));
+
+  /*  The edge an address check would have missed: bought back by the very
+      holder who granted the key. A counter only goes forward.          */
+  await buyer.exec(nft, "transferFrom(address,address,uint256)", [buyer.from.toString(), me, id]);
+  eq("the token comes back to the one who granted it",
+     decAddr(await c.read(nft, "ownerOf(uint256)", [id])).toLowerCase(), me.toLowerCase());
+  await refuses("and the retired key stays retired",
+    () => bot.exec(v, "executeAsSession(address,uint256,bytes)", [GOLD, 0n, move]),
+    "an identity check would have woken every key the seller ever granted");
+
+  /*  And the new holder can of course grant afresh — the fix retires keys,
+      it does not disable the feature.                                  */
+  await c.exec(v, "grantSession(address,uint64,uint128,address[],bytes4[])",
+    [key, evm.GENESIS_TIME + 300n * 86400n, 0n, [GOLD], [XFER]]);
+  await bot.exec(v, "executeAsSession(address,uint256,bytes)", [GOLD, 0n, move]);
+  eq("a key granted by the holder who holds it now works",
+     decUint(await c.read(GOLD, "balanceOf(address)", [v])), 98n * WAD);
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -78,6 +78,7 @@ contract PageKeys {
             "\",\"revoke\":\"", _sel("revokeSession(address)"),
             "\",\"allows\":\"", _sel("sessionAllows(address,address,bytes4)"),
             "\",\"sessionOf\":\"", _sel("sessionOf(address)"),
+            "\",\"current\":\"", _sel("sessionCurrent(address)"),
             "\",\"isSealed\":\"", _sel("isSealed()"),
             "\",\"maxList\":\"", _sel("MAX_LIST()"),
             "\",\"maxSession\":\"", _sel("MAX_SESSION()"),
@@ -280,6 +281,15 @@ contract PageKeys {
         "if(!on){e.innerHTML='<div><span>this key today</span><b>no session</b>"
         "</div>';return}"
         "const live=ex>=Math.floor(Date.now()/1000);"
+        /*  A key can be unexpired and still dead: it retires when the token
+            it spends from changes hands. Reading only the expiry would show
+            a previous holder's key as live until its date, which is the
+            reading that let one keep spending in the first place.       */
+        "const cc=await I.tryCall(reach,S.current+I.AD(k));"
+        "const now=!cc||I.word(cc,0)===1n;"
+        "if(!now){e.innerHTML='<div><span class=w>this key was granted by a previous "
+        "holder of this token and retired when it sold \\u2014 it can spend nothing</span>"
+        "<b></b></div>';return}"
         "e.innerHTML='<div><span>this key today</span><b class='+(live?'ok':'w')+'>'"
         "+(live?'live until ':'expired ')"
         "+new Date(ex*1000).toISOString().slice(0,16).replace('T',' ')+' UTC</b></div>'"

@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 interface IERC721Min {
     function ownerOf(uint256 tokenId) external view returns (address);
+    function statsOf(uint256 id) external view
+        returns (uint256 ops, uint256 xfers, uint256 strata, uint256 open);
 }
 
 interface IERC20Bal {
@@ -134,6 +136,8 @@ contract IpseityAccount {
     error NoSession();
     error SessionExpired();
     error SessionTooLong();
+    error WrongChain();
+    error CannotReadHistory();
     error TargetNotAllowed(address target);
     error SelectorNotAllowed(bytes4 selector);
     error SpendCapExceeded(uint256 cap, uint256 wanted);
@@ -432,6 +436,24 @@ contract IpseityAccount {
         uint128 spendCap;      // cumulative native value, over the session's life
         uint128 spent;
         bool    active;
+        /*  How many times the token had changed hands when this key was
+            granted. A session outlived the sale of the token it spends
+            from: `sessionOf` is storage on this account, `executeAsSession`
+            authorises out of that mapping alone, and the hub's transfer
+            clears the ERC-4907 lease and the lease agent and nothing else.
+            So a key the seller handed to a bot went on spending from the
+            buyer's Reach — bounded by its expiry, its allowlists and its
+            cap, and for up to a year.
+
+            The mark is the hub's own transfer counter rather than the
+            holder's address, because an address is not enough: sold to a
+            stranger and bought back, an identity check would let every
+            retired key wake up. A counter only goes forward.
+
+            Four bytes, in the fifteen this struct was already leaving
+            empty in its second slot. The check costs one staticcall to the
+            hub, which is what `owner()` already does on every path.     */
+        uint32  mark;
     }
 
     uint256 public constant MAX_LIST = 16;
@@ -445,6 +467,35 @@ contract IpseityAccount {
     uint64 public constant MAX_SESSION = 365 days;
 
     mapping(address => Session) public sessionOf;
+
+    error SoldOn(uint32 granted, uint32 now_);
+
+    /// @dev The hub's transfer count for this token. Fails closed: an
+    ///      account that cannot read the history does not get to assume it
+    ///      is unchanged.
+    function _mark() internal view returns (uint32) {
+        (uint256 chainId, address tokenContract, uint256 tokenId) = token();
+        if (chainId != block.chainid) revert WrongChain();
+        (bool ok, bytes memory out) = tokenContract.staticcall(
+            abi.encodeWithSelector(IERC721Min.statsOf.selector, tokenId));
+        if (!ok || out.length < 64) revert CannotReadHistory();
+        (, uint256 xfers, , ) = abi.decode(out, (uint256, uint256, uint256, uint256));
+        return uint32(xfers);
+    }
+
+    /// @notice Whether a key is still the key the current holder inherited,
+    ///         rather than one the person before them left running.
+    function sessionCurrent(address key) public view returns (bool) {
+        Session memory s = sessionOf[key];
+        if (!s.active) return false;
+        (uint256 chainId, address tokenContract, uint256 tokenId) = token();
+        if (chainId != block.chainid) return false;
+        (bool ok, bytes memory out) = tokenContract.staticcall(
+            abi.encodeWithSelector(IERC721Min.statsOf.selector, tokenId));
+        if (!ok || out.length < 64) return false;
+        (, uint256 xfers, , ) = abi.decode(out, (uint256, uint256, uint256, uint256));
+        return s.mark == uint32(xfers);
+    }
 
     /*  Keyed by epoch as well as by address, and the epoch is the fix.
 
@@ -515,6 +566,7 @@ contract IpseityAccount {
         s.spendCap = spendCap;
         s.spent = 0;
         s.active = true;
+        s.mark = _mark();
 
         for (uint256 i; i < targets.length; ++i) {
             // an allowlist entry pointing back here is the escalation again
@@ -539,6 +591,7 @@ contract IpseityAccount {
     {
         Session memory s = sessionOf[key];
         return s.active && s.expires >= block.timestamp
+            && sessionCurrent(key)
             && sessionTarget(key, to) && sessionSelector(key, selector);
     }
 
@@ -564,6 +617,15 @@ contract IpseityAccount {
         Session storage s = sessionOf[msg.sender];
         if (!s.active) revert NoSession();
         if (s.expires < block.timestamp) revert SessionExpired();
+        /*  The key has to belong to the holder who granted it. Without
+            this, a key handed out before a sale keeps spending from the
+            buyer's Reach until it expires — up to a year — and the buyer
+            has no way to know without reading storage they were never
+            told to read.                                              */
+        {
+            uint32 now_ = _mark();
+            if (s.mark != now_) revert SoldOn(s.mark, now_);
+        }
         if (to == address(this)) revert NoPrivilegeEscalation();
         if (!sessionTarget(msg.sender, to)) revert TargetNotAllowed(to);
 

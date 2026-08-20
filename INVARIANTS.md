@@ -787,8 +787,48 @@ does not exist.
 → `tools/verify-site.mjs` · *"every flat route the site answers is in the
   manifest"*, `src/PageManifest.sol` · `ROUTES`
 
-> **A note on the numbering.** There are one hundred and twenty-one
-> statements here, numbered to 122: number 96 was retired with the feature it
+**123. A sealed vault's manifest cannot move while a call is being measured.**
+`_snapshot` aligns `pre[]` and `seen[]` with the manifest by index and
+`unguard` removes an entry by swapping the last one into its slot, so an
+`unguard` re-entered from inside the call being measured renumbers the
+manifest underneath arrays taken before it — and a slot whose `seen` flag was
+false, because a broken token used to sit there, now holds a real one, which
+`_verify` skips. Measured on chain before it was fixed: a thousand GOLD left a
+sealed vault and `isSealed()` still answered true. `nonReentrant` does not
+cover it; the re-entry is into a different function.
+→ `tools/verify-vault.mjs` · *"a batch that unguards the blind one mid-flight
+  is refused too"*, `src/IpseityAccount.sol` · `notWhileMeasuring`
+
+**124. A guarded piece cannot be dropped from inside the call that moves it.**
+`unguardNFT` refuses, while sealed, only for a piece the account still holds —
+so a batch that transfers the piece away first was then free to drop it from
+the list, and `_verifyPieces` never went looking. That is the entire promise
+of naming a specific NFT, defeated in two calls of one batch, and it is the
+case that matters most because naming a piece is what somebody does with a
+valuable one.
+→ `tools/verify-vault.mjs` · *"nor moved and then quietly dropped from the
+  list in one batch"*, `src/IpseityAccount.sol` · `notWhileMeasuring`
+
+**125. A session key does not survive the sale of what it spends from.**
+`sessionOf` is storage on the account, `executeAsSession` authorises out of
+that mapping alone, and the hub's transfer clears the ERC-4907 lease and the
+lease agent and nothing else — so a key the seller handed to a bot went on
+spending from the buyer's Reach until it expired, up to a year, with nothing
+telling the buyer to look. Every grant is stamped with the hub's transfer
+count, and a key whose stamp is not the current one is refused. The counter
+rather than the granting address, because sold and bought back an identity
+check would wake every retired key up.
+→ `tools/verify-vault.mjs` · *"the seller's key cannot spend from the buyer's
+  Reach"*, `src/IpseityAccount.sol` · `sessionCurrent`
+
+**126. The keys page says a key is retired rather than showing its date.**
+A key can be unexpired and still dead. Reading only the expiry showed a
+previous holder's key as live until its date, which is the reading that let
+one keep spending in the first place.
+→ `src/PageKeys.sol` · `cur()`
+
+> **A note on the numbering.** There are one hundred and twenty-five
+> statements here, numbered to 126: number 96 was retired with the feature it
 > described and its number was not reused, because every entry is referenced
 > by number from commit messages and from the suites. A gap is cheaper than a
 > renumbering that silently repoints an old reference at a new claim.
