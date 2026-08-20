@@ -72,6 +72,57 @@ export const LAYERZERO = {
 ///         deploy a port pointed at an address with nothing behind it.
 export const endpointFor = (chainId) => LAYERZERO[Number(chainId)] || null;
 
+/*───────────────────────────────────────────────────────────────────────────
+  What LayerZero actually costs here, quoted live against the real
+  endpoints rather than read off a docs page. Kept because these numbers
+  decide the architecture, and the scripts that produced them were
+  throwaway.
+
+  THE ONE THAT MATTERS: from Unichain, READING Ethereum costs 1.957e-5 ETH
+  and MESSAGING Ethereum costs 3.404e-4 — seventeen times more. The read's
+  answer lands on Unichain at 0.0005 gwei; the message lands on L1. Pulling
+  state is radically cheaper than pushing it, and it is the reason the
+  design here reads rather than sends.
+
+  READ, quoted from Unichain (eid 30320), which carries the read library —
+  only 30 of 183 LayerZero mainnet deployments do:
+    one read                       1.957e-5 ETH
+    each extra target, same command 1.021e-5
+    eight targets in one command    9.102e-5
+    lzReduce (fold on arrival)     +1.021e-5
+    lzMap                          +3.06e-5
+  Unichain can read Ethereum, Base, Arbitrum, Optimism, BNB, Polygon and
+  itself. It CANNOT read Robinhood (30416) — that endpoint has no read
+  library on mainnet or testnet, so Robinhood can speak and never be heard.
+
+  SEND, measured from production OApps on the same lanes:
+    Unichain -> Base        2.552e-5      Unichain -> Optimism  2.170e-5
+    Unichain -> BNB         3.132e-5      Unichain -> Arbitrum  4.379e-5
+    Unichain -> Ethereum    3.404e-4      Robinhood -> Ethereum 3.709e-4
+
+  PAYLOAD IS ALMOST FREE, so size is never the constraint the fixed fee is:
+    64 bytes 2.691e-5 · 10,000 bytes 2.789e-5  (~1e-10 ETH per byte)
+    maxMessageSize is exactly 10,000 — 10,001 reverts InvalidMessageSize.
+    The section word is 32 bytes. It fits three hundred times over.
+    Ordered execution costs +3.51e-8. Effectively free.
+
+  TWO PROTOCOL FACTS THAT DECIDE ADMISSIBILITY UNDER THE HOUSE RULES:
+    · An unwired lane fails at QUOTE time. The default verifier is a
+      934-byte contract whose whole behaviour is to revert with "Please set
+      your OApp's DVNs and/or Executor". A lane that is not configured says
+      so instead of accepting a message that would never arrive.
+    · Delivery is permissionless — `lzReceive` has no access control, so
+      once the DVNs verify, anyone may deliver. The paid executor is a
+      convenience and never a dependency. No server is required.
+    · `setConfig` + `setDelegate(address(0))` in a constructor freezes the
+      DVN set as hard as the bytecode: no admin key, no upgrade path.
+───────────────────────────────────────────────────────────────────────────*/
+export const LZ_COST = {
+  readOne: 1.957e-5, readExtra: 1.021e-5, reduce: 1.021e-5,
+  sendToL1: 3.404e-4, sendToL2: 2.552e-5,
+  maxMessageBytes: 10000, sectionWordBytes: 32,
+};
+
 export const UNISWAP = {
   1: {
     name: "Ethereum",
