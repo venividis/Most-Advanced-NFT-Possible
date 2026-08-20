@@ -216,7 +216,25 @@ eq("state.rot has six angles", IPSE.rot.length, 6);
 ok("state.rot matches the packed word",
    IPSE.rot.every((a, i) => BigInt(a) === ((word0 >> BigInt(i * 16)) & 0xffffn)),
    JSON.stringify(IPSE.rot));
-eq("state.open is the birth bitmap", IPSE.open, 0x587);
+/*  Derived from the rule rather than typed, because a hand-typed mask is
+    what let this drift: the constant said 0x587 — Market born open, Nest
+    sealed — while the comment above it and the principle it states both
+    said the opposite. An assertion that repeats the number cannot catch
+    the number being wrong.                                            */
+{
+  const NODES = ["Self", "Rotate", "Section", "Send", "Assets", "Call",
+                 "Sign", "Scan", "Vault", "Issue", "Market", "Nest"];
+  const LOOKS_ONLY = ["Self", "Rotate", "Section", "Scan", "Vault", "Nest"];
+  const want = LOOKS_ONLY.reduce((m, n) => m | (1 << NODES.indexOf(n)), 0);
+  eq("state.open is the birth bitmap", IPSE.open, want);
+  eq("and the birth bitmap is exactly the instruments that only look",
+     "0x" + want.toString(16), "0x987");
+  const born = NODES.filter((_, i) => (want >> i) & 1);
+  ok("no instrument that moves value is born open",
+     !born.some((n) => ["Send", "Assets", "Call", "Sign", "Issue", "Market"].includes(n)),
+     born.join(", "));
+  console.log("      born open: " + born.join(", "));
+}
 eq("state.depth", IPSE.depth, 0);
 
 const acct = decAddr(await c.read(nft, "account(uint256)", [1]));

@@ -108,10 +108,25 @@ contract Ipseity is
 
     error BadBand();
 
-    /// @dev The instruments that only look are open from birth. The ones
-    ///      that move value are sealed until the holder deliberately opens
-    ///      them — Self, Rotate, Section, Scan, Vault, Nest.
-    uint16 public constant BORN_OPEN = 0x587;
+    /*  The instruments that only look are open from birth. The ones that
+        move value are sealed until the holder deliberately opens them.
+
+        Born open, and the bit each one is:
+          0 Self · 1 Rotate · 2 Section · 7 Scan · 8 Vault · 11 Nest
+        which is 0x987. Sealed: Send, Assets, Call, Sign, Issue, Market.
+
+        This constant read 0x587 for its whole life, which opens bit 10 —
+        MARKET — and leaves Nest sealed. Exactly backwards from the rule
+        stated one line above it: Market is the token's own automated
+        market maker, the single instrument in the set that moves the most
+        value, and Nest does nothing but draw the token inside itself. So
+        every token shipped with the money panel open and the holder was
+        charged to unlock a picture. A suite assertion pinned 0x587 as
+        though it were the design, which is how it survived.
+
+        It is a constant, so it is settled at deployment and settled
+        forever for every token in the band.                             */
+    uint16 public constant BORN_OPEN = 0x987;
     uint16 public constant ALL_OPEN  = 0xFFF;
     uint8  public constant NODE_COUNT = 12;
 

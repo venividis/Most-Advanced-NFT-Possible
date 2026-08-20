@@ -845,8 +845,22 @@ dead-man's switch a third party can hold open is not one.
 → `tools/verify-estate.mjs` · *"a stranger calling embody does not reset the
   silence"*, `src/Ipseity.sol` · `embody`, `src/Succession.sol` · `lastSeen`
 
-> **A note on the numbering.** There are one hundred and twenty-six
-> statements here, numbered to 127: number 96 was retired with the feature it
+**128. No instrument that moves value is born open.**
+The birth mask read `0x587`, which opens bit 10 — Market, the token's own
+automated market maker and the instrument in the set that moves the most
+value — and leaves Nest, which does nothing but draw the token inside
+itself, sealed behind a fee. The comment one line above the constant stated
+the opposite rule, and the suite pinned `0x587` as though it were the
+design, which is how it survived. `BORN_OPEN` is `0x987`, and the assertion
+now derives the mask from a named list of the look-only instruments rather
+than repeating a number: an assertion that restates the constant cannot
+catch the constant being wrong. It is a `constant`, so it is settled at
+deployment and settled forever for every token in the band.
+→ `tools/verify.mjs` · *"no instrument that moves value is born open"*,
+  `src/Ipseity.sol` · `BORN_OPEN`
+
+> **A note on the numbering.** There are one hundred and twenty-seven
+> statements here, numbered to 128: number 96 was retired with the feature it
 > described and its number was not reused, because every entry is referenced
 > by number from commit messages and from the suites. A gap is cheaper than a
 > renumbering that silently repoints an old reference at a new claim.
