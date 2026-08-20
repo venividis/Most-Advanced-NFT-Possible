@@ -684,6 +684,32 @@ sends the page's own calldata, and then asks the account, selector by
 selector and address by address, what it believes it permits.
 → `tools/verify-site.mjs` · *"driving the session keys"*, `src/PageKeys.sol`
 
+**112. A seal claims only what it checked.**
+The private half of a token's sealing key is derived from a wallet
+signature, so it belongs to a wallet and not to the token that published
+it. A token sold after publishing therefore leaves behind a key its former
+holder can still derive — and a message sealed to that key is readable by
+the person who left and not by the person who arrived. The bar used to say
+"only #a and #b can read what is said here" after verifying nothing but
+the sender's own key. It now reads the far token's transfer count and says
+which case this is: settled when the token has never moved, and a warning
+naming the number of sales when it has. The page states the same thing in
+contract-rendered prose, so it is true with JavaScript switched off.
+→ `tools/verify-site.mjs` · *"its claim agrees with what the chain says about
+  that token"*, *"a key published before a sale is called out"*,
+  `src/DeskSeal.sol`, `src/PageTalk.sol`
+
+**113. A warning arrives with the control that answers it.**
+Three defects around the same bar, each small and each removing a person's
+ability to act: the derived key was cached per page rather than per token,
+so switching tokens raised a mismatch that had not happened; the sender's
+own key was checked behind a return that fired when the far side had not
+published, so the one case where you most needed to know your key was
+stale was the one case you were never told; and the mismatch branch left
+the publish button hidden, telling the only person who could fix it that
+something was wrong while withholding the fix.
+→ `src/DeskSeal.sol` · `arm`
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

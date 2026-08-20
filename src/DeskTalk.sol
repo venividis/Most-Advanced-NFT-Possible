@@ -86,6 +86,7 @@ contract DeskTalk {
             "\",\"found\":\"",   _s("found(uint256,string,bool)"),
             "\",\"join\":\"",    _s("join(uint256,uint256)"),
             "\",\"leave\":\"",   _s("leave(uint256,uint256)"),
+            "\",\"stats\":\"",   _s("statsOf(uint256)"),
             "\",\"invite\":\"",  _s("invite(uint256,uint256,uint256)"),
             "\",\"evict\":\"",   _s("evict(uint256,uint256,uint256)"),
             "\",\"inWin\":\"",   _s("inWindow(uint256,uint256)"),

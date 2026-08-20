@@ -82,7 +82,10 @@ contract DeskSeal {
         "const k=await sub.digest('SHA-256',bits);"
         "return sub.importKey('raw',k,'AES-GCM',false,['encrypt','decrypt'])};"
 
-        "let KEY=null,MY=null;"
+        /*  Keyed by token, because `derive` signs a sentence naming the token:
+            one cached key compared against another token's published point
+            raises a mismatch that never happened.                        */
+        "let KEY=null,MY={};"
         "const seal=async h=>{if(!KEY)return{k:0,h:h};"
         "const iv=crypto.getRandomValues(new Uint8Array(12));"
         "const ct=new Uint8Array(await sub.encrypt({name:'AES-GCM',iv:iv},KEY,H2B(h)));"
@@ -110,13 +113,49 @@ contract DeskSeal {
         "const mineOn=await onChain(me);"
         "if(!mineOn){btn.hidden=false;"
         "say('#'+me+' has no published key \\u2014 this room sends plaintext until it does');return}"
-        "if(!theirs){say('#'+T.other+' has not published a key \\u2014 plaintext until they do');return}"
-        "MY=MY||await derive(me);"
-        "if(MY.x!==mineOn.x||MY.y!==mineOn.y){"
+        /*  Your own key is checked before theirs. It used to be checked
+            after, behind a return, so the one case where you most need to
+            know your key is stale — nobody to talk to yet — was the one
+            case you were never told.                                    */
+        "MY[me]=MY[me]||await derive(me);"
+        "if(MY[me].x!==mineOn.x||MY[me].y!==mineOn.y){"
+        /*  And the button comes back. Telling the only person who can
+            republish that something is wrong, while hiding the control
+            that fixes it, is a warning with nowhere to go.              */
+        "btn.hidden=false;"
         "say('the key this wallet derives is not the one #'+me+' published \\u2014 "
-        "a different wallet published it; sending plaintext',1);return}"
-        "KEY=await pairKey(MY,theirs);PL.out(seal);"
-        "say('sealed \\u00b7 only #'+me+' and #'+T.other+' can read what is said here');"
+        "publish again to seal, or send plaintext',1);return}"
+        "if(!theirs){say('#'+T.other+' has not published a key \\u2014 plaintext until they do');return}"
+        "KEY=await pairKey(MY[me],theirs);PL.out(seal);"
+
+        /*  What the banner may honestly claim.
+
+            Static-static ECDH is symmetric, and the private half here is
+            derived from a wallet signature rather than stored — so whoever
+            held a token when it published its point can still derive that
+            point's private key forever. If the token has since changed
+            hands, a message sealed to that point is readable by the person
+            who left and NOT by the person who arrived. The old banner said
+            'only #a and #b can read this' after checking only that the
+            sender's own key matched, which is a promise about the other
+            end that nothing here had established.
+
+            A token that has never moved settles it: its publisher is the
+            only holder it has ever had. A token that has moved cannot be
+            settled from on chain alone, so the page says that instead of
+            guessing.                                                     */
+        "let moved=null;"
+        "if(S.stats){const st=await I.tryCall(T.hub,S.stats+I.W(OTHER));"
+        "if(st)moved=I.word(st,1)}"
+        "if(moved===0n)"
+        "say('sealed \\u00b7 #'+T.other+' has held this key since it was minted, "
+        "so it is the key of whoever holds it now');"
+        "else if(moved===null)"
+        "say('sealed to the key #'+T.other+' published \\u2014 whether that is still "
+        "its holder could not be read just now',1);"
+        "else say('sealed to the key #'+T.other+' published, and that token has changed "
+        "hands '+moved+(moved===1n?' time':' times')+' \\u2014 a key published before a "
+        "sale can still be opened by whoever held it then',1);"
         "PL.repaint()};"
 
         "btn.addEventListener('click',async()=>{try{"
