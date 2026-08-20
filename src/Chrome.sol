@@ -370,6 +370,7 @@ contract Chrome {
             _tab("/name", "name", here == 12),
             _tab("/keys", "keys", here == 13),
             _tab("/seal", "seal", here == 14),
+            _tab("/estate", "estate", here == 19),
             _tab("/services.json", "manifest", here == 6),
             "</nav>"
         );

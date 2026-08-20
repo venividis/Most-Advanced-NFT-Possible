@@ -272,10 +272,28 @@ export async function deploySite(c, A,
   const deskRooms = await c.deploy(
     A("src/DeskRooms.sol", "DeskRooms").bytecode, "", "DeskRooms");
 
+  /*  The estate. Both of these hold, or can move, somebody else's token,
+      so both are plain contracts over the hub with no page privileges at
+      all — every page below is one more caller. They land here rather than
+      beside their page because the two pages that host a terminal compose
+      the estate's words, and a word cannot be composed before it exists. */
+  const succession = await c.deploy(
+    A("src/Succession.sol", "Succession").bytecode,
+    encodeAddressArg(hub), "Succession");
+
+  const consign = await c.deploy(
+    A("src/Consign.sol", "Consign").bytecode,
+    encodeAddressArg(hub), "Consign");
+
+  const deskWill = await c.deploy(
+    A("src/DeskWill.sol", "DeskWill").bytecode,
+    encodeAddressArg(succession) + encodeAddressArg(consign) + encodeAddressArg(hub),
+    "DeskWill");
+
   const pTerminal = await c.deploy(
     A("src/PageTerminal.sol", "PageTerminal").bytecode,
     encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskTerm) +
-    encodeAddressArg(deskRooms),
+    encodeAddressArg(deskRooms) + encodeAddressArg(deskWill),
     "PageTerminal");
 
   const pGallery = await c.deploy(
@@ -306,7 +324,8 @@ export async function deploySite(c, A,
     A("src/PageDoor.sol", "PageDoor").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(chrome) + encodeAddressArg(desk) +
     encodeAddressArg(deskTalk) + encodeAddressArg(parley) +
-    encodeAddressArg(deskTerm) + encodeAddressArg(deskRooms), "PageDoor");
+    encodeAddressArg(deskTerm) + encodeAddressArg(deskRooms) +
+    encodeAddressArg(deskWill), "PageDoor");
 
   const pTalk = await c.deploy(
     A("src/PageTalk.sol", "PageTalk").bytecode,
@@ -328,6 +347,15 @@ export async function deploySite(c, A,
     A("src/PageKeys.sol", "PageKeys").bytecode,
     encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(hub),
     "PageKeys");
+
+  const deskEstate = await c.deploy(
+    A("src/DeskEstate.sol", "DeskEstate").bytecode, "", "DeskEstate");
+
+  const pEstate = await c.deploy(
+    A("src/PageEstate.sol", "PageEstate").bytecode,
+    encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskEstate) +
+    encodeAddressArg(hub) + encodeAddressArg(succession) + encodeAddressArg(consign),
+    "PageEstate");
 
   /*  Three contracts, one cycle: the name page must know the resolver, the
       resolver must know the premises, and the premises must know the name
@@ -353,7 +381,7 @@ export async function deploySite(c, A,
     encodeAddressArg(pTerminal) + encodeAddressArg(pSwap) + encodeAddressArg(pGallery) +
     encodeAddressArg(pLaunch) + encodeAddressArg(pLock) + encodeAddressArg(pHook) +
     encodeAddressArg(pCast) + encodeAddressArg(pSeal) +
-    encodeAddressArg(pKeys) + encodeAddressArg(pName),
+    encodeAddressArg(pKeys) + encodeAddressArg(pName) + encodeAddressArg(pEstate),
     "Premises");
 
   /*  The resolver deploys on every chain so the address matches
@@ -373,6 +401,6 @@ export async function deploySite(c, A,
     chrome, parley, roster, deskRooms, kiln, locker, venue, nameplate, deskU, deskT, deskL, deskSeal, pSwap, desk, deskTalk, deskTerm,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
     pTerminal, pGallery, pLaunch, pLock, pHook, pCast,
-    pSeal, pKeys, pName, premises
+    pSeal, pKeys, pName, succession, consign, deskEstate, deskWill, pEstate, premises
   };
 }

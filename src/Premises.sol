@@ -43,6 +43,7 @@ interface IPageCast     { function cast() external view returns (string memory);
 interface IPageSeal     { function sealPage() external view returns (string memory); }
 interface IPageKeys     { function keys() external view returns (string memory); }
 interface IPageName     { function namePage() external view returns (string memory); }
+interface IPageEstate   { function estatePage() external view returns (string memory); }
 
 interface IPageServices {
     function rent(uint256 id) external view returns (string memory);
@@ -156,6 +157,7 @@ contract Premises {
     IPageSeal     public immutable P_SEAL;
     IPageKeys     public immutable P_KEYS;
     IPageName     public immutable P_NAME;
+    IPageEstate   public immutable P_ESTATE;
 
     struct KeyValue { string key; string value; }
 
@@ -174,7 +176,7 @@ contract Premises {
         IPageRooms rooms; IPageTerminal terminal; IPageSwap swap;
         IPageGallery gallery; IPageLaunch launch; IPageLock lock;
         IPageHook hook; IPageCast cast; IPageSeal seal; IPageKeys keys;
-        IPageName name;
+        IPageName name; IPageEstate estate;
     }
 
     /// @dev Seventeen flat addresses is past what even viaIR keeps on a
@@ -200,6 +202,7 @@ contract Premises {
         P_SEAL = p.seal;
         P_KEYS = p.keys;
         P_NAME = p.name;
+        P_ESTATE = p.estate;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -357,6 +360,11 @@ contract Premises {
         if (_eq(resource[0], "name")) {
             if (n != 1) return _notFound();
             return (200, P_NAME.namePage(), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "estate")) {
+            if (n != 1) return _notFound();
+            return (200, P_ESTATE.estatePage(), _headers(HTML));
         }
 
         if (_eq(resource[0], "hook")) {

@@ -326,6 +326,8 @@ contract PageManifest {
         "{\"path\":\"/name\",\"is\":\"bind an ENS name to a token, ERC-6821 included\"},"
         "{\"path\":\"/keys\",\"is\":\"session keys: scoped, expiring permissions\"},"
         "{\"path\":\"/seal\",\"is\":\"the three seals: soulbind, account, kernel\"},"
+        "{\"path\":\"/estate\",\"is\":\"succession \\u2014 a token that outlives its "
+        "holder \\u2014 and consignment: escrow with a floor an agent cannot go under\"},"
         "{\"path\":\"/open\",\"is\":\"every open market here\",\"paged\":true},"
         "{\"path\":\"/services.json\",\"is\":\"this document\",\"paged\":true}"
         "]";

@@ -46,9 +46,11 @@ contract PageDoor {
     IParley     public immutable PARLEY;
     ITermDesk   public immutable TERM;
     IRoomsDesk  public immutable ROOMS;
+    IRoomsDesk  public immutable WILL;
 
     constructor(IHub hub, IChrome chrome, IDesk desk, ITalkDesk talk,
-                IParley parley, ITermDesk term, IRoomsDesk rooms) {
+                IParley parley, ITermDesk term, IRoomsDesk rooms,
+                IRoomsDesk will_) {
         HUB = hub;
         CHROME = chrome;
         DESK = desk;
@@ -56,6 +58,7 @@ contract PageDoor {
         PARLEY = parley;
         TERM = term;
         ROOMS = rooms;
+        WILL = will_;
     }
 
     function door() external view returns (string memory) {
@@ -104,6 +107,7 @@ contract PageDoor {
             DESK.core(),
             TERM.core(),
             ROOMS.core(),
+            WILL.core(),
             TALK.core(),
             TALK.door(),
             CHROME.foot(msg.sender, block.chainid)

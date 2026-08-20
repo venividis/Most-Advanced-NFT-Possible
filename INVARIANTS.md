@@ -710,6 +710,89 @@ the publish button hidden, telling the only person who could fix it that
 something was wrong while withholding the fix.
 → `src/DeskSeal.sol` · `arm`
 
+**114. A roster does not call the room that holds everybody empty.**
+Parley never writes `inRoom` for the commons — `speak` waves every token
+through by key alone — so a reader that consulted the mapping reported the
+room containing the whole collection as empty, and the panel said so in
+words. The roster asks which of four kinds a key names before it answers,
+and an unfounded key gets a number of its own, because Parley reads back
+kind zero for a room nobody founded and kind zero is also the commons.
+→ `tools/verify-site.mjs` · *"the commons holds every token, not none of
+  them"*, `src/Roster.sol` · `kindOf`
+
+**115. An heir cannot be named by somebody who only holds an approval.**
+A succession an approved operator could rewrite is a succession a phished
+approval redirects: the thief does not steal the token, they write
+themselves into the will and wait for the silence. `arrange`, `revoke` and
+`stillHere` take the strict door — the owner, or the token's own account
+acting for itself, and nobody else.
+→ `tools/verify-estate.mjs` · *"an approved operator cannot name the heir"*,
+  `src/Succession.sol` · `onlyOwner`
+
+**116. A dead-man's switch that cannot be heard is a trap.**
+The silence opening the door is a bet about somebody's habits, so the knock
+is public, anybody may make it, it starts a second clock, and one touch of
+the instrument cancels it outright. A switch that fires the instant a timer
+expires, with no audible warning and no way back, takes tokens from people
+who were merely on holiday.
+→ `tools/verify-estate.mjs` · *"the owner speaking up cancels the knock
+  outright"*, `src/Succession.sol` · `summon`
+
+**117. An arrangement that cannot fire says which part is broken.**
+`wouldPass` returns one of ten codes rather than a bool. A soulbound token,
+a withdrawn approval, a sale, an heir that resolves to the owner — each is
+a different repair, and "no" is useless to somebody who arranged their
+estate years ago and would like to know what to fix.
+→ `tools/verify-estate.mjs` · *"a soulbound token reports that it cannot be
+  inherited"*, `src/Succession.sol` · `wouldPass`
+
+**118. An agent cannot go under the floor, and cannot keep it by going quiet.**
+A consigned token can be priced anywhere at or above the number its owner
+wrote and never one wei below, can move nowhere but to a buyer who paid or
+home to the seller, and comes home on anybody's call once the term is out —
+requiring the seller to still be alive to ask is the same trap one storey
+down.
+→ `tools/verify-estate.mjs` · *"a stranger can send it home, and home is the
+  seller"*, `src/Consign.sol` · `reclaim`
+
+**119. A buyer names the price they agreed to.**
+`buy` takes the asking price as an argument and reverts if it moved.
+Without that, an agent watching the mempool raises the ask into whatever a
+buyer sent and keeps the difference — no revert, no theft the chain would
+recognise, just a worse price than the one on the screen.
+→ `tools/verify-estate.mjs` · *"an agent who raises the price under a buyer
+  gets a revert, not the difference"*, `src/Consign.sol` · `buy`
+
+**120. Escrow takes the title and gives back the use.**
+While a token is consigned this contract owns it, which is what handing
+something to a dealer means and is said in the open rather than buried. The
+seller is set as the token's ERC-4907 user for the term, so they keep
+operating the instrument while the dealer holds title to sell it, and the
+hub clears that itself on the sale.
+→ `tools/verify-estate.mjs` · *"but the seller keeps the use of it"*,
+  `src/Consign.sol` · `consign`
+
+**121. A page's client survives its own page being gone.**
+Both readers here are reachable after their elements are: a refresh is
+scheduled a second and a half out, and the account listener outlives any
+one view. A reader that assumed its page was still mounted threw inside a
+timer, where nothing is listening and nothing recovers.
+→ `tools/verify-site.mjs` · *"driving the estate"*, `src/DeskEstate.sol` · `up`
+
+**122. An index that is silently partial is worse than one that is small.**
+Every flat route the site answers is named in `/services.json`, and the
+suite checks the list against the routes rather than against itself. A
+program reading a manifest that quietly omits a page concludes the page
+does not exist.
+→ `tools/verify-site.mjs` · *"every flat route the site answers is in the
+  manifest"*, `src/PageManifest.sol` · `ROUTES`
+
+> **A note on the numbering.** There are one hundred and twenty-one
+> statements here, numbered to 122: number 96 was retired with the feature it
+> described and its number was not reused, because every entry is referenced
+> by number from commit messages and from the suites. A gap is cheaper than a
+> renumbering that silently repoints an old reference at a new claim.
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

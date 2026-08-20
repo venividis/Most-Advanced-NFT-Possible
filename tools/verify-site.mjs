@@ -332,6 +332,7 @@ const routes = [
   [["seal"], "text/html", "/seal"],
   [["keys"], "text/html", "/keys"],
   [["name"], "text/html", "/name"],
+  [["estate"], "text/html", "/estate"],
   [["hook"], "text/html", "/hook"],
   [["swap"], "text/html", "/swap"],
   [["rooms"], "text/html", "/rooms"],
@@ -415,6 +416,10 @@ head("and it describes the collection-wide surface too");
 {
   const m = JSON.parse((await GET(["services.json"])).body);
 
+  ok("every flat route the site answers is in the manifest",
+     ["/", "/door", "/terminal", "/chat", "/lock", "/projector", "/name",
+      "/keys", "/seal", "/estate"].every((r) => (m.routes || []).some((x) => x.path === r)),
+     JSON.stringify((m.routes || []).map((r) => r.path)));
   ok("the routes are listed", Array.isArray(m.routes) && m.routes.length >= 11,
      JSON.stringify(m.routes || null).slice(0, 120));
   const paths = (m.routes || []).map((r) => r.path);
@@ -645,6 +650,7 @@ for (const [label, body] of [
   ["the seals", (await GET(["seal"])).body],
   ["the keys", (await GET(["keys"])).body],
   ["the nameplate page", (await GET(["name"])).body],
+  ["the estate", (await GET(["estate"])).body],
   ["the commons", (await GET(["chat"])).body],
   ["the rooms", (await GET(["rooms"])).body],
   ["a direct message", (await GET(["dm", "1"])).body],
@@ -1246,7 +1252,8 @@ head("driving the terminal");
   await nap(60);
   ok("the terminal came up", !!globalThis.TERM);
 
-  const cmds = globalThis.TERM.commands();
+  const cmds2 = () => globalThis.TERM.commands();
+  const cmds = cmds2();
   ok(`and publishes its table as data — ${cmds.length} commands`,
      Array.isArray(cmds) && cmds.length >= 20);
   ok("each entry says whether it writes",
@@ -1287,6 +1294,47 @@ head("driving the terminal");
   ok("`lockup` locked and says until when", /locked until 20/.test(locked), locked);
   const ls = await globalThis.TERM.run("lockups");
   ok("`lockups` reads it back off the vault", /#\d+ .*1000000/.test(ls), ls);
+
+  /*  The estate's words, registered from a third contract through the same
+      `def` the built-ins use. `DeskTerm` is at ninety-seven per cent, so
+      these could not live there — and the point of the split is that from
+      the prompt there is no way to tell.                                */
+  const active = supply0 + 1n;
+  ok("the estate's words joined the same table",
+     ["will", "knock", "inherit", "consign", "window", "price", "home"]
+       .every((w) => cmds2().some((x) => x.usage.startsWith(w))),
+     JSON.stringify(cmds2().map((x) => x.usage.split(" ")[0])));
+
+  const none = await globalThis.TERM.run(`will ${active}`);
+  ok("`will` on a token with no plan says so", /nothing arranged/.test(none), none);
+  await globalThis.TERM.run(`will ${active} ${renter.from.toString()} 90 14`);
+  await nap(30);
+  const plan = await c.read(site.succession, "planOf(uint256)", [active]);
+  eq("`will` wrote the arrangement the words asked for",
+     decAddr(plan, 1).toLowerCase(), renter.from.toString().toLowerCase());
+  eq("with the silence in days, turned into seconds", decUint(plan, 3), 90n * 86400n);
+  const said = await globalThis.TERM.run(`will ${active}`);
+  ok("and reading it back names the heir and why it cannot fire yet",
+     /not approved/.test(said), said);
+  await globalThis.TERM.run(`approve-will ${active}`);
+  await nap(30);
+  ok("`approve-will` is the one grant it needs",
+     /in use/.test(await globalThis.TERM.run(`will ${active}`)));
+  await globalThis.TERM.run(`unwill ${active}`);
+  await nap(30);
+  await c.exec(nft, "approve(address,uint256)", ["0x" + "00".repeat(20), active]);
+
+  const win = await globalThis.TERM.run(
+    `consign ${active} ${renter.from.toString()} 0.25 7.5 45`);
+  await nap(30);
+  ok("`consign` states the floor it committed to", /never below 0.25 ETH/.test(win), win);
+  const note = await c.read(site.consign, "noteOf(uint256)", [active]);
+  eq("a percentage typed as 7.5 arrives as 750 basis points", decUint(note, 5), 750n);
+  eq("and the floor as wei", decUint(note, 2), 25n * 10n ** 16n);
+  const read = await globalThis.TERM.run(`window ${active}`);
+  ok("`window` reads the note back off the chain",
+     /not offered yet/.test(read) && /0\.25/.test(read), read);
+  await renter.exec(site.consign, "release(uint256)", [active]);
 }
 
 head("the new tabs render what the terminal did");
@@ -1736,6 +1784,146 @@ head("driving the seals");
   console.log("      bolted, refused an approved operator, refused the thief, lifted");
 }
 
+
+/*════════════ the estate, driven ════════════
+
+  Two arrangements that move a token when its holder is not standing next
+  to it, so both are worth driving through the page rather than through the
+  ABI: the page builds its own calldata out of selectors it read off a
+  contract, and the only proof that it built the right words is asking the
+  contract afterwards what it thinks it was told.
+
+  The interesting assertion is the last one. `arrange` takes an address and
+  a token id and the page decides which the person meant from what they
+  typed; get that backwards and somebody's estate goes to address zero
+  without a revert anywhere.
+*/
+head("driving the estate");
+{
+  /*  The page computes every date from the browser's wall clock, because
+      that is the clock a person reads. This chain starts well behind it,
+      so a thirty-day term measured from wall-now is more than two years
+      away measured from the chain — past the ceiling, and refused. The
+      page is right; the harness is the thing that is out of step, so the
+      harness is what moves. (The session-key drive below does the same,
+      for the same reason, and warping forward twice is harmless.)     */
+  warp(BigInt(Math.floor(Date.now() / 1000)));
+
+  const page = await GET(["estate"]);
+  eq("/estate answers 200", page.status, 200);
+  ok("the page names both contracts it drives",
+     page.body.includes(site.succession.slice(2).toLowerCase()) &&
+     page.body.includes(site.consign.slice(2).toLowerCase()));
+  mount(page.body);
+  wallet(c);
+  runScripts(page.body);
+  await nap(60);
+  const $ = (i) => byId.get(i);
+
+  const ESTATE = DRIVEN;
+  await $("qarr").fire("click");              // the first press only connects
+  await nap(200);
+  $("qid").value = String(ESTATE);
+  await $("qid").fire("input");
+  await nap(400);
+  ok("it reads who holds the token and whether the succession is approved",
+     /held by/.test(String($("qst").innerHTML || "")), String($("qst").innerHTML || "").slice(0, 80));
+
+  /*  A token number in the heir box means a token, not an address parsed
+      as one. Nothing reverts if this is wrong — the estate simply goes to
+      a wallet nobody has the key to.                                   */
+  $("qto").value = "#2";
+  await $("qto").fire("input");
+  $("qqR").value = "60";
+  await $("qqR").fire("input");
+  $("qnR").value = "30";
+  await $("qnR").fire("input");
+  await nap(200);
+  await $("qarr").fire("click");
+  await nap(400);
+
+  const plan = await c.read(site.succession, "planOf(uint256)", [ESTATE]);
+  eq("the arrangement landed, made by the holder",
+     decAddr(plan, 0).toLowerCase(), c.from.toString().toLowerCase());
+  eq("and a token number in the heir box arrived as a token, not as an address",
+     decUint(plan, 2), 2n);
+  eq("the address slot is left empty, as it must be when a token is named",
+     decAddr(plan, 1).toLowerCase(), "0x" + "00".repeat(20));
+  eq("the silence is the one the bar was dragged to",
+     decUint(plan, 3), 60n * 86400n);
+  eq("and the heir resolves to whoever holds that token",
+     decAddr(await c.read(site.succession, "heirOf(uint256)", [ESTATE])).toLowerCase(),
+     decAddr(await c.read(nft, "ownerOf(uint256)", [2])).toLowerCase());
+
+  /*  With no approval standing, the plan is inert and the page must say
+      which of the nine things is wrong rather than looking healthy.   */
+  eq("with no approval the contract reports the plan as unable to move anything",
+     decUint(await c.read(site.succession, "wouldPass(uint256)", [ESTATE])), 3n);
+  await $("qapp").fire("click");
+  await nap(400);
+  eq("and the page's own approve button fixes exactly that",
+     decAddr(await c.read(nft, "getApproved(uint256)", [ESTATE])).toLowerCase(),
+     site.succession.toLowerCase());
+
+  /*  Both tokens are held by the same wallet here, so the heir resolves to
+      the owner — which is not an inheritance, and the contract says so
+      rather than waiting to revert on the day. Worth asserting: a plan
+      that leaves a token to its own holder is the quiet failure this
+      status code exists to catch.                                     */
+  eq("an heir token held by the owner is reported as no inheritance at all",
+     decUint(await c.read(site.succession, "wouldPass(uint256)", [ESTATE])), 6n);
+
+  /*  The other shape of the same field: an address, typed as an address. */
+  $("qto").value = renter.from.toString();
+  await $("qto").fire("input");
+  await nap(300);
+  await $("qarr").fire("click");
+  await nap(400);
+  const plan2 = await c.read(site.succession, "planOf(uint256)", [ESTATE]);
+  eq("an address in the same box arrives as an address",
+     decAddr(plan2, 1).toLowerCase(), renter.from.toString().toLowerCase());
+  eq("with the token slot empty this time", decUint(plan2, 2), 0n);
+  eq("and now the plan waits on silence and nothing else",
+     decUint(await c.read(site.succession, "wouldPass(uint256)", [ESTATE])), 7n);
+
+  await c.exec(site.succession, "revoke(uint256)", [ESTATE]);
+  await c.exec(nft, "approve(address,uint256)", ["0x" + "00".repeat(20), ESTATE]);
+
+  /*  The window. One press has to do two transactions — an approval alone
+      is meaningless here — and the terms have to arrive as written.   */
+  $("cid").value = String(ESTATE);
+  await $("cid").fire("input");
+  $("cag").value = renter.from.toString();
+  await $("cag").fire("input");
+  $("cfl").value = "0.5";
+  await $("cfl").fire("input");
+  $("ccR").value = "1000";
+  await $("ccR").fire("input");
+  $("ctR").value = "30";
+  await $("ctR").fire("input");
+  await nap(400);
+  await $("ccon").fire("click");
+  await nap(800);
+
+  const note = await c.read(site.consign, "noteOf(uint256)", [ESTATE]);
+  eq("the token is in escrow",
+     decAddr(await c.read(nft, "ownerOf(uint256)", [ESTATE])).toLowerCase(),
+     site.consign.toLowerCase());
+  eq("consigned by the holder", decAddr(note, 0).toLowerCase(), c.from.toString().toLowerCase());
+  eq("to the agent that was typed", decAddr(note, 1).toLowerCase(),
+     renter.from.toString().toLowerCase());
+  eq("with the floor the field carried, in wei", decUint(note, 2), 5n * 10n ** 17n);
+  eq("and the cut the bar was dragged to", decUint(note, 5), 1000n);
+  eq("while the seller keeps the use of it",
+     decAddr(await c.read(nft, "userOf(uint256)", [ESTATE])).toLowerCase(),
+     c.from.toString().toLowerCase());
+
+  await renter.exec(site.consign, "release(uint256)", [ESTATE]);
+  eq("and the agent hands it back",
+     decAddr(await c.read(nft, "ownerOf(uint256)", [ESTATE])).toLowerCase(),
+     c.from.toString().toLowerCase());
+  console.log("      a will written through the page, and a consignment opened and closed");
+}
 
 /*════════════ session keys, actually granted ════════════
 
@@ -2726,6 +2914,7 @@ for (const [file, name] of [
   ["src/DeskSeal.sol", "DeskSeal"], ["src/Roster.sol", "Roster"],
   ["src/DeskRooms.sol", "DeskRooms"], ["src/PageCast.sol", "PageCast"], ["src/PageSeal.sol", "PageSeal"],
   ["src/PageKeys.sol", "PageKeys"], ["src/PageName.sol", "PageName"],
+  ["src/PageEstate.sol", "PageEstate"], ["src/DeskEstate.sol", "DeskEstate"],
   ["src/PageSwap.sol", "PageSwap"], ["src/DeskUni.sol", "DeskUni"],
   ["src/DeskTrade.sol", "DeskTrade"], ["src/Venue.sol", "Venue"],
   ["src/DeskTerm.sol", "DeskTerm"],

@@ -25,9 +25,11 @@ contract PageTerminal {
     IDesk     public immutable DESK;
     ITermDesk public immutable TERM;
     IRoomsDesk public immutable ROOMS;
+    IRoomsDesk public immutable WILL;
 
-    constructor(IChrome chrome, IDesk desk, ITermDesk term, IRoomsDesk rooms) {
-        CHROME = chrome; DESK = desk; TERM = term; ROOMS = rooms;
+    constructor(IChrome chrome, IDesk desk, ITermDesk term,
+                IRoomsDesk rooms, IRoomsDesk will_) {
+        CHROME = chrome; DESK = desk; TERM = term; ROOMS = rooms; WILL = will_;
     }
 
     function terminal() external view returns (string memory) {
@@ -49,6 +51,7 @@ contract PageTerminal {
             DESK.core(),
             TERM.core(),
             ROOMS.core(),
+            WILL.core(),
             CHROME.foot(msg.sender, block.chainid)
         );
     }
