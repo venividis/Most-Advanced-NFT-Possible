@@ -508,6 +508,8 @@ const DOORS = [
     blurb:"The whole collection, wearing its stills. Opens the 2-D gallery." },
   { id:"DARCHIVE", name:"Archive",  ring:2, key:"", door:"/open",
     blurb:"Every market open for business. Opens the 2-D archive." },
+  { id:"DESTATE",  name:"Estate",   ring:2, key:"", door:"/estate",
+    blurb:"Succession \u2014 a token that outlives its holder \u2014 and consignment: escrow with a floor an agent cannot go under. Opens the 2-D estate surface." },
   { id:"DSITE",    name:"2D Site",  ring:2, key:"", door:"/door",
     blurb:"The flat site entire, from its own front page \u2014 what you hold, the chains, the roll." }
 ];
@@ -3519,6 +3521,8 @@ const COMMANDS = [
     { t: "launch 2D lock", d: "Open the 2-D vault.", k: "", run: () => { location.href = "/lock"; } },
     { t: "launch 2D social", d: "Open the 2-D social layer.", k: "", run: () => { location.href = "/chat"; } },
     { t: "launch 2D gallery", d: "Open the 2-D gallery.", k: "", run: () => { location.href = "/gallery"; } },
+    { t: "launch 2D estate", d: "Open the 2-D estate: succession, and consignment.",
+      k: "", run: () => { location.href = "/estate"; } },
     { t: "launch 2D terminal", d: "Open the 2-D terminal, where one line does anything.",
       k: "", run: () => { location.href = "/terminal"; } }
   ] : []),
