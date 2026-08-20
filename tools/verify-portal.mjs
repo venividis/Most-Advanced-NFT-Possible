@@ -16,7 +16,7 @@ import { compile, artifact } from "./compile.mjs";
 import { Chain, encodeAddressArg, decUint } from "./evm.mjs";
 import { createAddressFromString } from "@ethereumjs/util";
 import { deploySite, encRequest, decResponse } from "./site.mjs";
-import { route, CHAINS } from "./portal.mjs";
+import { CHAINS, route } from "./portal.mjs";
 
 let pass = 0, fail = 0;
 const ok = (n, c, d) => {
@@ -140,6 +140,27 @@ head("only headers that cannot hurt a shared origin cross");
      "portal.mjs references key material");
   ok("and it writes nothing to the chain",
      !/\.exec\(|\.send\(|eth_sendTransaction/.test(src));
+}
+
+/*  The chain table is the one part of this file that is a claim about the
+    world rather than about code: every chain the collection intends to
+    mint on must have a door, and a door that silently lacks one sends a
+    visitor to a gateway that answers NXDOMAIN.                         */
+head("the door opens onto every chain the collection means to use");
+{
+  const MINTS = { 1: "eth", 8453: "base", 56: "bnb", 4663: "rhc", 130: "unichain" };
+  for (const [id, name] of Object.entries(MINTS)) {
+    ok(`chain ${id} is served, as ${name}`,
+       CHAINS[id] && CHAINS[id].name === name,
+       CHAINS[id] ? `named ${CHAINS[id].name}` : "absent from the table");
+  }
+  /*  And every entry must be reachable by BOTH of its names, because a
+      person copying a w3link-style host will type the short one and a
+      program will type the number.                                    */
+  const byNum = route("0x" + "11".repeat(20) + ".130.example");
+  const byName = route("0x" + "11".repeat(20) + ".unichain.example");
+  eq("a chain answers to its number", byNum && byNum.id, 130);
+  eq("and to its short name", byName && byName.id, 130);
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

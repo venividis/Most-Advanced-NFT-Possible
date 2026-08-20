@@ -63,6 +63,17 @@ export const CHAINS = {
   8453:     { name: "base",     rpc: "https://mainnet.base.org" },
   56:       { name: "bnb",      rpc: "https://bsc-rpc.publicnode.com" },
   4663:     { name: "rhc",      rpc: "https://rpc.mainnet.chain.robinhood.com" },
+  /*  Uniswap's own L2, and the only chain surveyed that carries the v4
+      PoolManager, the v3 factory, the Universal Router and Permit2 all at
+      once — measured, 24,050 / 24,535 / 19,499 / 9,152 bytes. Its base fee
+      is 0.0005 gwei, the cheapest of the eight, and its prevrandao is real
+      beacon randomness rather than the constant 1 that Arbitrum and Polygon
+      return, so the mint seed keeps its full strength there.
+
+      w3link returns NXDOMAIN for it, which is exactly why this file
+      exists.                                                            */
+  130:      { name: "unichain", rpc: "https://mainnet.unichain.org" },
+  10:       { name: "op",       rpc: "https://optimism-rpc.publicnode.com" },
   42161:    { name: "arb1",     rpc: "https://arbitrum-one-rpc.publicnode.com" },
   11155111: { name: "sep",      rpc: "https://ethereum-sepolia-rpc.publicnode.com" },
   84532:    { name: "basesep",  rpc: "https://sepolia.base.org" },
