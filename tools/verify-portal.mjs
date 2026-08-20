@@ -15,7 +15,7 @@
 import { compile, artifact } from "./compile.mjs";
 import { Chain, encodeAddressArg, decUint } from "./evm.mjs";
 import { createAddressFromString } from "@ethereumjs/util";
-import { deploySite, encRequest, decResponse } from "./site.mjs";
+import { deploySite, encRequest, decResponse, LAYERZERO, endpointFor } from "./site.mjs";
 import { CHAINS, route } from "./portal.mjs";
 
 let pass = 0, fail = 0;
@@ -161,6 +161,35 @@ head("the door opens onto every chain the collection means to use");
   const byName = route("0x" + "11".repeat(20) + ".unichain.example");
   eq("a chain answers to its number", byNum && byNum.id, 130);
   eq("and to its short name", byName && byName.id, 130);
+}
+
+/*  The LayerZero table is a claim about seven other chains, and the last
+    time a claim like that was made from memory it was wrong in a way that
+    changed the whole design. So it is pinned here: every mint chain must
+    have an endpoint, and no entry may carry an address from the wrong
+    family — the two canonical endpoints are not interchangeable, and a
+    port deployed against the wrong one points at nothing.             */
+head("every chain that mints has a LayerZero endpoint on record");
+{
+  const OLD = "0x1a44076050125825900e736c501f859c50fE728c".toLowerCase();
+  const NEW = "0x6f475642a6e85809b1c36fa62763669b1b48dd5b".toLowerCase();
+  const MINTS = [1, 8453, 56, 130, 4663];
+  for (const id of MINTS) {
+    const e = endpointFor(id);
+    ok(`chain ${id} has an endpoint and an eid`,
+       !!e && e.eid > 0 && /^0x[0-9a-fA-F]{40}$/.test(e.endpoint),
+       JSON.stringify(e));
+  }
+  ok("every endpoint is one of the two canonical addresses",
+     Object.values(LAYERZERO).every((e) => [OLD, NEW].includes(e.endpoint.toLowerCase())),
+     Object.values(LAYERZERO).map((e) => e.endpoint).join(" "));
+  /*  The two chains that were reported as having no LayerZero at all.  */
+  eq("Unichain is on the later endpoint, not the earlier one",
+     LAYERZERO[130].endpoint.toLowerCase(), NEW);
+  eq("and so is Robinhood", LAYERZERO[4663].endpoint.toLowerCase(), NEW);
+  ok("no two chains share an eid",
+     new Set(Object.values(LAYERZERO).map((e) => e.eid)).size === Object.keys(LAYERZERO).length);
+  eq("a chain with no endpoint answers null, never a guess", endpointFor(999999), null);
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

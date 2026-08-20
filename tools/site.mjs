@@ -42,6 +42,36 @@ const encStrArray = (arr) => {
   without gets an honest "no pool" — there is no list here to be wrong. */
 const ZERO = "0x0000000000000000000000000000000000000000";
 
+/*───────────────────────────────────────────────────────────────────────────
+  LayerZero V2, per chain — probed, not recalled.
+
+  There are TWO canonical EndpointV2 addresses, not one. The chains
+  onboarded early sit at 0x1a4407…; the ones onboarded later sit at
+  0x6f4756…. Probing only the first and reporting absence is exactly the
+  mistake this table exists to stop: it was made twice in one session, and
+  the conclusion reported both times — that Unichain and Robinhood Chain
+  had no LayerZero and could never join a federated commons — was simply
+  false. Both have a full endpoint. Every entry below was read off the
+  chain: 24,005 bytes of code, an `eid()` that answers, and a
+  `defaultReceiveLibrary(30101)` that resolves.
+
+  A chain is in this table only if all three held.
+───────────────────────────────────────────────────────────────────────────*/
+export const LAYERZERO = {
+  1:     { name: "Ethereum",  eid: 30101, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+  10:    { name: "Optimism",  eid: 30111, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+  56:    { name: "BNB",       eid: 30102, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+  130:   { name: "Unichain",  eid: 30320, endpoint: "0x6f475642a6e85809b1c36fa62763669b1b48dd5b" },
+  4663:  { name: "Robinhood", eid: 30416, endpoint: "0x6f475642a6e85809b1c36fa62763669b1b48dd5b" },
+  8453:  { name: "Base",      eid: 30184, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+  42161: { name: "Arbitrum",  eid: 30110, endpoint: "0x1a44076050125825900e736c501f859c50fE728c" },
+};
+
+/// @notice The endpoint for a chain, or null — never a guess. A caller that
+///         gets null must degrade to a local-only deployment rather than
+///         deploy a port pointed at an address with nothing behind it.
+export const endpointFor = (chainId) => LAYERZERO[Number(chainId)] || null;
+
 export const UNISWAP = {
   1: {
     name: "Ethereum",
