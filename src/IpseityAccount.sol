@@ -218,7 +218,45 @@ contract IpseityAccount {
     /// @notice Put an asset under the seal. Additive only: an asset can be
     ///         promised but never quietly un-promised, or the manifest would
     ///         be a promise that could be emptied instead of the vault.
-    function guard(address asset) external onlySigner {
+    /*═══ the manifest cannot move while a call is being measured ═══
+
+      `_snapshot` and `_verify` align `pre[]` and `seen[]` with the manifest
+      BY INDEX. `unguard` removes an entry by swapping the last one into its
+      place, so an `unguard` re-entered from inside a sealed call renumbers
+      the manifest underneath arrays that were taken before it — and a slot
+      whose `seen` flag was false because a BROKEN token used to sit there
+      now holds a real one, which `_verify` therefore skips.
+
+      Measured, not reasoned about. A contract holder guarded two assets, a
+      breakable one and a thousand GOLD, sealed for thirty days, then made
+      the breakable one unreadable and sent one batch: transfer the GOLD
+      out, then call back into `unguard` on the blind asset. The transfer
+      alone reverts — the control is in the suite. With the `unguard`
+      appended it went through, the vault ended with nothing, and
+      `isSealed()` still answered true.
+
+      `_pieces` has the same shape and a worse version: `unguardNFT` refuses
+      while sealed only for a piece the account STILL HOLDS, so a batch that
+      transfers the piece away first is then free to drop it from the list,
+      and `_verifyPieces` never looks for it. That is the whole promise of
+      guarding a named NFT, defeated in two calls.
+
+      Both are the same defect and both close the same way. `nonReentrant`
+      does not cover this: the re-entry is into a different function. The
+      manifest is holder bookkeeping and has no business changing in the
+      middle of a call the account is measuring, so it cannot.
+
+      Only while sealed. Unsealed, no snapshot is taken and no arrays exist
+      to invalidate, and a batch that acquires a token and guards it in the
+      same transaction is a thing somebody will reasonably want to do. */
+    bool private _measuring;
+    error ManifestBusy();
+    modifier notWhileMeasuring() {
+        if (_measuring) revert ManifestBusy();
+        _;
+    }
+
+    function guard(address asset) external onlySigner notWhileMeasuring {
         if (onManifest[asset]) revert AlreadyListed();
         if (_manifest.length >= MAX_MANIFEST) revert ManifestFull();
         onManifest[asset] = true;
@@ -241,7 +279,7 @@ contract IpseityAccount {
     ///
     ///         The seal is what makes the promise, and the seal is untouched:
     ///         while `isSealed()`, this reverts for everyone.
-    function unguard(address asset) external onlySigner {
+    function unguard(address asset) external onlySigner notWhileMeasuring {
         if (!onManifest[asset]) revert NotListed();
 
         /*  The escape hatch, and the reason it does not weaken the seal.
@@ -301,7 +339,7 @@ contract IpseityAccount {
     error NotHeld();
     error PieceLeft(address collection, uint256 tokenId);
 
-    function guardNFT(address collection, uint256 tokenId) external onlySigner {
+    function guardNFT(address collection, uint256 tokenId) external onlySigner notWhileMeasuring {
         if (_pieces.length >= MAX_PIECES) revert PiecesFull();
         if (_ownerOfPiece(collection, tokenId) != address(this)) revert NotHeld();
         _pieces.push(Piece(collection, tokenId));
@@ -310,7 +348,7 @@ contract IpseityAccount {
 
     /// @dev Same rule as `unguard`: free while unsealed, and while sealed
     ///      only for a piece the account can no longer see.
-    function unguardNFT(uint256 index) external onlySigner {
+    function unguardNFT(uint256 index) external onlySigner notWhileMeasuring {
         Piece memory pc = _pieces[index];
         if (isSealed() && _ownerOfPiece(pc.collection, pc.tokenId) == address(this)) {
             revert IsSealed();
@@ -596,6 +634,8 @@ contract IpseityAccount {
             (pre, seen, preEth) = _snapshot();
         }
 
+        if (locked) _measuring = true;
+
         results = new bytes[](n);
         for (uint256 i; i < n; ++i) {
             if (locked) {
@@ -614,7 +654,7 @@ contract IpseityAccount {
                           calls[i].data.length >= 4 ? bytes4(calls[i].data[0:4]) : bytes4(0), locked);
         }
 
-        if (locked) _verify(pre, seen, preEth);
+        if (locked) { _measuring = false; _verify(pre, seen, preEth); }
     }
 
     /// @notice ERC-6551 execute. Only CALL; only the holder.
@@ -644,6 +684,7 @@ contract IpseityAccount {
             _refuseUnlessSafe(to, data);
             (pre, seen, preEth) = _snapshot();
             _refuseBlindTarget(to, seen);
+            _measuring = true;
         }
 
         unchecked { state++; }
@@ -657,7 +698,7 @@ contract IpseityAccount {
             }
         }
 
-        if (locked) _verify(pre, seen, preEth);
+        if (locked) { _measuring = false; _verify(pre, seen, preEth); }
 
         emit Executed(to, value, data.length >= 4 ? bytes4(data[0:4]) : bytes4(0), locked);
     }

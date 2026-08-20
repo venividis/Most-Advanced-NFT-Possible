@@ -705,5 +705,99 @@ eq("and that one is honoured",
      [fresh, encodeAttestation(PURPOSE, PAYLOAD, DEADLINE, signHash(fresh))])).slice(0, 10),
    "0x1626ba7e");
 
+/*════════════ the manifest, moved out from under the measurement ════════════
+
+  The seal measures by taking `pre[]` and `seen[]` aligned with the manifest
+  BY INDEX, running the call, then re-reading `_manifest[i]` and comparing.
+  `unguard` removes an entry by swapping the last one into its place. So an
+  `unguard` re-entered from inside the very call being measured renumbers the
+  manifest underneath arrays that were taken before it — and a slot whose
+  `seen` flag was false, because a broken token used to sit there, now holds a
+  real one, which `_verify` therefore skips entirely.
+
+  This was found by an adversarial pass and reproduced on chain before it was
+  fixed: a sealed vault holding a thousand GOLD ended holding none, and
+  `isSealed()` still answered true. `nonReentrant` does not cover it, because
+  the re-entry is into a different function.
+
+  `_pieces` had the same defect and a worse version. `unguardNFT` refuses,
+  while sealed, only for a piece the account STILL HOLDS — so a batch that
+  transfers the piece away FIRST is then free to drop it from the list, and
+  `_verifyPieces` never goes looking. That is the entire promise of guarding a
+  named NFT, defeated in two calls of one batch.
+
+  Both run here on every check, and both are run as the attack rather than as
+  the rule, because the rule was already written down and was already true in
+  every case anybody had tried.
+*/
+head("the manifest cannot move while a call is being measured");
+{
+  await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+  const id = decUint(await c.read(nft, "totalSupply()"));
+  const v = decAddr(await c.read(nft, "account(uint256)", [id]));
+  await c.exec(nft, "embody(uint256)", [id]);
+
+  const breaker = await c.deploy(A("test/mocks/SealBreaker.sol", "SealBreaker").bytecode);
+  await c.send({ to: breaker, value: WAD });
+  await c.exec(breaker, "setup(address,address,address)", [nft, BRK, GOLD], { value: 10n ** 16n });
+  const bad = decAddr(await c.read(breaker, "acct()"));
+  await c.exec(GOLD, "mint(address,uint256)", [bad, 1000n * WAD]);
+  await c.exec(BRK, "mint(address,uint256)", [bad, 5n * WAD]);
+  await c.exec(breaker, "sealIt(uint64)", [evm.GENESIS_TIME + 30n * 86400n]);
+  eq("a contract holder sealed a vault over two assets",
+     decUint(await c.read(bad, "manifest()"), 1), 2);
+
+  /*  Control first. With both assets readable the drain is refused by the
+      ordinary measurement, which is what makes the next line a finding
+      rather than a coincidence.                                        */
+  await refuses("with both assets readable the drain is refused",
+    () => c.exec(breaker, "drain(address,uint256,address)", [GOLD, 100n * WAD, me]));
+
+  /*  Now break the other asset so the account goes blind on it. That is
+      the state `unguard`'s escape hatch was written for, and the state the
+      attack needs.                                                     */
+  await c.exec(BRK, "setBreakBalance(bool)", [true]);
+  eq("one asset is now unmeasurable, and says so publicly",
+     decUint(await c.read(bad, "unmeasurable()"), 1), 1);
+
+  await refuses("and a batch that unguards the blind one mid-flight is refused too",
+    () => c.exec(breaker, "drain(address,uint256,address)", [GOLD, 1000n * WAD, me]),
+    "a sealed vault was emptied by renumbering its manifest inside the call being measured");
+  eq("the gold never moved", decUint(await c.read(GOLD, "balanceOf(address)", [bad])), 1000n * WAD);
+  eq("and the manifest is intact", decUint(await c.read(bad, "manifest()"), 1), 2);
+  await c.exec(BRK, "setBreakBalance(bool)", [false]);
+}
+
+head("a guarded piece cannot be dropped from inside the call that moves it");
+{
+  await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+  const id = decUint(await c.read(nft, "totalSupply()"));
+  const v = decAddr(await c.read(nft, "account(uint256)", [id]));
+  await c.exec(nft, "embody(uint256)", [id]);
+
+  const PUNK = await c.deploy(A("test/mocks/MockERC721.sol", "MockERC721").bytecode);
+  await c.exec(PUNK, "mint(address,uint256)", [v, 7n]);
+  await c.exec(v, "guardNFT(address,uint256)", [PUNK, 7n]);
+  await c.exec(v, "seal(uint64)", [evm.GENESIS_TIME + 30n * 86400n]);
+  eq("one named piece is under the seal", decUint(await c.read(v, "pieces()"), 1), 1);
+
+  /*  The plain attempt, which the piece check already refused.        */
+  await refuses("the piece cannot simply be sent away",
+    () => c.exec(v, "execute(address,uint256,bytes,uint8)",
+      [PUNK, 0n, enc("transferFrom(address,address,uint256)", [v, me, 7n]), 0n]));
+
+  /*  And the one that used to work: move it, then drop it from the list
+      in the same batch, so nothing is left to look for.              */
+  const inner = enc("transferFrom(address,address,uint256)", [v, me, 7n]);
+  const drop  = enc("unguardNFT(uint256)", [0n]);
+  await refuses("nor moved and then quietly dropped from the list in one batch",
+    () => c.exec(v, "executeBatch((address,uint256,bytes)[])",
+      [[[PUNK, 0n, inner], [v, 0n, drop]]]),
+    "the whole promise of guarding a named piece, defeated in two calls");
+  eq("the piece is still held by the vault",
+     decAddr(await c.read(PUNK, "ownerOf(uint256)", [7n])).toLowerCase(), v.toLowerCase());
+  eq("and still named by it", decUint(await c.read(v, "pieces()"), 1), 1);
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
