@@ -1,31 +1,46 @@
 # Deployments
 
-## Live now · Base Sepolia · chain 84532
+## Live now
 
 Everything below this block is a log, kept in the order it happened. This is
 the only part that describes what is answering **today**. Superseded addresses
 stay in the log rather than being edited away — a deployment record that
 rewrites its own past cannot be used to tell when something broke.
 
+### Base Sepolia · chain 84532
+
 ```
 Premises     0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1
 Ipseity      0x36c49f58c6437ee994766ce80f6654c4d797b8db
 Pool         0x8b699b46edb8e8bd156347d73c8eaa2a0abe80f4
-Parley       0xaa8b3ff644638a29333953328fb877e8dd23e0f2
 Engine       0x7a82ff2bf2682a93b5ce1095ee1e596bcfc81b87   (frozen)
-Renderer     0x84c63e2a14f2e072936908f0a20ba42daa7a6f54
 ```
 
 ```
+https://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1.basesep.w3link.io/
+https://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1.basesep.w3link.io/token/2/live
 web3://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1:84532/
-web3://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1:84532/estate
-web3://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1:84532/token/1/live
 ```
 
-All 47 addresses are in `deployments/base-sepolia.json`, and none of them need
-to be trusted: `node tools/recover-record.mjs deployments/base-sepolia.json`
-reads them back off the chain and exits non-zero if the file and the chain
-disagree.
+### Ethereum Sepolia · chain 11155111
+
+```
+Premises     0x0106237ad2581956f21fd769fcd88f0d77918425
+Ipseity      0x6ff03e23ca18d78c5264e7e5e159197cb68a0ec2
+Pool         0xc77e7f0a448e7b0adff07f51422ee51f5eff6637
+Engine       0x2eb1f7fb9bd6a08fcf61c263ddbabaddf84044f4   (frozen)
+```
+
+```
+https://0x0106237ad2581956f21fd769fcd88f0d77918425.sep.w3link.io/
+https://0x0106237ad2581956f21fd769fcd88f0d77918425.sep.w3link.io/token/2/live
+web3://0x0106237ad2581956f21fd769fcd88f0d77918425:11155111/
+```
+
+All 47 addresses on each chain are in `deployments/`, and none of them need to
+be trusted: `node tools/recover-record.mjs deployments/<chain>.json` reads them
+back off the chain and exits non-zero if the file and the chain disagree. Both
+records reconcile at 0 disagreeing, 0 unreachable, 0 missing, 0 contradicted.
 
 ## Base Sepolia · chain 84532
 
@@ -482,3 +497,64 @@ PoolManager; the Port is meaningless until peers are wired across chains.
 
 The deployer holds 0.00348 ETH on Base Sepolia after this run — enough for
 transactions, not for another deploy.
+
+### Ethereum Sepolia catches up, and ENS does not — 2026-08-21
+
+The Eth Sepolia deployment was two months and one architecture behind: an
+old hub, an old engine, and a premises that answered `/` and little else.
+It is now the same build as Base Sepolia. 137.86M gas across ~35
+transactions, **0.2148 ETH**, then read back over the wire by the same 21
+assertions that guard a local run, and reconciled against the chain by
+`recover-record` at 0 disagreeing, 0 unreachable, 0 missing, 0
+contradicted.
+
+```
+Premises     0x0106237ad2581956f21fd769fcd88f0d77918425
+Ipseity      0x6ff03e23ca18d78c5264e7e5e159197cb68a0ec2
+```
+
+The estimate was right this time — 0.2225 predicted against 0.2148 spent.
+The Base Sepolia estimate was out by eighteen times for a reason that does
+not apply here: `eth_gasPrice` on an L2 describes execution only, and the
+L1 data fee is most of the bill. On L1 there is no second fee to forget.
+
+**ENS on Sepolia cannot register a .eth name, and the failure is silent.**
+
+`ipseity4d.eth` was chosen over `ipseity.eth` deliberately: the latter is
+free on Sepolia but held on mainnet until 2042, so a rehearsal using it
+would teach a URL that can never exist. `ipseity4d` is free on both, which
+is the only property that matters for a deployment whose claim is that it
+rehearses something real.
+
+The registration reverted with no reason string, and every precondition
+held: the commitment was stored, its age was 120s inside the 60..86400
+window, the name was available, the value covered the price exactly, and
+the controller → wrapper → registrar chain all pointed at each other
+correctly. The controller is even an authorised controller on the
+NameWrapper.
+
+What is not true is the next link:
+
+```
+                       BaseRegistrar.controllers(NameWrapper)
+    mainnet   0xD4416b13…86401   AUTHORISED
+    sepolia   0x0635513f…dfce8   0
+```
+
+`ETHRegistrarController.register` calls
+`NameWrapper.registerAndWrapETH2LD`, which calls `registrar.register`,
+which is `onlyController`. On Sepolia the wrapper is not one. Same
+contract addresses as mainnet, same code, different wiring — so every
+read function answers normally and only the write dies, which is the
+shape of bug that survives a doc page.
+
+Verified rather than inferred: the same `controllers(address)` call
+returns 1 for `0xf83fe265…044750`, a third-party bulk registrar found by
+walking `NameRegistered` events, which is what the 452 registrations in
+the last 49,000 blocks actually went through. That path is not ENS's and
+was not used — reverse-engineering an unaudited registrar's ABI with
+somebody else's ether is not a thing to do for a nicer-looking link.
+
+The mainnet path is intact, so the name is worth having there and nowhere
+else. `tools/ens-name.mjs` is written and correct; it wants a chain whose
+registrar authorises its wrapper.
