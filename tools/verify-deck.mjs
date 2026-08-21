@@ -160,7 +160,11 @@ const runRow = async (i) => {
   await page.evaluate((k) => document.querySelectorAll("#pallist .pi")[k].click(), i);
   await page.waitForTimeout(400);
 };
-const tabs = () => page.$$eval("#dkbar .dt", (els) => els.map((e) => e.textContent.replace("×", "").trim()));
+/*  The rail names its surfaces in aria-label rather than in text: the mark
+    is a dot, and the name lives once, in the head. A test reading
+    textContent here would read four empty strings and call it four tabs. */
+const tabs = () => page.$$eval("#dkrail .dm", (els) => els.map((e) => e.getAttribute("aria-label")));
+const headName = () => page.$eval("#dkname", (e) => e.textContent.trim());
 const frames = () => page.$$eval("#dkwrap iframe", (els) => els.map((e) => e.getAttribute("src")));
 
 head("the grammar the owner asked for");
@@ -265,14 +269,44 @@ head("dedupe, focus and closing");
   await pal("open swap"); await runRow(0);
   eq("opening a route already open focuses it rather than loading twice",
      (await frames()).length, before);
-  const onIdx = await page.$$eval("#dkbar .dt", (els) => els.findIndex((e) => e.classList.contains("on")));
-  eq("and the focused tab is that one", (await frames())[onIdx], "/swap");
+  const onIdx = await page.$$eval("#dkrail .dm", (els) => els.findIndex((e) => e.classList.contains("on")));
+  eq("and the focused surface is that one", (await frames())[onIdx], "/swap");
+  eq("which the head names, once, at full size", await headName(), "Swap");
 
-  /*  The close target exists only on the tab already focused, so a
-      mis-tap anywhere else costs a focus change and never a form.     */
-  const xs = await page.$$eval("#dkbar .dt", (els) =>
-    els.map((e) => getComputedStyle(e.querySelector("i")).display));
-  eq("exactly one close button is rendered", xs.filter((d) => d !== "none").length, 1);
+  /*  There is no destructive target on the rail at all now. Closing lives
+      in the head, alone, so every mark is safe to mis-tap — which is what
+      makes them usable as thumb targets on a phone.                    */
+  const destructive = await page.$$eval("#dkrail .dm", (els) =>
+    els.filter((e) => e.querySelector("i,button,[data-x]")).length);
+  eq("no mark on the rail can close anything", destructive, 0);
+  eq("and closing is one control, in the head",
+     await page.$$eval("#dkhead button", (els) => els.length), 1);
+
+  /*───── the wire: the thing a tab bar could not do ─────*/
+  {
+    const w = await page.evaluate(() => {
+      const l = document.querySelector("#wires line[stroke-dasharray]");
+      if(!l) return null;
+      return { shown: l.style.display !== "none",
+               x1:+l.getAttribute("x1"), y1:+l.getAttribute("y1"),
+               x2:+l.getAttribute("x2"), y2:+l.getAttribute("y2") };
+    });
+    ok("a wire is drawn from the focused surface back to its node", w !== null,
+       "no dashed line in #wires");
+    if (w && w.shown) {
+      const mark = await page.evaluate(() => {
+        const m = document.querySelector("#dkrail .dm.on");
+        if(!m) return null;
+        const r = m.getBoundingClientRect();
+        return { x: r.left + r.width/2, y: r.top + r.height/2 };
+      });
+      ok("and it lands on the focused mark, not near it",
+         mark && Math.hypot(w.x2 - mark.x, w.y2 - mark.y) < 1.5,
+         JSON.stringify({ wire: [w.x2, w.y2], mark }));
+      ok("having started somewhere in the field",
+         w.x1 !== 0 || w.y1 !== 0, JSON.stringify(w));
+    }
+  }
 
   await pal("close all"); await runRow(0);
   eq("`close all` empties the deck", (await tabs()).length, 0);
