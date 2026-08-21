@@ -2,11 +2,13 @@
 pragma solidity ^0.8.24;
 
 import {Hook} from "./lib/Hook.sol";
+import {Curve} from "./lib/Curve.sol";
 import {Facet} from "./Facet.sol";
 
 interface IHolds {
     function ownerOf(uint256 id) external view returns (address);
     function account(uint256 id) external view returns (address);
+    function sectionOf(uint256 id) external view returns (uint256);
 }
 
 /*───────────────────────────────────────────────────────────────────────────
@@ -143,6 +145,7 @@ contract Kiln {
     error AlreadyLaunched();
     error NothingToLaunch();
     error NotYours();
+    error BadBand();
     error WrongFlags(uint16 wanted, uint16 got);
 
     /// @notice Every token this contract has made, in order, so the page can
@@ -294,6 +297,39 @@ contract Kiln {
 
     /// @notice The creation-code hash for a shipped hook, which is what
     ///         `mine` needs and what a reader can recompute themselves.
+    /*  What a Facet built on this band would charge right now, and the
+        reading underneath it. A band is the one choice on the launch page
+        with no obvious right answer, and picking it blind is picking it
+        badly — so the number is available before the hook exists, computed
+        by the same `Curve` the hook will use, from the same section.
+
+        `arg` is not taken here: a page choosing a band has a token and two
+        fees, not a packed word, and making it pack one just to ask a
+        question is the sort of ABI work this site exists to remove.     */
+    function band(uint256 token, uint24 floor_, uint24 ceiling_)
+        external view
+        returns (uint256 section, uint256 concentration, uint24 feeNow)
+    {
+        if (floor_ > ceiling_ || ceiling_ > Hook.MAX_FEE) revert BadBand();
+        section = HUB.sectionOf(token);
+        concentration = Curve.concentration(section);
+        feeNow = uint24(uint256(floor_)
+            + ((uint256(ceiling_) - uint256(floor_)) * concentration) / Curve.MAX_CONCENTRATION);
+    }
+
+    /// @notice The word `deployHook` wants for a Facet, built from the three
+    ///         numbers a person actually chooses.
+    /// @dev    Packing is the kind of off-by-eight a client gets wrong once
+    ///         and silently — the token lands in the fee bits and the hook
+    ///         prices a token nobody owns. `_recipe` unpacks exactly this.
+    function facetArg(uint256 token, uint24 floor_, uint24 ceiling_)
+        external pure returns (bytes32)
+    {
+        if (floor_ > ceiling_ || ceiling_ > Hook.MAX_FEE) revert BadBand();
+        if (token > type(uint64).max) revert BadBand();
+        return bytes32((token << 48) | (uint256(floor_) << 24) | uint256(ceiling_));
+    }
+
     function recipeHash(uint8 kind, bytes32 arg)
         external view returns (bytes32 hash, uint16 flags)
     {
@@ -302,8 +338,10 @@ contract Kiln {
         hash = keccak256(code);
     }
 
-    /// @dev The catalogue. Kind 0 is the only one so far and the header of
-    ///      `Gate.sol` says why it is the one worth having.
+    /// @dev The catalogue. Kind 0 is the Gate — the header of `Gate.sol`
+    ///      says why it is the one most launches want. Kind 1 is the Facet,
+    ///      which is the only kind that ever sets a fee, and therefore the
+    ///      only kind a dynamic-fee pool can be initialised with.
     function _recipe(uint8 kind, bytes32 arg)
         private view returns (bytes memory code, uint16 flags)
     {

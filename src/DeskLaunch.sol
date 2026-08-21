@@ -109,6 +109,10 @@ contract DeskLaunch {
         "B.dispatchEvent(new Event('input'))});"
         "B.addEventListener('input',()=>{R.value=B.value})};"
         "LIN('hoR','ho');LIN('hlR','hl');"
+        /*  The band runs to 100% in hundredths of a basis point, so it is
+            logarithmic for the same reason the pool fee is: the interesting
+            fees all live in the first thousandth of a straight bar.       */
+        "LOG('fflR','ffl',100);LOG('fclR','fcl',100);"
         "LOG('cvR','cv',10);LOG('psR','ps',100);"
         "const feeShow=x=>{const e=$('pfl');if(e)e.textContent="
         "x===K.dynamicFee?'dynamic':(x/10000).toFixed(x<100?4:2)+'%'};"
@@ -147,12 +151,66 @@ contract DeskLaunch {
         "catch(x){e.innerHTML=''}};"
         "['ho','hl'].forEach(i=>{const e=$(i);if(e)e.addEventListener('input',gsum)});gsum();"
 
+        /*  Which hook. The two kinds are not interchangeable and the page
+            must not pretend they are: a Gate never sets a fee, so a pool
+            initialised dynamic behind one charges zero for ever and a pool
+            key cannot be edited afterwards. A Facet only ever sets a fee,
+            so it reverts at `beforeInitialize` on a pool that is not
+            dynamic. Each is wrong exactly where the other is right, which
+            is why both guards below exist and why neither is a warning. */
+        "const hkind=()=>Number(($('hk')||{}).value||0);"
+        "const facetBand=()=>{const t=BigInt(String($('ft').value||'0').trim()||'0');"
+        "const fl=Number($('ffl').value)||0,ce=Number($('fcl').value)||0;"
+        "if(!(t>0n&&t<=0xffffffffffffffffn))throw new Error('which token sets the fee?');"
+        "if(fl>ce)throw new Error('the fee at rest is above the fee at the furthest cut');"
+        "if(ce>K.maxFee)throw new Error('a fee cannot be more than 100%');"
+        "return{token:t,floor:fl,ceiling:ce}};"
+        "const pc=x=>(Number(x)/10000).toFixed(Number(x)<1000?4:2)+'%';"
+
+        /*  The reading, taken from the Kiln rather than recomputed here.
+            The number a person is choosing against is the one the hook will
+            actually charge, and the only way to be sure of that is to ask
+            the contract that shares the hook's `Curve`.                  */
+        "const fsum=async()=>{const e=$('fsum');if(!e)return;"
+        "let g;try{g=facetBand()}catch(x){"
+        "e.innerHTML='<div><span class=w>'+(x&&x.message||'')+'</span><b></b></div>';return}"
+        "const r=await I.tryCall(K.kiln,S.band+I.W(g.token)+I.W(g.floor)+I.W(g.ceiling));"
+        "if(!r){e.innerHTML='<div><span class=w>that token has no section to read "
+        "\u2014 does it exist on this chain?</span><b></b></div>';return}"
+        "const conc=I.word(r,1),now=I.word(r,2);"
+        "e.innerHTML='<div><span>your solid is</span><b>'"
+        "+(Number(conc)*100/80000).toFixed(1)+'% of the way to its furthest cut</b></div>'"
+        "+'<div><span>so the pool would charge</span><b>'+pc(now)+' right now</b></div>'"
+        "+'<div><span>and turning it moves that</span><b>'"
+        "+pc(g.floor)+' to '+pc(g.ceiling)+'</b></div>'"
+        "+'<div><span>nobody can set it by hand</span><b>no setter, no owner</b></div>'};"
+        "['ft','ffl','fcl'].forEach(i=>{const e=$(i);"
+        "if(e)e.addEventListener('input',()=>{fsum()})});"
+
+        "const hshow=()=>{const k=hkind();"
+        "const g=$('hkg'),f=$('hkf');"
+        "if(g)g.style.display=k?'none':'';if(f)f.style.display=k?'':'none';"
+        "if($('hmined'))$('hmined').innerHTML='';mined=null;"
+        "if($('hgo'))$('hgo').disabled=true;"
+        "if(k)fsum();else gsum();psum()};"
+        "const hk=$('hk');if(hk)hk.addEventListener('change',hshow);"
+
         /*  The search. Windows of sixty thousand, because an eth_call has a
             gas ceiling and a function that ignored it would fail at some
             size with no partial answer — so the page asks for a window,
             gets told whether it landed, and moves along.                 */
-        "on('hmine',async()=>{const g=gateArg();"
-        "const rh=await I.call(K.kiln,S.recipeHash+I.W(0)+I.pad(g.word));"
+        "on('hmine',async()=>{const kd=hkind();let word;"
+        /*  The Facet's argument is packed by the Kiln, not here. Its layout
+            is a token in the high bits and two fees below it, and a client
+            that shifted by the wrong eight would put the token id inside
+            the fee band and mine a hook that prices a token nobody owns —
+            silently, because every word involved is a valid word. The
+            contract that unpacks it is the one that packs it.          */
+        "if(kd===1){const b=facetBand();"
+        "const a=await I.call(K.kiln,S.facetArg+I.W(b.token)+I.W(b.floor)+I.W(b.ceiling));"
+        "word='0x'+String(a).slice(2,66)}"
+        "else word=gateArg().word;"
+        "const rh=await I.call(K.kiln,S.recipeHash+I.W(kd)+I.pad(word));"
         "const hash='0x'+String(rh).slice(2,66);"
         "const flags=I.word(rh,1);"
         "let from=0n,tried=0n;const WIN=60000n;"
@@ -166,32 +224,58 @@ contract DeskLaunch {
         "if(I.word(r,0)===1n){"
         "const salt='0x'+String(r).slice(2+64,2+128);"
         "const at='0x'+String(r).slice(2+128+24,2+192);"
-        "mined={salt:salt,at:at,arg:g.word,flags:flags};"
+        /*  `sets` is the only property the pool step cares about, and it is
+            a fact about the kind rather than about the address: a Gate's
+            beforeSwap returns a zero fee override for ever.             */
+        "mined={salt:salt,at:at,arg:word,flags:flags,kind:kd,sets:kd===1};"
         "out.innerHTML='<div><span>found after</span><b>'+tried+' tried</b></div>'"
         "+'<div><span>the hook would live at</span><b>'+at+'</b></div>'"
         "+'<div><span>its low 14 bits</span><b>0x'"
-        "+(BigInt(at)&0x3fffn).toString(16)+' \\u2014 beforeSwap + beforeRemoveLiquidity</b></div>';"
+        "+(BigInt(at)&0x3fffn).toString(16)+' \\u2014 '"
+        "+(kd?'beforeInitialize + beforeSwap':'beforeSwap + beforeRemoveLiquidity')"
+        "+'</b></div>'"
+        "+'<div><span>it sets the fee</span><b>'"
+        "+(kd?'yes \\u2014 pair it with a dynamic-fee pool':'no \\u2014 pair it with a fixed fee')"
+        "+'</b></div>';"
         "$('hgo').disabled=false;"
         "say('found by your own node \\u00b7 nothing was sent','ok');return}"
         "from+=WIN}"
         "throw new Error('no address in '+tried+' tries \\u2014 press again to keep going')});"
 
         "onc('hgo',async()=>{if(!mined)throw new Error('find an address first');"
-        "await I.send(K.kiln,S.deployHook+I.W(0)+I.pad(mined.salt)+I.pad(mined.arg))});"
+        "await I.send(K.kiln,S.deployHook+I.W(mined.kind)+I.pad(mined.salt)"
+        "+I.pad(mined.arg))});"
 
         /*───── 3 · the pool ─────*/
         "const tickOf=(p,d0,d1)=>Math.round(Math.log(p*Math.pow(10,d1-d0))/Math.log(1.0001));"
         "const psum=async()=>{const e=$('psum');if(!e)return;"
         "const fee=Number(($('pf')||{}).value||3000);"
+        /*  The warning used to read `mined ? '' : …`, which asked whether a
+            hook existed rather than whether it sets a fee — and the only
+            hook this page could mine was a Gate, which never does. The
+            reassuring case and the broken case were the same case.     */
         "e.innerHTML=(fee===K.dynamicFee"
         "?'<div><span>fee</span><b>dynamic \\u2014 set by the hook, per swap</b></div>'"
-        "+(mined?'':'<div><span class=w>a dynamic fee with no hook is a pool nothing "
-        "can ever price</span><b></b></div>')"
-        ":'<div><span>fee</span><b>'+(fee/10000)+'%</b></div>')"
+        "+((mined&&mined.sets)?'':'<div><span class=w>a dynamic-fee pool starts at "
+        "zero and only its hook can move it \\u2014 without a Facet nothing ever will, "
+        "and a pool key cannot be changed afterwards</span><b></b></div>')"
+        ":'<div><span>fee</span><b>'+(fee/10000)+'%</b></div>'"
+        "+((mined&&mined.sets)?'<div><span class=w>a Facet reverts unless the pool is "
+        "dynamic \\u2014 tick dynamic, or mine a Gate instead</span><b></b></div>':''))"
         "+'<div><span>hook</span><b>'+(mined?mined.at:'none')+'</b></div>'"
         "+'<div><span>pool</span><b>'+(K.v4&&mined?'v4':K.v4?'v4':'v3')+'</b></div>'};"
         "['pf','ps','pq'].forEach(i=>{const e=$(i);if(e)e.addEventListener('input',psum);"
         "if(e)e.addEventListener('change',psum)});psum();"
+
+        /*  The first `hshow` belongs here rather than beside its own
+            definition. It paints the pool summary too, and `psum` is a
+            `const` declared further down — calling it any earlier reaches
+            into the temporal dead zone and throws, which does not break the
+            hook step alone, it kills the whole script and with it every
+            button on the page. The listener above is bound early because
+            binding is not calling; the first paint waits until everything
+            it paints exists.                                            */
+        "hshow();"
 
         /*  initialize((address,address,uint24,int24,address),uint160) — the
             PoolKey is five fixed-size fields, so the whole call is six flat
@@ -206,9 +290,21 @@ contract DeskLaunch {
         "if(!/^0x[0-9a-fA-F]{40}$/.test(q))throw new Error('paste the token to pair with');"
         "const fee=Number($('pf').value),sp=Number($('ps').value);"
         "if(!(sp>0&&sp<32768))throw new Error('tick spacing is 1 to 32767');"
-        "if(fee===K.dynamicFee&&!mined)"
-        "throw new Error('a dynamic fee needs a hook that sets one, or the pool can "
-        "never be priced');"
+        /*  Both directions, because each hook is wrong exactly where the
+            other is right. v4 starts a dynamic-fee pool at zero and lets
+            only the hook move it; a Gate's beforeSwap returns a zero
+            override for ever, so that pool is priced at nothing and a pool
+            key is immutable. A Facet is the reverse: its beforeInitialize
+            reverts `NotDynamic` on a fixed-fee pool, which is a revert the
+            page can explain here instead of letting the wallet show it as
+            an unnamed failure.                                         */
+        "if(fee===K.dynamicFee&&!(mined&&mined.sets))"
+        "throw new Error('a dynamic fee needs a hook that sets one \\u2014 mine a Facet, "
+        "or choose a fixed fee. A Gate never sets a fee, and a pool that starts at zero "
+        "with nothing to move it stays there');"
+        "if(mined&&mined.sets&&fee!==K.dynamicFee)"
+        "throw new Error('a Facet only attaches to a dynamic-fee pool \\u2014 it reverts "
+        "at initialize otherwise. Tick dynamic, or mine a Gate');"
         "const price=Number($('pp').value);"
         "if(!(price>0)||!isFinite(price))throw new Error('a starting price above zero');"
         // sorted, because a PoolKey's currencies must be in address order

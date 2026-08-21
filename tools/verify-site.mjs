@@ -2129,6 +2129,35 @@ let gateAt = null;
   $("cn").value = "Launch Coin";
   $("cs").value = "LNCH";
 
+  /*  The hook picker. It was added with its first paint bound beside its
+      own definition, where it reached a `const` that had not been reached
+      yet — and because that throws at load rather than on click, it took
+      every other button on the page down with it. Nothing in the markup
+      looked wrong; the script simply never finished. So the picker is
+      driven here, in a page that has actually run.                     */
+  ok("the page offers a choice of hook", !!$("hk"),
+     "no hook picker — the launchpad can only ever mine a gate");
+  ok("the gate's controls are the ones showing at rest",
+     $("hkg") && $("hkg").style.display !== "none");
+  ok("and the fee band is put away until it is asked for",
+     $("hkf") && $("hkf").style.display === "none");
+
+  $("hk").value = "1";
+  await $("hk").fire("change");
+  await nap(60);
+  ok("choosing the Facet brings out the fee band",
+     $("hkf") && $("hkf").style.display !== "none",
+     "the band controls stayed hidden — the picker did not switch");
+  ok("and puts the gate's dates away",
+     $("hkg") && $("hkg").style.display === "none");
+  ok("the band has a floor, a ceiling and a token to read them against",
+     !!($("ffl") && $("fcl") && $("ft")));
+
+  $("hk").value = "0";
+  await $("hk").fire("change");
+  await nap(60);
+  ok("and it switches back", $("hkg") && $("hkg").style.display !== "none");
+
   $("cvR").value = "120";
   await $("cvR").fire("input");
   eq("the supply bar is logarithmic and writes the box", $("cv").value, "1000000000000");

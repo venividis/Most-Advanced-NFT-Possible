@@ -26,7 +26,7 @@
     node tools/verify-launch.mjs
 ───────────────────────────────────────────────────────────────────────────*/
 import { compile, artifact } from "./compile.mjs";
-import { Chain, decUint, decAddr, encodeAddressArg, warp, sel } from "./evm.mjs";
+import { Chain, decUint, decAddr, decString, encodeAddressArg, warp, sel } from "./evm.mjs";
 import * as evm from "./evm.mjs";
 import { createAddressFromString } from "@ethereumjs/util";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
@@ -325,6 +325,130 @@ head("one mined salt, the same hook address on every chain");
   const pln = decAddr(await c.read(probe, "plain(address,bytes32,uint256)", [kiln, hash, 12397]));
   eq("the miner's assembly agrees with the plain version", asm.toLowerCase(), pln.toLowerCase());
   console.log("      mined in a free eth_call — the visitor's own node does the search");
+}
+
+/*═══════════ the combination the page promised to refuse ═══════════*/
+
+head("a dynamic-fee pool behind a gate charges nothing, for ever");
+{
+  /*  The page's prose says: choosing a dynamic fee "without a hook that
+      returns a fee creates a pool nothing can ever price — the page will
+      not let you". Its guard asked `!mined` — whether ANY hook had been
+      found — and the only hook the page could mine was a Gate, which
+      never sets one. The reassuring case and the broken case were the
+      same case, and it was two clicks away.
+
+      Demonstrated here rather than asserted, because "charges nothing for
+      ever" is a claim about the manager's behaviour and not about ours. */
+  const now = evm.BLOCK.header.timestamp;
+  const gate = await c.deploy(A("src/Kiln.sol", "Gate").bytecode,
+    encodeAddressArg(pm) + w(now) + w(now), "Gate");
+  const flags = (1n << 9n) | (1n << 7n);
+  const placed = await place(gate, flags, "9a");
+
+  await doInit(key(DYNAMIC, placed), 1n);
+  ok("v4 accepts a dynamic-fee pool behind a gate — nothing refuses it", true);
+
+  await doSwap(key(DYNAMIC, placed));
+  eq("and the first swap is charged nothing",
+     decUint(await c.read(pm, "lastFeeCharged()")), 0n);
+
+  await doSwap(key(DYNAMIC, placed));
+  eq("and so is the next, because a gate has no fee to give",
+     decUint(await c.read(pm, "lastFeeCharged()")), 0n);
+  console.log("      a pool key is immutable and only the hook may move the fee — " +
+              "this pool cannot be repaired");
+}
+
+head("so the client refuses it, and refuses the opposite too");
+{
+  /*  Against the served text, because the guard IS the served text: the
+      page is a string this contract returns, and a check that read the
+      Solidity source rather than what the desk emits could pass while the
+      visitor received something else.                                  */
+  const deskL = await c.deploy(A("src/DeskLaunch.sol", "DeskLaunch").bytecode, "", "DeskLaunch");
+  const js = decString(await c.read(deskL, "launch()", []));
+
+  ok("the guard asks whether the hook sets a fee",
+     /fee===K\.dynamicFee&&!\(mined&&mined\.sets\)/.test(js),
+     "the dynamic-fee guard does not test `mined.sets`");
+  ok("and no longer merely whether one was mined",
+     !/fee===K\.dynamicFee&&!mined\)/.test(js),
+     "the old predicate is still there — it passes a gate as though it priced the pool");
+  ok("the opposite mistake is caught as well",
+     /mined&&mined\.sets&&fee!==K\.dynamicFee/.test(js),
+     "a Facet on a fixed-fee pool reverts at initialize; the page should say so first");
+  ok("`sets` is a fact about the kind, not about the address",
+     /sets:kd===1/.test(js));
+  ok("the deploy carries the kind the visitor chose",
+     /S\.deployHook\+I\.W\(mined\.kind\)/.test(js),
+     "deployHook was hard-coded to kind 0, so only a gate could ever be built");
+  ok("and the Facet's word is packed by the contract that unpacks it",
+     /S\.facetArg\+I\.W\(b\.token\)/.test(js),
+     "the client packs the token/floor/ceiling word itself — an off-by-eight " +
+     "puts the token id inside the fee band, silently");
+}
+
+head("the band a person picks is the band the hook is built with");
+{
+  /*  The packing is four fields in one word and the failure is quiet: shift
+      by the wrong eight and the token id lands inside the fee band, which
+      is a legal band for a token nobody owns. So the numbers go in through
+      the Kiln and come back off the deployed hook's own immutables.    */
+  const kiln = await c.deploy(A("src/Kiln.sol", "Kiln").bytecode,
+    encodeAddressArg(nft) + encodeAddressArg(pm), "Kiln");
+
+  const TOK = 1n, FL = 500n, CE = 30000n;
+  const arg = await c.read(kiln, "facetArg(uint256,uint24,uint24)", [TOK, FL, CE]);
+  const argHex = String(arg).replace(/^0x/, "").slice(0, 64);
+
+  const rh = await c.read(kiln, "recipeHash(uint8,bytes32)", [1, "0x" + argHex]);
+  eq("the recipe declares beforeInitialize + beforeSwap",
+     decUint(rh, 1), (1n << 13n) | (1n << 7n));
+
+  /*  Mined the same way the page mines it, then built through the Kiln. */
+  const hash = "0x" + String(rh).replace(/^0x/, "").slice(0, 64);
+  let salt = null;
+  for (let from = 0n; from < 600000n && salt === null; from += 60000n) {
+    const r = await c.read(kiln, "mine(bytes32,uint16,uint256,uint256)",
+      [hash, (1n << 13n) | (1n << 7n), from, 60000n]);
+    if (decUint(r, 0) === 1n) salt = "0x" + String(r).replace(/^0x/, "").slice(64, 128);
+  }
+  ok("an address carrying exactly those two permissions exists", salt !== null);
+
+  if (salt) {
+    /*  The address the miner predicted, which is the whole point of mining
+        one: the page shows it before anything is sent.                 */
+    const pre = await c.read(kiln, "mine(bytes32,uint16,uint256,uint256)",
+      [hash, (1n << 13n) | (1n << 7n), 0n, 600000n]);
+    const built = "0x" + String(pre).replace(/^0x/, "").slice(128 + 24, 192);
+
+    ok("nothing lives there before the deploy", (await c.codeSize(built)) === 0);
+    await c.exec(kiln, "deployHook(uint8,bytes32,bytes32)", [1, salt, "0x" + argHex]);
+    ok("and the kiln built it at exactly the address the miner named",
+       (await c.codeSize(built)) > 0,
+       `no code at ${built} — the page showed an address the deploy did not use`);
+    {
+      eq("the token that went in is the token it prices",
+         decUint(await c.read(built, "TOKEN()")), TOK);
+      eq("the floor survived the packing", decUint(await c.read(built, "FLOOR()")), FL);
+      eq("and so did the ceiling", decUint(await c.read(built, "CEILING()")), CE);
+
+      /*  And the preview the page shows is the number the hook charges —
+          not a second implementation of the same arithmetic.          */
+      const b = await c.read(kiln, "band(uint256,uint24,uint24)", [TOK, FL, CE]);
+      eq("the page's preview equals what the hook will actually charge",
+         decUint(b, 2), decUint(await c.read(built, "fee()")));
+      eq("and the concentration it quotes is the artwork's own",
+         decUint(b, 1), decUint(await c.read(built, "reading()"), 1));
+    }
+  }
+
+  await refuses("a band that runs backwards is refused before anything is mined",
+    () => c.read(kiln, "band(uint256,uint24,uint24)", [TOK, CE, FL]),
+    "a floor above a ceiling would deploy a hook whose fee falls as the solid turns");
+  await refuses("and one past 100% likewise",
+    () => c.read(kiln, "facetArg(uint256,uint24,uint24)", [TOK, 0n, 1000001n]));
 }
 
 console.log(`\n  ${pass} passed, ${fail} failed\n`);

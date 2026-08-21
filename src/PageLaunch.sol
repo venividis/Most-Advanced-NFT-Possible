@@ -130,12 +130,17 @@ contract PageLaunch {
             ",\"maxFee\":", uint256(Hook.MAX_FEE).str(),
             ",\"gateFlags\":",
                 uint256(Hook.BEFORE_REMOVE_LIQUIDITY | Hook.BEFORE_SWAP).str(),
+            ",\"facetFlags\":",
+                uint256(Hook.BEFORE_INITIALIZE | Hook.BEFORE_SWAP).str(),
             ",\"sel\":{",
             "\"launch\":\"", _sel("launch(uint256,string,string,uint8,uint256,bytes32)"),
             "\",\"coinAt\":\"",
                 _sel("coinAt(address,string,string,uint8,uint256,bytes32)"),
             "\",\"mine\":\"", _sel("mine(bytes32,uint16,uint256,uint256)"),
             "\",\"recipeHash\":\"", _sel("recipeHash(uint8,bytes32)"),
+            // the band's live reading, and the packing the client refuses to do
+            "\",\"band\":\"", _sel("band(uint256,uint24,uint24)"),
+            "\",\"facetArg\":\"", _sel("facetArg(uint256,uint24,uint24)"),
             "\",\"deployHook\":\"", _sel("deployHook(uint8,bytes32,bytes32)"),
             // six flat words: the five PoolKey fields then the price
             "\",\"initV4\":\"",
@@ -220,7 +225,12 @@ contract PageLaunch {
             "<h2>2 &middot; the hook</h2>",
             _hookProse(),
             "<div class=app>"
-            "<div class=hd><b>Deploy a gate</b></div>"
+            "<div class=hd><b>Deploy a hook</b></div>"
+            "<div><label>which one</label><select id=hk>"
+            "<option value=\"0\">Gate &mdash; delays trading, locks liquidity</option>"
+            "<option value=\"1\">Facet &mdash; the fee follows your solid</option>"
+            "</select></div>"
+            "<div id=hkg>"
             "<div class=two>"
             "<div><label>trading opens in (hours)</label><input id=ho value=\"0\">"
             "<input type=range id=hoR min=0 max=168 value=0 "
@@ -231,6 +241,21 @@ contract PageLaunch {
             "title=\"zero to ten years\"></div>"
             "</div>"
             "<div class=det id=hsum></div>"
+            "</div>"
+            "<div id=hkf style=\"display:none\">"
+            "<div><label>the token whose section sets the fee</label>"
+            "<input id=ft value=\"1\"></div>"
+            "<div class=two>"
+            "<div><label>fee at rest <span class=m>hundredths of a basis point; "
+            "3000 is 0.30%</span></label><input id=ffl value=\"500\">"
+            "<input type=range id=fflR min=0 max=600 value=270 "
+            "title=\"nothing to one hundred per cent\"></div>"
+            "<div><label>fee at the furthest cut</label><input id=fcl value=\"30000\">"
+            "<input type=range id=fclR min=0 max=600 value=450 "
+            "title=\"nothing to one hundred per cent\"></div>"
+            "</div>"
+            "<div class=det id=fsum></div>"
+            "</div>"
             "<button id=hmine>Find an address</button>"
             "<div class=det id=hmined></div>"
             "<button class=go id=hgo disabled>Deploy it</button>"
@@ -246,7 +271,19 @@ contract PageLaunch {
             "hook's own <em>address</em> &mdash; fourteen callbacks, the low fourteen "
             "bits &mdash; so a hook's powers are not a claim it makes, they are a "
             "property of where it lives.</p>"
-            "<p class=e>The gate below holds two of them. <code>beforeSwap</code> keeps "
+            "<p class=e>Two are offered here, and they are not alternatives to each "
+            "other so much as answers to different questions. Pick the one whose "
+            "question you are actually asking.</p>"
+            "<p class=e><b>The Facet</b> reads a token's four-dimensional section on "
+            "every swap and charges a fee from it &mdash; at rest, the floor you set; "
+            "at the furthest cut, the ceiling. You are not typing a number into a form, "
+            "you are turning the artwork, and the pool follows because the artwork "
+            "<em>is</em> the parameter. It only attaches to a dynamic-fee pool, and a "
+            "dynamic-fee pool only works with a hook like it: v4 starts such a pool at "
+            "zero and lets nothing but the hook move it, and a pool key cannot be "
+            "edited afterwards. Choose one without the other and the pool is priced at "
+            "nothing for ever &mdash; so this page will not let you.</p>"
+            "<p class=e>The gate holds two of them. <code>beforeSwap</code> keeps "
             "trading shut until a time you set; <code>beforeRemoveLiquidity</code> keeps "
             "liquidity in until another. Both timestamps are fixed at deployment with no "
             "setter and no owner, so the only thing that opens the gate is the clock. "
@@ -398,8 +435,12 @@ contract PageLaunch {
                 LibNum.hexAddr(VENUE.POOL_MANAGER()), "</code>"
                 "<span class=m>Uniswap v4, where the pool is created</span></dd>",
             "<dt>positions</dt><dd><code>", LibNum.hexAddr(VENUE.POSITIONS()), "</code>"
-                "<span class=m>Uniswap v3, where a hookless launch seeds its "
-                "liquidity</span></dd>",
+                "<span class=m>Uniswap v3. ",
+                VENUE.hasV4()
+                    ? "Not used on this chain &mdash; every launch here is v4, and the "
+                      "line above says where its liquidity does not go"
+                    : "Where a hookless launch seeds its liquidity",
+                "</span></dd>",
             "</dl>"
             "<p class=e>Nothing here has been audited. A launchpad is a machine for "
             "making things other people put money into, and the only claims this one "

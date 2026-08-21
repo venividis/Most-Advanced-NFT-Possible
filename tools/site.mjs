@@ -440,8 +440,10 @@ export const VIA = [
     a record for exactly that reason — absent from the file, absent from
     the walk, and therefore absent from the report.
 
-    This must match what `deploySite` returns plus the four the collection
-    deploys ahead of it. `tools/verify-site.mjs` pins the site half.     */
+    This must match what `deploySite` returns plus the eight the collection
+    deploys ahead of it — engine, sigil, renderer, reach, grip, ipseity,
+    pool and lease. `tools/verify-recover.mjs` counts them rather than
+    trusting this sentence.                                              */
 export const EXPECTED = [
   "engine", "sigil", "renderer", "reach", "grip", "ipseity", "pool", "lease",
   "chrome", "parley", "roster", "deskRooms", "kiln", "locker", "venue",

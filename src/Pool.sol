@@ -617,6 +617,10 @@ contract Pool {
         external view returns (bool drifted, uint256 nowBps, uint256 wouldBeBps)
     {
         Market memory m = marketOf[id];
+        /*  Nothing has drifted from a market that never took a copy of
+            anything. See `market` above for why an unset word must not be
+            priced.                                                      */
+        if (!m.open) return (false, 0, 0);
         uint256 live = collection.sectionOf(id);
         return (live != m.curveWord, Curve.concentration(m.curveWord), Curve.concentration(live));
     }
@@ -651,10 +655,20 @@ contract Pool {
         )
     {
         Market memory m = marketOf[id];
-        uint256 word = m.curveWord;
+        /*  A market that was never opened has an unset curveWord, and zero
+            is not the rest word: `offsetW` 0 is the far edge of w, not the
+            centre, so the honest reading of word zero is a steep curve.
+            Reporting it beside `open = false` and reserves of nothing
+            describes a market that does not exist as though it were priced
+            steeply. Every mutating path already refuses on `open`; these
+            two reads are the only ones that answer anyway, so they answer
+            zero — not as a sentinel, since zero is also the true price of a
+            centred token, but because a market that is not open has no
+            curve to report.                                             */
+        uint256 word = m.open ? m.curveWord : 0;
         return (
             m.base, m.quote, m.rBase, m.rQuote, m.feeBps, m.open,
-            Curve.concentration(word),
+            m.open ? Curve.concentration(word) : 0,
             Curve.spot(m.rBase, m.rQuote, m.vBase, m.vQuote),
             (uint256(m.rBase) * MAX_OUT_BPS) / BPS,
             (uint256(m.rQuote) * MAX_OUT_BPS) / BPS,
