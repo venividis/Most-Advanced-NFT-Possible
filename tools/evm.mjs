@@ -88,6 +88,19 @@ export function enc(sig, args = []) {
   for (let i = 0; i < types.length; i++) {
     const t = types[i], v = args[i];
     if (t === "bytes" || t === "string") {
+      /*  `bytes` means a hex string here, and anything else used to be
+          coerced silently: a Buffer was stringified to its own text and
+          then re-read as hex, which for "the commons" parses to nothing
+          and encodes an EMPTY argument. The contract then reverted for a
+          reason that had nothing to do with the test, and the test looked
+          like it had found a bug. Refuse it instead.                    */
+      if (t === "bytes") {
+        if (Buffer.isBuffer(v) || v instanceof Uint8Array)
+          throw new Error("harness wants bytes as a hex string, not a Buffer — " +
+                          'use "0x" + buf.toString("hex")');
+        if (v !== "" && !/^(0x)?([0-9a-fA-F]{2})*$/.test(String(v)))
+          throw new Error("not hex, so this would encode as empty: " + String(v).slice(0, 40));
+      }
       const b = t === "string" ? Buffer.from(String(v), "utf8") : Buffer.from(String(v).replace(/^0x/, ""), "hex");
       head += pad((headLen + tail.length / 2).toString(16));
       tail += pad(b.length.toString(16)) + b.toString("hex").padEnd(Math.ceil(b.length / 32) * 64, "0");

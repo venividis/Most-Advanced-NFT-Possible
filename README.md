@@ -29,6 +29,54 @@ at read time.
 
 ---
 
+## The commons, heard on the other chains
+
+The five chains issue one edition and nothing crosses between them. What
+crosses is speech, and only speech.
+
+`Parley.speak` is untouched — free, local, no dependency on any of this. It
+works on a chain where the port was never deployed, never funded, or has
+stopped answering. Federation is a *separate payable call*: `echo` pays the
+LayerZero fee and carries a copy outward. A social layer that needs a message
+to arrive before anyone can talk has a single point of silence, so the local
+commons is never behind the bridge.
+
+Only the commons crosses, and there is no function for anything else. A group
+carries a steward, and a steward is an authority — carrying it across would
+mean trusting a message to say who may speak. A pair room is derived from two
+token ids, and under the partition those two ids may live on different chains,
+so a federated pair room would be a room that means different things in
+different places. There is no correct way to do it, so there is no function.
+
+The port cannot write into Parley at all, and asks for no privilege there.
+What arrives is emitted under the port's own event, tagged with the chain it
+came from, so each chain's archive stays exactly what it was: a record of what
+was said by someone standing on that chain. A reader who wants the whole
+conversation reads two logs and can always tell which is which.
+
+The back-link is rewritten at the border. Parley's walk works because every
+message carries the block number of the previous one, so a client steps
+backwards with single-block `eth_getLogs` and never scans a range. Block
+21,000,000 on Ethereum is not block 21,000,000 anywhere else, so the sender's
+pointer is dropped and the port writes its own in the receiving chain's
+numbering.
+
+Two protocol properties are the reason this was admissible at all, and both
+were verified live rather than read off a page. An unwired lane fails at
+**quote** time — the default verifier is a small contract whose entire
+behaviour is to revert with *"Please set your OApp's DVNs and/or Executor"* —
+so a lane nobody configured refuses loudly instead of accepting a message that
+would never arrive. And delivery is **permissionless**: the endpoint's receive
+path has no access control, so once the DVNs have attested anyone can deliver.
+The paid executor is a convenience and never a dependency, which means no
+server is required for any of it.
+
+The verifier set is frozen in the constructor. LayerZero lets an OApp choose
+which DVNs must attest and lets a delegate change that later — a delegate is
+an admin key. The port calls `setDelegate(address(0))` at construction and
+carries no function that could set it again, so the attestation set is as
+immutable as the bytecode.
+
 ## One edition, five chains, no bridge
 
 The collection is one run of 4096, cut into five contiguous bands and issued
@@ -510,7 +558,7 @@ shipped), and what crosses the chain is AES-GCM ciphertext that renders as
 ## Security
 
 Approached the way the Dave Held core approaches it: write down what must be
-true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and thirty such
+true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and thirty-nine such
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
@@ -1302,7 +1350,7 @@ test/                   Foundry unit, property and fuzz tests
 script/Deploy.s.sol     deploy the collection, load, seal
 script/Site.s.sol       deploy the parley, the desks, the pages and the router
 
-INVARIANTS.md           one hundred and thirty statements that must hold, and the test for each
+INVARIANTS.md           one hundred and thirty-nine statements that must hold, and the test for each
 AGENT.md                ERC-7857, session keys, and what an agent can be given
 ```
 

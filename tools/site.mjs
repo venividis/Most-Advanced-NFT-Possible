@@ -95,6 +95,25 @@ export const LAYERZERO = {
     the testnet address, eid 40245, with three read libraries.          */
 export const canRead = (chainId) => !!(LAYERZERO[Number(chainId)] || {}).read;
 
+/*  Who a chain's port should be built to hear. Every OTHER chain of the
+    edition that has an endpoint — the port carries speech, which every
+    one of the five can both send and receive, so `canRead` does not come
+    into it. Reading is a separate capability for a separate purpose.
+
+    A chain with no endpoint gets an empty list and must deploy no port at
+    all rather than one pointed at nothing. `ParleyPort` refuses to
+    construct on an empty list, so that mistake cannot be made quietly. */
+export function portPeers(chainId) {
+  const me = Number(chainId);
+  const out = [];
+  for (const id of Object.keys(BANDS).map(Number)) {
+    if (id === me) continue;
+    const lz = LAYERZERO[id];
+    if (lz) out.push({ chainId: id, name: lz.name, eid: lz.eid });
+  }
+  return LAYERZERO[me] ? out : [];
+}
+
 /*───────────────────────────────────────────────────────────────────────────
   THE PARTITION — one edition of 4096, cut into five bands
 

@@ -893,6 +893,85 @@ each naming the actual fault. A guard nothing has ever seen fail is a guard
 nobody has checked.
 → `tools/site.mjs` · `assertTiles`
 
+**132. The curve is the solid.**
+`concentration` read three angles and nothing else, so `form` and
+`offsetW` never reached the market and all eight solids priced
+identically. It now reads the plane the section is cut on, where along it
+the cut sits, and which body is being cut, from a table measured off the
+engine's own distance functions. Eight distinct prices at the same cut,
+where there used to be one.
+→ `tools/verify-curve.mjs` · *"the curve is the solid"*,
+  `test/Pool.t.sol` · `test_theCurveIsTheSolid`, `src/lib/Curve.sol`
+
+**133. The market prices the plane a viewer is looking at.**
+Concentration was a sum of angle distances, which is not a function of the
+cut. Half a turn about each w-plane returns the cut plane exactly where it
+started, so a holder could sit their market at two thirds of maximum while
+the token rendered untouched — and at the mirror plane, at maximum. The
+number is a function of u = R·e_w now, so the same cut always prices the
+same and the picture and the market cannot disagree.
+→ `tools/verify-curve.mjs` · *"the market is a function of the cut plane,
+  not of the angles"*, `src/lib/Curve.sol` · `cutDirection`
+
+**134. An untouched token is plain constant product, on every solid.**
+The reference is rest rather than the widest slice, and that is a measured
+decision rather than an aesthetic one: a tesseract cut square across an
+axis gives the SMALLEST slice it has, so pricing thinness directly would
+open every freshly minted tesseract at maximum concentration. Rest is the
+narrowest cut for the Tesseract, the widest for three others, and between
+for the rest.
+→ `tools/verify-curve.mjs` · *"an untouched token is plain constant
+  product"*, `src/lib/Curve.sol` · `SLICE`
+
+**135. The contract prices the plane the engine draws.**
+The closed form for u is derived from the engine's rotation composition
+and checked against it to 1e-6 on every run. If the two ever drift, the
+market prices a plane nobody is looking at, and nothing else in the suite
+would notice.
+→ `tools/verify-curve.mjs` · *"the direction is the one the engine draws
+  with"*
+
+**136. Speech crosses; nothing else does.**
+The port carries the commons and has no function that federates a group or
+a pair — a group carries a steward, which is an authority, and a pair is
+derived from two ids that under the partition live on different chains, so
+a federated pair room would mean different things in different places. It
+cannot write into Parley at all: what arrives is emitted under the port's
+own event, tagged with its origin.
+→ `tools/verify-port.mjs` · *"only the commons crosses"*, `src/ParleyPort.sol`
+
+**137. The local commons never depends on the bridge.**
+`Parley.speak` is untouched, free and local, and works on a chain where the
+port was never deployed, never funded, or has stopped answering.
+Federation is a separate payable call. A social layer that needs a message
+to arrive before anyone can talk has a single point of silence.
+→ `tools/verify-port.mjs` · *"the local commons never needed any of this"*
+
+**138. The verifier set is frozen in the constructor.**
+LayerZero lets an OApp choose which DVNs must attest and lets a delegate
+change that later, which is an admin key. The port calls
+`setDelegate(address(0))` at construction and carries no function that
+could set it again, so the attestation set is as immutable as the
+bytecode.
+→ `tools/verify-port.mjs` · *"the verifier set is frozen in the
+  constructor"*
+
+**139. A block number from another chain is not a block number here.**
+Parley's walk works because each message carries the block of the previous
+one, so a client steps back with single-block `eth_getLogs`. That pointer
+is meaningless across a border, so the sender's is dropped on arrival and
+the port writes its own in the receiving chain's numbering.
+→ `tools/verify-port.mjs` · *"the back-link is rewritten into this chain's
+  numbering"*
+
+**140. The harness refuses an argument it would otherwise encode as empty.**
+`bytes` means a hex string to the test encoder, and a Buffer was being
+stringified to its own text and re-read as hex — which for ordinary words
+parses to nothing and encodes an EMPTY argument. The contract then
+reverted for a reason unrelated to the test, and the test looked like it
+had found a bug. It throws now.
+→ `tools/evm.mjs` · `enc`
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue
