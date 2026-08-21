@@ -366,6 +366,92 @@ export const decResponse = (hex) => {
 export const getter = (c, premises) => async (path) =>
   decResponse(await c.call(premises, encRequest(path)));
 
+
+/*═══════════════════ walking a deployment backwards ═══════════════════
+
+  `deploySite` builds a deployment; these three tables read one back. They
+  live here rather than in the tool that uses them because they describe
+  the same wiring from the other side, and a route table kept in a
+  different file from the constructor it mirrors is a route table that
+  drifts. `tools/verify-recover.mjs` holds them to the source.
+════════════════════════════════════════════════════════════════════════*/
+
+/*  The Premises' own immutables: the hub, the chrome, and one getter per
+    page. Names here match the keys deploySite returns, so a recovered
+    record and a freshly written one are the same file.                 */
+export const PAGES = {
+  pDoor: "P_DOOR()",         pToken: "P_TOKEN()",     pMarket: "P_MARKET()",
+  pPool: "P_POOL()",         pServices: "P_SERVICES()", pManifest: "P_MANIFEST()",
+  pTalk: "P_TALK()",         pRooms: "P_ROOMS()",     pTerminal: "P_TERMINAL()",
+  pSwap: "P_SWAP()",         pGallery: "P_GALLERY()", pLaunch: "P_LAUNCH()",
+  pLock: "P_LOCK()",         pHook: "P_HOOK()",       pCast: "P_CAST()",
+  pSeal: "P_SEAL()",         pKeys: "P_KEYS()",       pName: "P_NAME()",
+  pEstate: "P_ESTATE()"
+};
+
+/*  The desks and the machinery behind them, each read from a contract that
+    holds a pointer to it. Several are reachable two ways, and those are
+    listed twice on purpose: two routes to one address is a free check that
+    the site was assembled from a single deployment, and a disagreement is
+    worth more than either answer alone.
+
+    Getting a route wrong is quiet and expensive. `deskSeal` was first read
+    from PageSeal's DESK() — but PageSeal holds the *generic* desk and never
+    mentions DeskSeal at all, so the recovery cheerfully recorded the wrong
+    contract under a plausible name. PageTalk is the one that holds it. A
+    name that resolves is not the same as a name that resolves correctly. */
+export const VIA = [
+  ["desk",        "pDoor",     "DESK()"],
+  ["desk",        "pSeal",     "DESK()"],
+  ["desk",        "pKeys",     "DESK()"],
+  ["deskTalk",    "pRooms",    "TALK()"],
+  ["deskTerm",    "pTerminal", "TERM()"],
+  ["deskRooms",   "pTerminal", "ROOMS()"],
+  ["deskWill",    "pTerminal", "WILL()"],
+  ["deskU",       "pSwap",     "DESKU()"],
+  ["deskU",       "pLaunch",   "DESKU()"],
+  ["deskT",       "pSwap",     "DESKT()"],
+  ["deskL",       "pLaunch",   "DESKL()"],
+  ["deskEstate",  "pEstate",   "ESTATE()"],
+  ["deskSeal",    "pTalk",     "SEAL()"],
+  ["roster",      "deskTalk",  "ROSTER()"],
+  ["roster",      "deskTerm",  "ROSTER()"],
+  ["venue",       "pLaunch",   "VENUE()"],
+  ["kiln",        "pLaunch",   "KILN()"],
+  ["kiln",        "deskTerm",  "KILN()"],
+  ["locker",      "pLock",     "LOCKER()"],
+  ["locker",      "deskTerm",  "LOCKER()"],
+  ["nameplate",   "pName",     "PLATE()"],
+  ["sigil",       "pCast",     "SIGIL()"],
+  ["parley",      "pRooms",    "PARLEY()"],
+  ["parley",      "deskTerm",  "PARLEY()"],
+  ["pool",        "pSwap",     "POOL()"],
+  ["pool",        "pGallery",  "POOL()"],
+  ["succession",  "pEstate",   "SUCC()"],
+  ["consign",     "pEstate",   "CONS()"],
+  ["lease",       "pGallery",  "LEASE()"],
+  ["lease",       "pManifest", "LEASE()"]
+];
+
+/*  What a complete deployment contains, which is not the same question as
+    what this tool can reach. Keys here that recovery misses are reported
+    rather than left out: a tool that only lists what it found cannot tell
+    you about the thing it never looked for, and `roster` sat missing from
+    a record for exactly that reason — absent from the file, absent from
+    the walk, and therefore absent from the report.
+
+    This must match what `deploySite` returns plus the four the collection
+    deploys ahead of it. `tools/verify-site.mjs` pins the site half.     */
+export const EXPECTED = [
+  "engine", "sigil", "renderer", "reach", "grip", "ipseity", "pool", "lease",
+  "chrome", "parley", "roster", "deskRooms", "kiln", "locker", "venue",
+  "nameplate", "deskU", "deskT", "deskL", "deskSeal", "pSwap", "desk",
+  "deskTalk", "deskTerm", "pDoor", "pToken", "pMarket", "pPool", "pServices",
+  "pManifest", "pTalk", "pRooms", "pTerminal", "pGallery", "pLaunch", "pLock",
+  "pHook", "pCast", "pSeal", "pKeys", "pName", "succession", "consign",
+  "deskEstate", "deskWill", "pEstate", "premises"
+];
+
 /*──────────────── the deployment ────────────────*/
 
 /**

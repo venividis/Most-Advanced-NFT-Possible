@@ -20,6 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RpcChain } from "./rpc.mjs";
 import { sel } from "./evm.mjs";
+import { PAGES, VIA, EXPECTED } from "./site.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const recPath = process.argv[2];
@@ -53,50 +54,24 @@ const premises = rec.contracts?.premises;
 if (!premises) throw new Error("the record has no premises to walk from");
 put("premises", premises);
 
-/*  The Premises' own immutables: the hub, the chrome, and one getter per
-    page. Names here match the keys deploySite returns, so a recovered
-    record and a freshly written one are the same file.                 */
-const PAGES = {
-  pDoor: "P_DOOR()",         pToken: "P_TOKEN()",     pMarket: "P_MARKET()",
-  pPool: "P_POOL()",         pServices: "P_SERVICES()", pManifest: "P_MANIFEST()",
-  pTalk: "P_TALK()",         pRooms: "P_ROOMS()",     pTerminal: "P_TERMINAL()",
-  pSwap: "P_SWAP()",         pGallery: "P_GALLERY()", pLaunch: "P_LAUNCH()",
-  pLock: "P_LOCK()",         pHook: "P_HOOK()",       pCast: "P_CAST()",
-  pSeal: "P_SEAL()",         pKeys: "P_KEYS()",       pName: "P_NAME()",
-  pEstate: "P_ESTATE()"
-};
 
 put("ipseity", await addrOf(premises, "HUB()"));
 put("chrome", await addrOf(premises, "CHROME()"));
 for (const [key, g] of Object.entries(PAGES)) put(key, await addrOf(premises, g));
 
-/*  The desks and the machinery behind them, each read from a page that
-    holds a pointer to it. Where two pages point at the same thing the
-    answers must agree — and they are checked, because a disagreement
-    means the site was assembled from two different deployments.        */
-const VIA = [
-  ["desk",        "pDoor",     "DESK()"],
-  ["deskTalk",    "pRooms",    "TALK()"],
-  ["deskTerm",    "pTerminal", "TERM()"],
-  ["deskRooms",   "pTerminal", "ROOMS()"],
-  ["deskWill",    "pTerminal", "WILL()"],
-  ["deskU",       "pSwap",     "DESKU()"],
-  ["deskT",       "pSwap",     "DESKT()"],
-  ["deskL",       "pLaunch",   "DESKL()"],
-  ["deskEstate",  "pEstate",   "ESTATE()"],
-  ["deskSeal",    "pSeal",     "DESK()"],
-  ["venue",       "pLaunch",   "VENUE()"],
-  ["kiln",        "pLaunch",   "KILN()"],
-  ["locker",      "pLock",     "LOCKER()"],
-  ["nameplate",   "pName",     "PLATE()"],
-  ["sigil",       "pCast",     "SIGIL()"],
-  ["parley",      "pRooms",    "PARLEY()"],
-  ["pool",        "pSwap",     "POOL()"],
-  ["succession",  "pEstate",   "SUCC()"],
-  ["consign",     "pEstate",   "CONS()"],
-  ["lease",       "pGallery",  "LEASE()"]
-];
-for (const [name, via, g] of VIA) put(name, await addrOf(found[via], g));
+
+/*  Two routes to the same key must land on the same address. `put` keeps
+    the first answer and records the contradiction rather than letting a
+    later route overwrite an earlier one — silently taking the last write
+    is how a tool reports a clean recovery of a mixed deployment.       */
+const conflicts = [];
+for (const [name, via, g] of VIA) {
+  const a = await addrOf(found[via], g);
+  if (!a) continue;
+  if (found[name] && found[name].toLowerCase() !== a.toLowerCase())
+    conflicts.push({ name, via, was: found[name], now: a });
+  else put(name, a);
+}
 
 /*  The hub's own pointers. `renderer` is the one that moves — every
     engine redeploy repoints it — so reading it here is the only way to
@@ -105,6 +80,7 @@ put("renderer", await addrOf(found.ipseity, "renderer()"));
 put("reach",    await addrOf(found.ipseity, "ACCOUNT_IMPL()"));
 put("grip",     await addrOf(found.ipseity, "GRIP_IMPL()"));
 put("engine",   await addrOf(found.renderer, "engine()"));
+
 
 /*───────────────── report, then agree or disagree ─────────────────*/
 const on = Object.keys(found).length;
@@ -120,8 +96,19 @@ for (const k of Object.keys(found).sort()) {
 const orphan = Object.keys(rec.contracts).filter(k => !found[k]);
 for (const k of orphan) console.log(`  ? ${k.padEnd(12)} ${rec.contracts[k]}  (not reachable from the premises)`);
 
-console.log(`\n  ${gained} new, ${drift} disagreeing, ${orphan.length} unreachable`);
+/*  A key the deployment should have that neither the file nor the walk
+    produced. Distinct from `orphan`, which is a key the file has and the
+    walk could not confirm.                                             */
+const missing = EXPECTED.filter(k => !found[k] && !rec.contracts[k]);
+for (const k of missing) console.log(`  - ${k.padEnd(12)} MISSING — expected in a complete deployment, in neither the record nor the chain`);
+
+for (const x of conflicts)
+  console.log(`  ✗ ${x.name.padEnd(12)} ${x.was} via an earlier route, ${x.now} via ${x.via} — two routes, two answers`);
+
+console.log(`\n  ${gained} new, ${drift} disagreeing, ${orphan.length} unreachable, ` +
+  `${missing.length} missing, ${conflicts.length} contradicted`);
 if (drift) console.log("  a disagreement means the record and the chain describe different deployments");
+if (conflicts.length) console.log("  a contradiction means two contracts in this deployment disagree about a third");
 
 if (WRITE) {
   /*  Recovered addresses win: the chain is the record's source, not the
@@ -134,3 +121,9 @@ if (WRITE) {
 } else if (gained || drift) {
   console.log("  pass --write to fold these into the record");
 }
+
+/*  Non-zero on anything that means the recovery is not trustworthy, so
+    this can be a check rather than only a report. A missing key is not
+    fatal — some deployments predate some contracts — but a contradiction
+    or a drift is.                                                       */
+if (conflicts.length || drift) process.exitCode = 1;

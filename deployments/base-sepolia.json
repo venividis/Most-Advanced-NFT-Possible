@@ -42,13 +42,14 @@
   "deskT": "0x3a4e0b184987aadba07869c403025d90251aaab2",
   "deskL": "0x8e5bc3f8831468e6184f1705a6c61ed5c9c0fe93",
   "deskEstate": "0xceef52aea03db16c1dc91cb1055e2c49bf3a3605",
-  "deskSeal": "0x4133c74634dca8e0473020b76bd691fce78e81a1",
+  "deskSeal": "0xe218e453efda71f174d302e408e727eca47a6787",
   "venue": "0x9ae1035238144c55e1fde51100e91a1e900fc509",
   "kiln": "0x4872d3767c1b4ec6f9dbe81efdca5416dbd5f188",
   "locker": "0x4f73e59bc1555710adbdaca7c08fae002524c717",
   "nameplate": "0x50ff87ff399d9898564d47972aee2bb35648edf7",
   "succession": "0x82079edde8858179f8c0976a1b9495f1a543956d",
-  "consign": "0x5c23a96ca4f9896874c1526bdd21262309cd2b9f"
+  "consign": "0x5c23a96ca4f9896874c1526bdd21262309cd2b9f",
+  "roster": "0x9e90193da950b95b20c04839803822401977d7ca"
  },
  "holders": {
   "1": "0x5f1191a432ea9d3f36eba62c0ca797bf0a754337",
