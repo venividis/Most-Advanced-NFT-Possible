@@ -3,9 +3,9 @@
  "chainId": 84532,
  "deployer": "0x5f1191a432ea9d3f36eba62c0ca797bf0a754337",
  "contracts": {
-  "engine": "0x7a82ff2bf2682a93b5ce1095ee1e596bcfc81b87",
+  "engine": "0xba065fe65a7d7f13d5c49cc91d6f278f63e25c3c",
   "sigil": "0x909ebcfd9e1628e1b8cf67a6d8bdc776b6edc64f",
-  "renderer": "0x84c63e2a14f2e072936908f0a20ba42daa7a6f54",
+  "renderer": "0xd2b86b7f7521f255d55200c08e139d72075174e8",
   "reach": "0x691e45d10b60ed96ebd5934a9f7979146dd77a85",
   "grip": "0x2e554f5a6680f4a7d2a7b797c5473379faed3ed4",
   "ipseity": "0x36c49f58c6437ee994766ce80f6654c4d797b8db",

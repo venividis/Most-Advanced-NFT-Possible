@@ -13,7 +13,7 @@ rewrites its own past cannot be used to tell when something broke.
 Premises     0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1
 Ipseity      0x36c49f58c6437ee994766ce80f6654c4d797b8db
 Pool         0x8b699b46edb8e8bd156347d73c8eaa2a0abe80f4
-Engine       0x7a82ff2bf2682a93b5ce1095ee1e596bcfc81b87   (frozen)
+Engine       0xba065fe65a7d7f13d5c49cc91d6f278f63e25c3c   (frozen)
 ```
 
 ```
@@ -558,3 +558,26 @@ somebody else's ether is not a thing to do for a nicer-looking link.
 The mainnet path is intact, so the name is worth having there and nowhere
 else. `tools/ens-name.mjs` is written and correct; it wants a chain whose
 registrar authorises its wrapper.
+
+### The ring becomes the navigation — 2026-08-21
+
+The deck's tab bar and the sealed-node modal both went, and the engine was
+redeployed to Base Sepolia so every token saw it in the same block.
+
+```
+Engine    0xba065fe65a7d7f13d5c49cc91d6f278f63e25c3c   loaded and frozen
+Renderer  0xd2b86b7f7521f255d55200c08e139d72075174e8   the hub now looks here
+```
+
+Verified against what the chain serves rather than against the local build:
+fetched `/token/2/live` through the gateway, inflated the payload, and
+checked the redesign is in the bytes — rail, head, plate, named wires
+present; `dkbar` and "not loaded" absent.
+
+The previous engine stays at `0x7a82ff2b…`. Nothing is destroyed by a
+redeploy; the hub simply looks elsewhere, and pointing it back is one
+transaction. That is the same property that makes `sealRenderer()` matter:
+until it is called, this is reversible, and after it nothing is.
+
+44,318 bytes stored, inflating to 129,033 — about 690 bytes on chain for
+the whole mechanism.
