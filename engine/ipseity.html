@@ -1226,7 +1226,46 @@ const TIERS = [
   { steps: 140, flags: 1 | 4 | 8,   bloom: 0.40, aberr: 0.0030, disp: false },
   { steps: 190, flags: 1|2|4|8,     bloom: 0.46, aberr: 0.0042, disp: true  }
 ];
-let tier = 2;
+
+/*───────────────────── what the ladder may not do ─────────────────────
+
+  The quality ladder climbs while the frame rate holds and falls when it
+  does not. That is the correct rule for a desktop and the wrong one for
+  something held in a hand, because it optimises for frames and pays in
+  watts: a capable phone sustains sixty frames at the top tier, so the
+  ladder settles there and stays — a hundred and ninety raymarch steps per
+  pixel, at full resolution, for as long as the page is open.
+
+  Sustaining sixty frames and being pleasant to hold are different goals
+  and the ladder only knew the first one. It was reported as heat, which
+  is what a device says when it has been asked for everything it has.
+
+  So the ladder gets a ceiling rather than a new algorithm. It still falls
+  the moment a device struggles; it simply may not climb past what a
+  handheld should be asked to sustain.                                  */
+const HANDHELD = matchMedia("(pointer:coarse)").matches || innerWidth < 781;
+const CALM = matchMedia("(prefers-reduced-motion:reduce)").matches;
+const TIER_CEIL  = CALM ? 1 : (HANDHELD ? 2 : TIERS.length - 1);
+const SCALE_CEIL = CALM ? 0.7 : (HANDHELD ? 0.85 : 1);
+
+/*  And a rate the loop drops to once the accumulator has converged and
+    nothing has changed. It never stopped drawing: after ninety-six still
+    frames each new one contributes a ninety-seventh of itself, and it
+    kept computing a whole picture, sixty times a second, to add almost
+    nothing to a picture that was already finished.
+
+    Not zero, because the field is not static — four things in the shader
+    move on uTime. They move slowly enough (0.045 to 0.05 a second) that
+    ten frames a second is the same image to an eye and a sixth of the
+    work to a battery.                                                  */
+const IDLE_HZ = CALM ? 4 : 10;
+const IDLE_MS = 1000 / IDLE_HZ;
+const CONVERGED = 96;
+let lastDraw = 0;
+/*  Clamped, not just initialised: on a handheld the default was already
+    the ceiling, and under reduced motion it started one above it and
+    would only have come down by failing to keep up.                   */
+let tier = Math.min(2, TIER_CEIL);
 
 function compile(type, src){
   const s = gl.createShader(type);
@@ -1493,8 +1532,8 @@ function frame(now){
     } else if(fps > 54){
       if(++good >= 4){
         good = 0;
-        if(scale < 1){ scale = Math.min(1, scale + 0.08); resize(); }
-        else if(tier < TIERS.length - 1) tier++;
+        if(scale < SCALE_CEIL){ scale = Math.min(SCALE_CEIL, scale + 0.08); resize(); }
+        else if(tier < TIER_CEIL) tier++;
       }
     } else good = 0;
   }
@@ -1513,6 +1552,14 @@ function frame(now){
   const still = key === lastKey;
   lastKey = key;
   if(!still) accFrames = 0;
+
+  /*  The whole saving. Everything above this line is arithmetic on a
+      handful of numbers; everything below it is the GPU. The nodes still
+      orbit — `layout` is DOM transforms and an SVG line, which is what a
+      browser does cheaply — so the piece keeps moving while the field
+      holds the frame it already finished.                              */
+  if(still && accFrames >= CONVERGED && now - lastDraw < IDLE_MS){ layout(); return; }
+  lastDraw = now;
 
   const T = TIERS[tier];
   const converged = Math.min(accFrames, 96);
@@ -4296,6 +4343,19 @@ setInterval(() => {
 }, 33);
 
 document.addEventListener("visibilitychange", () => { paused = document.hidden; last = performance.now(); });
+/*  A page nobody is looking at should not be drawing. Browsers throttle
+    requestAnimationFrame for a hidden tab, but throttled is not stopped
+    and the throttle varies — and on a phone the common case is not a
+    hidden tab, it is a screen that has just gone dark with this still in
+    the foreground. `paused` already existed and nothing set it.
+
+    accFrames is reset on the way back so the accumulator rebuilds rather
+    than blending a fresh frame into a history from before the pause.  */
+addEventListener("visibilitychange", () => {
+  paused = document.hidden;
+  if(!paused){ accFrames = 0; last = performance.now(); lastDraw = 0; }
+});
+
 addEventListener("resize", () => { accFrames = 0; layout(); });
 </script>
 </body>

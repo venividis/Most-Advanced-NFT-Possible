@@ -13,7 +13,7 @@ rewrites its own past cannot be used to tell when something broke.
 Premises     0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1
 Ipseity      0x36c49f58c6437ee994766ce80f6654c4d797b8db
 Pool         0x8b699b46edb8e8bd156347d73c8eaa2a0abe80f4
-Engine       0xba065fe65a7d7f13d5c49cc91d6f278f63e25c3c   (frozen)
+Engine       0xc4f80d144f00c17dd3be364490cebb95b8d9063e   (frozen)
 ```
 
 ```
