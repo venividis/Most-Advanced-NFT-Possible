@@ -35,6 +35,7 @@
 ───────────────────────────────────────────────────────────────────────────*/
 import { compile, artifact } from "./compile.mjs";
 import { Chain, decUint, decAddr, decString, encodeAddressArg, sel } from "./evm.mjs";
+import * as evm from "./evm.mjs";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 
 let pass = 0, fail = 0;
@@ -322,6 +323,104 @@ head("a wrapped name is unwrapped one level first");
   await H.c.exec(wrapper, "setOwner(uint256,address)", [BigInt(node), acct]);
   eq("through the wrapper, the name is token 9's",
      decUint(await H.c.read(H.plate, "heldBy(bytes32)", [node]), 0), 9n);
+}
+
+/*═════════════ the clock the grip cannot stop ═════════════*/
+
+head("a name's expiry, read from the registrar the registry names");
+{
+  const H = await fixture(1);
+  const ETH_NODE = nhash(["eth"]);
+  const reg = await H.c.deploy(A("test/mocks/MockRegistrar.sol", "MockRegistrar").bytecode, "", "Registrar");
+
+  eq("with no registrar reachable, expiry says nothing rather than zero-as-a-date",
+     decUint(await H.c.read(H.plate, "expiry(string)", ["ipseity4d"]), 0), 0n);
+
+  /*  The registry owns the answer to "which registrar is current", so the
+      resolver asks it rather than carrying an address that ENS could
+      migrate out from under it.                                        */
+  await H.c.exec(H.ens, "setOwner(bytes32,address)", [ETH_NODE, reg]);
+  eq("the registrar is derived from registry.owner(namehash('eth'))",
+     decAddr(await H.c.read(H.plate, "registrar()")).toLowerCase(), reg.toLowerCase());
+
+  const now = Number(evm.BLOCK.header.timestamp);
+  const lh = BigInt(label("ipseity4d"));
+  await H.c.exec(reg, "setExpiry(uint256,uint256)", [lh, now + 86400 * 365]);
+
+  const e = await H.c.read(H.plate, "expiry(string)", ["ipseity4d"]);
+  eq("a live name reports its date", decUint(e, 0), BigInt(now + 86400 * 365));
+  eq("and ninety days of grace beyond it", decUint(e, 1), BigInt(now + 86400 * 455));
+  eq("live", decUint(e, 2), 1n);
+  eq("not in grace", decUint(e, 3), 0n);
+
+  /*  The label is hashed, not the name. Getting this backwards returns
+      zero from a registrar that is working perfectly.                 */
+  eq("asking with the full name finds nothing, because that is a different hash",
+     decUint(await H.c.read(H.plate, "expiry(string)", ["ipseity4d.eth"]), 0), 0n);
+
+  await H.c.exec(reg, "setExpiry(uint256,uint256)", [lh, now - 10]);
+  const x = await H.c.read(H.plate, "expiry(string)", ["ipseity4d"]);
+  eq("just lapsed, it is no longer live", decUint(x, 2), 0n);
+  eq("but it is in grace, where only the owner may renew", decUint(x, 3), 1n);
+
+  await H.c.exec(reg, "setExpiry(uint256,uint256)", [lh, now - 86400 * 100]);
+  const y = await H.c.read(H.plate, "expiry(string)", ["ipseity4d"]);
+  eq("past grace, neither live nor protected — anyone may take it", decUint(y, 2) + decUint(y, 3), 0n);
+
+  /*  Ninety days is a constant in a contract that has been replaced
+      before, so it is asked for rather than assumed.                  */
+  await H.c.exec(reg, "setExpiry(uint256,uint256)", [lh, now + 100]);
+  await H.c.exec(reg, "setGrace(uint256)", [7 * 86400]);
+  eq("and the grace period is the registrar's answer, not a number in here",
+     decUint(await H.c.read(H.plate, "expiry(string)", ["ipseity4d"]), 1), BigInt(now + 100 + 7 * 86400));
+
+  /*  A contract at that address that is not a registrar must read as
+      "unknown", never as an expired name.                             */
+  const dumb = await H.c.deploy(A("test/mocks/MockRegistrar.sol", "DumbRegistrar").bytecode, "", "Dumb");
+  await H.c.exec(H.ens, "setOwner(bytes32,address)", [ETH_NODE, dumb]);
+  eq("a registrar that answers nothing reads as unknown, not as lapsed",
+     decUint(await H.c.read(H.plate, "expiry(string)", ["ipseity4d"]), 0), 0n);
+}
+
+head("renewal is permissionless, so the page needs an address and a price");
+{
+  const H = await fixture(1);
+  const renter = H.c.as("0x" + "cd".repeat(32));
+  const ctrl = await H.c.deploy(A("test/mocks/MockRegistrar.sol", "MockController").bytecode,
+    (10n ** 16n).toString(16).padStart(64, "0"), "Controller");
+
+  eq("with no renewer set, the price is zero — which the page must show as unknown",
+     decUint(await H.c.read(H.plate, "renewPrice(string,uint256)", ["ipseity4d", 31536000])), 0n);
+  eq("and the renewer is empty, so the page says so instead of guessing",
+     decAddr(await H.c.read(H.plate, "renewer()")), "0x" + "00".repeat(20));
+
+  await refuses("a stranger cannot set the renewer",
+    () => renter.exec(H.plate, "setRenewer(address)", [ctrl]));
+  await refuses("nor can it point at an address with no code",
+    () => H.c.exec(H.plate, "setRenewer(address)", ["0x" + "ab".repeat(20)]),
+    "a renewal built to a codeless address is a transaction that does nothing");
+
+  await H.c.exec(H.plate, "setRenewer(address)", [ctrl]);
+  eq("the parent's owner can set it", decAddr(await H.c.read(H.plate, "renewer()")).toLowerCase(), ctrl.toLowerCase());
+  await refuses("and only once",
+    () => H.c.exec(H.plate, "setRenewer(address)", [ctrl]));
+
+  eq("now a year quotes at the controller's own price",
+     decUint(await H.c.read(H.plate, "renewPrice(string,uint256)", ["ipseity4d", 31536000])), 10n ** 16n);
+  eq("and ten years at ten times it",
+     decUint(await H.c.read(H.plate, "renewPrice(string,uint256)", ["ipseity4d", 315360000])), 10n ** 17n);
+
+  /*  One call for the page: the clock and the renewal, together. */
+  const reg = await H.c.deploy(A("test/mocks/MockRegistrar.sol", "MockRegistrar").bytecode, "", "Registrar2");
+  await H.c.exec(H.ens, "setOwner(bytes32,address)", [nhash(["eth"]), reg]);
+  const now = Number(evm.BLOCK.header.timestamp);
+  await H.c.exec(reg, "setExpiry(uint256,uint256)", [BigInt(label("ipseity4d")), now + 500]);
+  const st = await H.c.read(H.plate, "nameStatus(string,uint256)", ["ipseity4d", 31536000]);
+  eq("nameStatus carries the date", decUint(st, 0), BigInt(now + 500));
+  eq("whether it is live", decUint(st, 2), 1n);
+  eq("where to renew", decAddr(st, 4).toLowerCase(), ctrl.toLowerCase());
+  eq("and what that costs", decUint(st, 5), 10n ** 16n);
+  console.log("      one call: the clock, and the address anyone may pay it at");
 }
 
 /*═════════════ and on a chain the edition does not use ═════════════*/

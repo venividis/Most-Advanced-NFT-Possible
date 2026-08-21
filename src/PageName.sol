@@ -93,6 +93,11 @@ contract PageName {
             "\",\"unbind\":\"", _sel("unbindByName(bytes)"),
             "\",\"claimParent\":\"", _sel("claimParentByName(bytes)"),
             "\",\"tokenFor\":\"", _sel("tokenForName(bytes)"),
+            // the clock, and where anyone may pay it
+            "\",\"status\":\"", _sel("nameStatus(string,uint256)"),
+            "\",\"renewer\":\"", _sel("renewer()"),
+            "\",\"renew\":\"", _sel("renew(string,uint256)"),
+            "\",\"heldBy\":\"", _sel("heldBy(bytes32)"),
             "\",\"tokenOf\":\"", _sel("tokenOf(bytes32)"),
             "\",\"addr\":\"", _sel("addr(bytes32)"),
             "\",\"text\":\"", _sel("text(bytes32,string)"),
@@ -212,6 +217,31 @@ contract PageName {
             "<input id=npn placeholder=\"yourname.eth\">"
             "<div class=det id=npdet></div>"
             "<button class=go id=npgo>Claim it, once</button>"
+            "</div>"
+
+            "<h2>the clock</h2>"
+            "<p class=w>A <code>.eth</code> name is rented. Sealing one in a "
+            "token&#39;s grip means nobody can take it out &mdash; and means nothing "
+            "at all about the calendar. Let the registration lapse and after the "
+            "grace period the registrar hands the name to whoever pays, and it "
+            "leaves the grip without anyone having sent anything. Transfer is what "
+            "the grip stops. Expiry goes around it.</p>"
+            "<p class=e>Renewal in ENS is <b>permissionless</b>: <code>renew</code> "
+            "has no ownership check, on purpose, so that anyone who cares whether a "
+            "name survives can pay for it. So this button is for everyone. If you "
+            "are about to buy a token whose name lapses in a month, you do not have "
+            "to ask the seller to renew it &mdash; you can, before you buy, and the "
+            "name never moves.</p>"
+            "<div class=app>"
+            "<div class=hd><b>Renew a name</b></div>"
+            "<label>the name</label>"
+            "<input id=nrn placeholder=\"ipseity4d.eth\">"
+            "<div><label>for how long <span class=m>years</span></label>"
+            "<input id=nry value=\"5\">"
+            "<input type=range id=nryR min=1 max=10 value=5 "
+            "title=\"one to ten years\"></div>"
+            "<div class=det id=nrdet></div>"
+            "<button class=go id=nrgo>Renew it</button>"
             "</div>";
     }
 
@@ -227,6 +257,12 @@ contract PageName {
         "const N=JSON.parse(E.textContent),S=N.sel;"
         /*  No registry, no controls, nothing to bind listeners to. */
         "if(!N.here)return;"
+        /*  A slider and a box telling each other the truth. The box is
+            canonical; the slider is a hand on it.                      */
+        "const LIN2=(r,b)=>{const R=$(r),B=$(b);if(!R||!B)return;"
+        "R.addEventListener('input',()=>{B.value=R.value;"
+        "B.dispatchEvent(new Event('input'))});"
+        "B.addEventListener('input',()=>{R.value=B.value})};"
 
         /*  DNS wire format, which is the reason the *ByName functions exist.
             A label's length as one byte, then the label, then the next, then
@@ -373,6 +409,71 @@ contract PageName {
         "pg.addEventListener('click',async()=>{try{await I.connect();"
         "await I.send(N.plate,S.claimParent+I.W(32)+B($('npn').value));"
         "I.say('claimed \\u00b7 the slot is written and no function moves it','ok')}"
+        "catch(x){I.say(String(x&&x.message||x),'no')}})}"
+
+        /*───── the clock, and a renewal anyone may pay ─────*/
+        /*  A single string argument, by hand: one offset, one length, one
+            padded body. `nameStatus` and `renew` have the same shape, so
+            the same three lines build both.                            */
+        "const SARG=(s,n)=>{let h='',c=0;"
+        "for(let i=0;i<s.length;i++){const x=s.charCodeAt(i);"
+        "if(x>0x20&&x<0x7f){h+=x.toString(16).padStart(2,'0');c++}}"
+        "while(h.length%64)h+='0';"
+        "return I.W(64)+I.W(n)+I.W(c)+h};"
+        /*  The registrar is keyed by the LABEL's hash, so the .eth is
+            dropped here rather than sent. Passing the whole name asks
+            about a different 32 bytes and gets a confident zero.      */
+        "const LBL=v=>String(v||'').trim().toLowerCase().replace(/\\.eth$/,'');"
+        "const DAY=86400,YR=31536000;"
+        "const when=t=>new Date(Number(t)*1000).toISOString().slice(0,10);"
+        "const rn=$('nrn'),ry=$('nry');"
+        "if(rn&&ry){"
+        "LIN2('nryR','nry');"
+        "let rq=null,t4;"
+        "const rd=async()=>{const e=$('nrdet');if(!e)return;"
+        "const L=LBL(rn.value);"
+        "if(L.length<3){e.innerHTML='';rq=null;return}"
+        "const yrs=Math.max(1,Math.min(10,Number(ry.value)||1));"
+        "const dur=BigInt(yrs)*BigInt(YR);"
+        "const r=await I.tryCall(N.plate,S.status+SARG(L,dur));"
+        "if(!r){e.innerHTML='<div><span class=w>no answer from the resolver"
+        "</span><b></b></div>';rq=null;return}"
+        "const exp=I.word(r,0),ge=I.word(r,1),live=I.word(r,2),grace=I.word(r,3);"
+        "const at='0x'+String(r).slice(2+4*64+24,2+5*64),price=I.word(r,5);"
+        "const ZA='0x0000000000000000000000000000000000000000';"
+        "let o='';"
+        "if(exp===0n)o+='<div><span>this name</span><b>is not registered, or the "
+        "registrar is not reachable from here</b></div>';"
+        "else{const d=Math.round((Number(exp)*1000-Date.now())/(DAY*1000));"
+        "o+='<div><span>expires</span><b>'+when(exp)"
+        "+(live?' \u00b7 '+d+' days from now':'')+'</b></div>';"
+        "if(!live&&grace)o+='<div><span class=w>lapsed</span><b>in grace until '"
+        "+when(ge)+' \u2014 only its owner may renew until then</b></div>';"
+        "else if(!live)o+='<div><span class=w>gone</span><b>past grace since '"
+        "+when(ge)+' \u2014 anyone may register it now</b></div>';"
+        "else if(d<60)o+='<div><span class=w>soon</span><b>under two months "
+        "left</b></div>'}"
+        "if(at===ZA)o+='<div><span class=w>no renewer set</span><b>this resolver "
+        "has not been told which controller renews on this chain, so the button "
+        "would build a transaction to nowhere</b></div>';"
+        "else if(price===0n)o+='<div><span class=w>price unknown</span><b>the "
+        "controller would not quote \u2014 not the same thing as free</b></div>';"
+        "else o+='<div><span>'+yrs+' more year'+(yrs>1?'s':'')+'</span><b>'"
+        "+I.fmt(price,18,6)+' ETH</b></div>'"
+        "+'<div><span>who may pay it</span><b>anyone \u00b7 renewing is not "
+        "sending, so a name in a grip stays put</b></div>';"
+        "e.innerHTML=o;"
+        "rq=(at!==ZA&&price>0n)?{at:at,label:L,dur:dur,price:price}:null;"
+        "const g=$('nrgo');if(g)g.disabled=!rq};"
+        "[rn,ry].forEach(x=>x.addEventListener('input',()=>{"
+        "clearTimeout(t4);t4=setTimeout(rd,260)}));rd();"
+        "const rg=$('nrgo');if(rg)rg.addEventListener('click',async()=>{try{"
+        "if(!rq)throw new Error('nothing to renew yet');"
+        "await I.connect();"
+        /*  Five per cent over the quote, because a Dutch premium falls
+            between the reading and the block. ENS refunds the excess.  */
+        "await I.send(rq.at,S.renew+SARG(rq.label,rq.dur),(rq.price*105n)/100n);"
+        "I.say('renewed \u00b7 the name did not move','ok');rd()}"
         "catch(x){I.say(String(x&&x.message||x),'no')}})}"
         "})();";
 }

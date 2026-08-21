@@ -2106,6 +2106,42 @@ head("driving the nameplate page");
   await nap(400);
   eq("unbinding gives the name back", decUint(await c.read(plate2, "tokenForName(bytes)", [wire])), 0n);
   console.log("      built the wire by hand, and the contract that hashes agreed");
+
+  /*───── the clock, driven ─────*/
+  /*  Every assertion above still passing is itself the proof the script
+      did not die on load — which is how the last page bug hid behind six
+      green string tests. What is checked here is the new control's own
+      behaviour: that it refuses honestly before it is told where renewals
+      go, and reads a real date once a registrar exists.               */
+  ok("the page offers a renewal", /Renew a name/i.test(body));
+  ok("and says plainly that anyone may pay it",
+     /permissionless/i.test(body) && /anyone/i.test(body));
+
+  $("nrn").value = "mine.eth";
+  await $("nrn").fire("input");
+  await nap(700);
+  const noRenewer = String($("nrdet").innerHTML || "");
+  ok("with no renewer set it refuses rather than building a transaction to nowhere",
+     /no renewer set/i.test(noRenewer), noRenewer.slice(0, 120));
+  eq("and the button stays disabled", $("nrgo").disabled, true);
+
+  /*  Now a registrar, so the date is real. The registry is the authority
+      on which registrar is current, so that is where it is put.       */
+  const reg2 = await c.deploy(A("test/mocks/MockRegistrar.sol", "MockRegistrar").bytecode, "", "Registrar3");
+  const ethNode = "0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae";
+  await c.exec(mockEns2, "setOwner(bytes32,address)", [ethNode, reg2]);
+  const lh2 = "0x" + Buffer.from(keccak256(Buffer.from("mine", "utf8"))).toString("hex");
+  const then = Number(evm.BLOCK.header.timestamp) + 86400 * 400;
+  await c.exec(reg2, "setExpiry(uint256,uint256)", [BigInt(lh2), then]);
+
+  $("nry").value = "3";
+  await $("nry").fire("input");
+  await nap(800);
+  const dated = String($("nrdet").innerHTML || "");
+  ok("with a registrar, the page shows the date the name lapses",
+     dated.includes(new Date(then * 1000).toISOString().slice(0, 10)), dated.slice(0, 160));
+  ok("and still says where it cannot renew", /no renewer set/i.test(dated), dated.slice(0, 160));
+  console.log("      the expiry is read from the registrar the registry names");
 }
 
 head("driving the launchpad");

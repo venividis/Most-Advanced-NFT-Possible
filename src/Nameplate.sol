@@ -7,6 +7,15 @@ interface IEnsRegistry {
     function owner(bytes32 node) external view returns (address);
 }
 
+/// @dev What the .eth registrar knows about time. `nameExpires` takes the
+///      LABEL's hash, not the node's — `keccak("ipseity4d")`, not the
+///      namehash of `ipseity4d.eth`. They are different bytes and mixing
+///      them returns zero, which reads exactly like an unregistered name.
+interface IEthRegistrar {
+    function nameExpires(uint256 labelhash) external view returns (uint256);
+    function GRACE_PERIOD() external view returns (uint256);
+}
+
 interface INameWrapperLike {
     function ownerOf(uint256 id) external view returns (address);
 }
@@ -138,6 +147,7 @@ contract Nameplate {
     error StationAlreadySet();
     error NotAnEditionChain();
     error NothingThere();
+    error RenewerAlreadySet();
     error UnknownQuery();
 
     bytes4 private constant ADDR_IFACE        = 0x3b3b57de; // addr(bytes32)
@@ -243,6 +253,120 @@ contract Nameplate {
             if (ok && ret.length == 32 && abi.decode(ret, (address)) == who) return true;
         }
         return false;
+    }
+
+    /*═══════════════════ time, which the grip cannot stop ═══════════════════
+
+      A .eth name is rented, not owned. The grip guarantees that nobody can
+      take a name out of a token — and guarantees nothing at all about the
+      calendar. Let the registration lapse and after the grace period the
+      registrar reissues the name to whoever pays, and it leaves the grip
+      without anybody having sent anything. Transfer is what the grip
+      stops; expiry goes around it.
+
+      So the expiry is published, because a date nobody can see is a date
+      nobody renews. `heldBy` already reads custody live, so the moment a
+      lapsed name is taken the resolver stops answering for the token by
+      itself — but silently, and a month too late to do anything about.  */
+
+    /// @dev namehash("eth"), the node whose owner IS the .eth registrar.
+    ///      Derived rather than configured: the registry is the authority
+    ///      on which registrar is current, and hardcoding one is a bet that
+    ///      ENS never migrates.
+    bytes32 private constant ETH_NODE =
+        0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae;
+
+    function registrar() public view returns (address) {
+        if (address(ENS) == address(0)) return address(0);
+        return ENS.owner(ETH_NODE);
+    }
+
+    /// @notice When a second-level .eth name lapses, and what that means
+    ///         today. `label` is the bare label — "ipseity4d", not
+    ///         "ipseity4d.eth".
+    /// @return expires   unix seconds, 0 where nothing is registered
+    /// @return graceEnds when anyone may take it, not just the owner
+    /// @return live      still resolving
+    /// @return inGrace   lapsed, but only the owner may renew for now
+    function expiry(string calldata label)
+        public view
+        returns (uint256 expires, uint256 graceEnds, bool live, bool inGrace)
+    {
+        address reg = registrar();
+        if (reg == address(0)) return (0, 0, false, false);
+        uint256 id = uint256(keccak256(bytes(label)));
+
+        (bool ok, bytes memory ret) = reg.staticcall(
+            abi.encodeWithSelector(IEthRegistrar.nameExpires.selector, id));
+        if (!ok || ret.length < 32) return (0, 0, false, false);
+        expires = abi.decode(ret, (uint256));
+        if (expires == 0) return (0, 0, false, false);
+
+        /*  Asked rather than assumed. Ninety days is the answer today on
+            both chains this was measured against, and it is a constant in
+            a contract that has been replaced before.                    */
+        uint256 grace = 90 days;
+        (bool gok, bytes memory gret) = reg.staticcall(
+            abi.encodeWithSelector(IEthRegistrar.GRACE_PERIOD.selector));
+        if (gok && gret.length >= 32) grace = abi.decode(gret, (uint256));
+
+        graceEnds = expires + grace;
+        live = block.timestamp < expires;
+        inGrace = !live && block.timestamp < graceEnds;
+    }
+
+    /*  Renewal is permissionless in ENS — `renew` has no ownership check,
+        by design, so that anyone who cares about a name's survival can pay
+        for it. That is the whole reason a name can sit in a grip and still
+        be kept alive: renewing is not sending, and the grip only refuses
+        to send.
+
+        The controller's address is told to this contract rather than
+        derived, because there is no derivation. The registry names the
+        registrar; nothing on chain names the current controller, and the
+        address ENS documents was, when this was written, not the one the
+        registrar had authorised. A page that guessed would build a renewal
+        transaction to a dead contract. Write-once, by the parent's owner,
+        and empty until then — at which point the page says so.        */
+    address public renewer;
+    event RenewerSet(address indexed renewer);
+
+    function setRenewer(address r) external {
+        if (parentNode == bytes32(0)) revert ParentUnclaimed();
+        if (!_ownsNode(parentNode, msg.sender)) revert NotTheNameOwner();
+        if (renewer != address(0)) revert RenewerAlreadySet();
+        if (r == address(0) || r.code.length == 0) revert NothingThere();
+        renewer = r;
+        emit RenewerSet(r);
+    }
+
+    /// @notice What renewing `label` for `duration` seconds would cost.
+    ///         Zero when no renewer is set, or when the one set will not
+    ///         quote — which the page must show as "unknown", never as
+    ///         free.
+    function renewPrice(string calldata label, uint256 duration)
+        public view returns (uint256)
+    {
+        address r = renewer;
+        if (r == address(0)) return 0;
+        (bool ok, bytes memory ret) = r.staticcall(
+            abi.encodeWithSignature("rentPrice(string,uint256)", label, duration));
+        if (!ok || ret.length < 64) return 0;
+        (uint256 base_, uint256 premium) = abi.decode(ret, (uint256, uint256));
+        return base_ + premium;
+    }
+
+    /// @notice Everything a page needs about a name's clock, in one call.
+    function nameStatus(string calldata label, uint256 duration)
+        external view
+        returns (
+            uint256 expires, uint256 graceEnds, bool live, bool inGrace,
+            address renewAt, uint256 price
+        )
+    {
+        (expires, graceEnds, live, inGrace) = expiry(label);
+        renewAt = renewer;
+        price = renewPrice(label, duration);
     }
 
     /*═══════════════ custody, which needs no transaction ═══════════════*/
