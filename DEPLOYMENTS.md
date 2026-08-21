@@ -1,5 +1,32 @@
 # Deployments
 
+## Live now · Base Sepolia · chain 84532
+
+Everything below this block is a log, kept in the order it happened. This is
+the only part that describes what is answering **today**. Superseded addresses
+stay in the log rather than being edited away — a deployment record that
+rewrites its own past cannot be used to tell when something broke.
+
+```
+Premises     0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1
+Ipseity      0x36c49f58c6437ee994766ce80f6654c4d797b8db
+Pool         0x8b699b46edb8e8bd156347d73c8eaa2a0abe80f4
+Parley       0xaa8b3ff644638a29333953328fb877e8dd23e0f2
+Engine       0x7a82ff2bf2682a93b5ce1095ee1e596bcfc81b87   (frozen)
+Renderer     0x84c63e2a14f2e072936908f0a20ba42daa7a6f54
+```
+
+```
+web3://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1:84532/
+web3://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1:84532/estate
+web3://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1:84532/token/1/live
+```
+
+All 47 addresses are in `deployments/base-sepolia.json`, and none of them need
+to be trusted: `node tools/recover-record.mjs deployments/base-sepolia.json`
+reads them back off the chain and exits non-zero if the file and the chain
+disagree.
+
 ## Base Sepolia · chain 84532
 
 Deployed 2026-08-18 over `https://base-sepolia-rpc.publicnode.com` with signed
@@ -371,3 +398,87 @@ Base Sepolia    Premises 0x0f6b6921ea8d98733dcee0d981afca7726ecbbd9   (eleven ro
                 https://0x0f6b6921ea8d98733dcee0d981afca7726ecbbd9.basesep.w3link.io/
 Eth Sepolia     still pending the top-up to 0x5f1191a432EA9d3f36EbA62c0Ca797bf0A754337
 ```
+
+### The site catches up with the branch — 2026-08-21
+
+The live Base Sepolia deployment had fallen twenty commits behind. `/estate`
+answered 404, the Pool still carried the curve that read three angles, and the
+hub predated the partition. A page-only redeploy could not have fixed the last
+two: `FIRST_ID` and `LAST_ID` are constructor immutables on Ipseity, and Curve
+is an internal library inlined into Pool's bytecode. Both only move when the
+contract that holds them is deployed again. So this was a full run of
+`node tools/testnet.mjs`, not `tools/redeploy-site.mjs`.
+
+136.06M gas across ~35 transactions, read back over the wire by the same 21
+assertions that guard a local run. The route that had been the symptom:
+
+```
+/estate    404  ->  200   (36,792 bytes, text/html)
+```
+
+```
+Premises     0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1
+Ipseity      0x36c49f58c6437ee994766ce80f6654c4d797b8db
+Pool         0x8b699b46edb8e8bd156347d73c8eaa2a0abe80f4   (the corrected curve)
+Succession   0x82079edde8858179f8c0976a1b9495f1a543956d
+Consign      0x5c23a96ca4f9896874c1526bdd21262309cd2b9f
+Roster       0x9e90193da950b95b20c04839803822401977d7ca
+DeskSeal     0xe218e453efda71f174d302e408e727eca47a6787
+Engine       0x7a82ff2bf2682a93b5ce1095ee1e596bcfc81b87   (frozen, the deck build)
+```
+
+`FIRST_ID` reads 1 and `LAST_ID` reads 4096 here, which is correct and not a
+missing lookup: `BANDS` in `tools/site.mjs` is keyed by mainnet chain ids, and
+`bandOrWhole` gives a testnet the whole edition on purpose. A rehearsal should
+be able to exercise every id, and no token on it is the token it pretends to
+be.
+
+**A cost estimate that was wrong by seventy times.** `eth_gasPrice` on Base
+Sepolia answered 0.006 gwei, so 136M gas looked like 0.0003 ETH. The deployer
+went 0.02486 → 0.00348, which is **0.0214 ETH** — the snapshot carries neither
+the L1 data fee nor the 1.5× pad the sender applies. The number that matters
+downstream: Eth Sepolia at its measured 0.978 gwei prices the same deploy near
+**0.20 ETH**, not the 0.08 quoted before, which is more than a faucet hands
+out. Base Sepolia is where the rehearsal lives.
+
+**Two bugs in the record, found by writing it down.** `tools/testnet.mjs`
+listed thirteen contracts by name while `deploySite` returns thirty-five, so
+every page added since that list was written had been dropped from the only
+copy that survives a clone — and `dist/` is ignored, which meant the page
+addresses of every deployment lived in one container's memory. The list is now
+a spread.
+
+Then `tools/recover-record.mjs`, which walks the deployment backwards to
+rebuild a lost record, reported a clean run while filing the wrong contract
+under `deskSeal`. It read `PageSeal.DESK()` — and PageSeal does hold a `DESK`,
+so the call succeeded and returned a live address. Just not DeskSeal, which
+PageSeal has never heard of. `PageTalk.SEAL()` is the one that holds it.
+Nothing failed; the answer was false. `roster` was read by no route at all, so
+it was missing from the walk, missing from the file, and therefore missing from
+the report.
+
+Ten keys are now deliberately reached two ways, and a disagreement is reported
+rather than overwritten. Against this deployment:
+
+```
+47 addresses · 0 disagreeing · 0 unreachable · 0 missing · 0 contradicted
+```
+
+Zero contradicted across ten double routes is what says this record came from
+one deployment rather than a blend of two.
+
+A node cannot catch the `deskSeal` shape — on chain both addresses are real
+contracts. `tools/verify-recover.mjs` catches it from the source instead: every
+route must read an immutable its contract actually declares, no two keys may
+read one getter, no route may read from a contract the walk has not reached
+yet, and the expected key set must agree with what `deploySite` returns. It
+hands itself the table as it shipped broken and watches it refuse.
+
+**Not deployed, on this or any chain:** `src/ParleyPort.sol` and
+`src/Facet.sol`. Both are written and covered by the suite, and neither has a
+deploy path. The Facet needs its CREATE2 salt mined against a real v4
+PoolManager; the Port is meaningless until peers are wired across chains.
+`PageLaunch` does not yet offer the Facet either.
+
+The deployer holds 0.00348 ETH on Base Sepolia after this run — enough for
+transactions, not for another deploy.

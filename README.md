@@ -1292,7 +1292,9 @@ Then, in the browser you opened it with, point MetaMask at Base Sepolia
 wallet holds and opens it — the instrument at `/token/<id>/live` runs on a real
 origin, so the wallet injects and the token's controls actually work. To see
 the tokens in the wallet itself, import NFT
-`0x13ed99319101cbc2bc09e3849af5462dae283f5d` with your token id.
+`0x36c49f58c6437ee994766ce80f6654c4d797b8db` with your token id.
+(That is the live Base Sepolia hub; `DEPLOYMENTS.md` names the current
+deployment at the top and keeps the superseded ones below it.)
 
 The public `web3://` gateways are the zero-install route
 (`https://<premises-address>.<chain>.w3link.io/…`) — at the time of writing
