@@ -49,7 +49,8 @@
   "deskEstate": "0x802bfa49c3d980342253be688170165a2f7cb5e9",
   "deskWill": "0x8b56b712a0efa022788d7e8a0c4af60dbcfd701e",
   "pEstate": "0xe1bc0b49125203d2974e5ced531bb9f9ce59adef",
-  "premises": "0x0106237ad2581956f21fd769fcd88f0d77918425"
+  "premises": "0x0106237ad2581956f21fd769fcd88f0d77918425",
+  "nameplateNext": "0xb65fa46580d9341690cfc714cbbd8de2b09386bf"
  },
  "holders": {
   "1": "0x5f1191a432ea9d3f36eba62c0ca797bf0a754337",
@@ -59,5 +60,8 @@
   "door": "web3://0x0106237ad2581956f21fd769fcd88f0d77918425:11155111/",
   "chat": "web3://0x0106237ad2581956f21fd769fcd88f0d77918425:11155111/chat",
   "instrument": "web3://0x0106237ad2581956f21fd769fcd88f0d77918425:11155111/token/1/live"
+ },
+ "notes": {
+  "nameplateNext": "The resolver with custody binding, expiry and cross-chain stations, deployed standalone against the real ENS registry. Not wired into the premises: the nameplate is an immutable constructor argument of PageName, which is one of Premises', so reaching it from /name needs a site redeploy (~106M gas, ~0.17 ETH at this chain's price). Readable directly meanwhile."
  }
 }
