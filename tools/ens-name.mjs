@@ -33,17 +33,56 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LABEL = process.argv[2];
 const REC   = process.argv[3];
 const YEARS = BigInt(process.argv[4] || 5);
+const RESOLVER = process.env.RESOLVER || "";
 if (!LABEL || !REC) throw new Error("usage: ens-name.mjs <label> <record.json> [years]");
 
 /*  ENS on Sepolia. The registry sits at the same address it does on
     mainnet; the rest do not, so they are checked rather than assumed —
     a controller that is merely an address with no code would take the
     commitment transaction and lose the name.                          */
+/*  The controller address and its ABI both come from ensdomains/ens-contracts
+    deployments/sepolia, not from a documentation page and not from memory.
+    Two earlier attempts here failed for the same reason in two different
+    disguises: an address that was once right, and a register() signature
+    that was once right. The controller ENS documents was not the one the
+    registrar had authorised, and the eight-argument register everyone
+    quotes has been replaced by a single struct carrying a uint8
+    reverseRecord and a referrer. Neither failure said so — both reverted
+    with nothing, after the commitment had already been paid for.       */
 const ENS = {
   registry:  "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
   base:      "0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85",
-  ctrl:      "0xFED6a969AaA60E4961FCD3EBF1A2e8913ac65B72",
+  ctrl:      "0xfb3cE5D01e0f33f41DbB39035dB9745962F1f968",
   resolver:  "0x8FADE66B79cC9f707aB26799354482EB93a5B7dD",
+};
+
+/*  register((string,address,uint256,bytes32,address,bytes[],uint8,bytes32))
+
+    One dynamic struct, so the outer head is a single offset and everything
+    else is the tuple's own encoding. `reverseRecord` is a uint8 here, not
+    the bool the old ABI took, and the last word is a referrer rather than
+    the fuses — same arity, different meaning, and an encoder written from
+    the old shape produces a call that decodes to nonsense rather than one
+    that fails to decode.                                               */
+const REG_ARGS = ({ label, owner, duration, secret, resolver, reverseRecord = 0, referrer = "0x" + "00".repeat(32) }) => {
+  const W = (n) => BigInt(n).toString(16).padStart(64, "0");
+  const AD = (a) => "0".repeat(24) + String(a).replace(/^0x/, "").toLowerCase();
+  const b = Buffer.from(label, "utf8");
+  const labelPadded = Buffer.alloc(32 * Math.ceil(b.length / 32) || 32);
+  b.copy(labelPadded);
+  const HEAD = 8 * 32;
+  const dataAt = HEAD + 32 + labelPadded.length;
+  return W(32)                       // -> the tuple
+    + W(HEAD)                        // -> label, from the tuple's start
+    + AD(owner)
+    + W(duration)
+    + String(secret).replace(/^0x/, "")
+    + AD(resolver)
+    + W(dataAt)                      // -> data[]
+    + W(reverseRecord)
+    + String(referrer).replace(/^0x/, "")
+    + W(b.length) + labelPadded.toString("hex")
+    + W(0);                          // data.length = 0
 };
 
 const rec = JSON.parse(fs.readFileSync(path.resolve(ROOT, REC), "utf8"));
@@ -96,21 +135,19 @@ const secret = "0x" + hex(keccak256(Buffer.from(`${NAME}:${me}:${rec.contracts.p
     resolver is set by the controller; the address record is set after,
     because encoding a populated bytes[] of resolver multicalls is exactly
     the ABI work this repository refuses to do by hand.                */
-const nameWords = 32 + 32 * (Math.ceil(Buffer.byteLength(LABEL) / 32) || 1);
-const args =
-    w(8 * 32)                     // -> label
-  + ad(me)                        // owner
-  + w(DUR)
-  + secret.slice(2)
-  + ad(ENS.resolver)
-  + w(8 * 32 + nameWords)         // -> data[]
-  + w(0)                          // reverseRecord = false
-  + w(0)                          // ownerControlledFuses
-  + encStr(LABEL)
-  + w(0);                         // data.length = 0
+/*  The resolver the name is pointed at is this collection's own nameplate,
+    set by the controller during registration, so the name resolves to the
+    token from its first block rather than after a second transaction. */
+const args = REG_ARGS({
+  label: LABEL, owner: me, duration: DUR, secret,
+  resolver: RESOLVER || ENS.resolver
+});
+
+const SIG_MAKE = "makeCommitment((string,address,uint256,bytes32,address,bytes[],uint8,bytes32))";
+const SIG_REG  = "register((string,address,uint256,bytes32,address,bytes[],uint8,bytes32))";
 
 const commitment = await c.rpc("eth_call",
-  [{ to: ENS.ctrl, data: sel("makeCommitment(string,address,uint256,bytes32,address,bytes[],bool,uint16)") + args }, "latest"]);
+  [{ to: ENS.ctrl, data: sel(SIG_MAKE) + args }, "latest"]);
 console.log(`  commitment ${commitment.slice(0, 18)}…`);
 
 await c.exec(ENS.ctrl, "commit(bytes32)", [commitment], { label: "commit" });
@@ -119,7 +156,7 @@ console.log(`  committed · waiting ${minAge + 30}s (the contract compares again
 await new Promise((r) => setTimeout(r, (minAge + 30) * 1000));
 
 await c.send({ to: ENS.ctrl,
-  data: sel("register(string,address,uint256,bytes32,address,bytes[],bool,uint16)") + args,
+  data: sel(SIG_REG) + args,
   value: (price * 105n) / 100n,          // ENS refunds the excess
   label: "register" });
 
