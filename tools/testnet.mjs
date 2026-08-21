@@ -277,10 +277,14 @@ if (local) {
 const record = {
   rpc: RPC, chainId,
   deployer: c.from.toString(),
+  /*  Every address, not a hand-picked thirteen. The list below used to be
+      written out by name, which meant each page added to deploySite was a
+      page this record silently stopped mentioning — and dist/ is ignored,
+      so a container reclaimed overnight took the page addresses with it.
+      Spreading the site keeps the record honest by construction.       */
   contracts: {
     engine, sigil, renderer, reach, grip, ipseity: nft, pool, lease,
-    parley: site.parley, chrome: site.chrome, desk: site.desk,
-    deskTalk: site.deskTalk, premises: site.premises
+    ...site
   },
   holders: { "1": c.from.toString(), "2": second },
   urls: {

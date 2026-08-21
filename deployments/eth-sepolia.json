@@ -15,7 +15,15 @@
   "chrome": "0xc4956502df015d470174b686251719c56c1e3399",
   "desk": "0x0338d1e3660d244e92ed8e4c01172198ea7be10a",
   "deskTalk": "0x21f6e43618c736b546a718cce54e842f34d5464e",
-  "premises": "0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824"
+  "premises": "0x646b0b8a99657bbb6cc53ad7b8374ceae29a4824",
+  "pDoor": "0xbf3cb2b3eae73b51aeadfd6a3e8c5ff616d44bb9",
+  "pToken": "0xeb780e737eae4af4d62c05d426e0a154b5854f2f",
+  "pMarket": "0x7221b8a15ab9331851406b52a83775b173ac4e0b",
+  "pPool": "0x49f4f1be78d566f380c2c2185fa381220cd92d71",
+  "pServices": "0x46738fdea7f7cbd51a4a8194c68cbd850645c1ad",
+  "pManifest": "0xcdb49294105868921ef41befe9c81c269193d354",
+  "pTalk": "0x928065906175d51f508391750abfa2c5d9169015",
+  "pRooms": "0xd43dc480aa4a0733306ca4e23793145c6201ef80"
  },
  "holders": {
   "1": "0x5f1191a432ea9d3f36eba62c0ca797bf0a754337",
