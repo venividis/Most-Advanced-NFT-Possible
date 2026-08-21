@@ -61,6 +61,19 @@ library Hook {
     ///         of a basis point, which is 100%.
     uint24 internal constant MAX_FEE = 1_000_000;
 
+    /// @notice A fee a hook returns from `beforeSwap` only counts if this
+    ///         bit is set on it.
+    /// @dev    v4-core `LPFeeLibrary.OVERRIDE_FEE_FLAG`. Without it the
+    ///         PoolManager keeps the pool's stored fee and the hook's
+    ///         return value is silently ignored — which is the failure a
+    ///         dynamic-fee hook is most likely to ship with, because
+    ///         nothing reverts and every swap simply charges the old
+    ///         number.
+    uint24 internal constant OVERRIDE_FEE = 0x400000;
+
+    /// @notice The fee bits themselves, under the two flags above.
+    uint24 internal constant FEE_MASK = 0x3fffff;
+
     /*═══════════════════ reading an address ═══════════════════*/
 
     function flags(address hook) internal pure returns (uint16) {

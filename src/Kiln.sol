@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Hook} from "./lib/Hook.sol";
+import {Facet} from "./Facet.sol";
 
 interface IHolds {
     function ownerOf(uint256 id) external view returns (address);
@@ -314,6 +315,22 @@ contract Kiln {
                     uint64(uint256(arg))             // liquidity unlocks
                 )),
                 uint16(Hook.BEFORE_REMOVE_LIQUIDITY | Hook.BEFORE_SWAP)
+            );
+        }
+        /*  The fee this pool charges, read out of a token's own section on
+            every swap. `arg` packs the token id and the band it may move
+            inside — 64 bits of token, then floor and ceiling as 24 each,
+            in hundredths of a basis point.                              */
+        if (kind == 1) {
+            return (
+                abi.encodePacked(type(Facet).creationCode, abi.encode(
+                    POOL_MANAGER,
+                    HUB,
+                    uint256(uint64(uint256(arg) >> 48)),   // which token
+                    uint24(uint256(arg) >> 24),            // floor
+                    uint24(uint256(arg))                   // ceiling
+                )),
+                uint16(Hook.BEFORE_INITIALIZE | Hook.BEFORE_SWAP)
             );
         }
         revert NothingToLaunch();
