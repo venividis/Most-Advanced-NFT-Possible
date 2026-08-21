@@ -14,7 +14,15 @@ interface INameWrapperLike {
 interface IHubNames {
     function ownerOf(uint256 id) external view returns (address);
     function account(uint256 id) external view returns (address);
+    function grip(uint256 id) external view returns (address);
     function totalSupply() external view returns (uint256);
+}
+
+/// @dev The one ERC-6551 accessor that matters here: an account says which
+///      token it belongs to. Both this collection's accounts implement it —
+///      the Reach, which spends, and the Grip, which cannot.
+interface IBoundAccount {
+    function token() external view returns (uint256 chainId, address tokenContract, uint256 tokenId);
 }
 
 /*───────────────────────────────────────────────────────────────────────────
@@ -37,6 +45,28 @@ interface IHubNames {
   And once a parent name is claimed, every token is addressable with no
   registration at all: `7.yourname.eth` resolves to token 7, by ENSIP-10
   wildcard — the name exists the moment the token does.
+
+  ── holding the name IS the binding ──
+
+  A name does not have to be bound at all. Put the ENS name's own NFT into
+  a token's account and the name means that token, with no transaction on
+  this contract and nothing to remember: custody is the claim.
+
+  That is the stronger claim, so it wins over `bind`. A recorded intention
+  can go stale — bind a name to token 3, move the name into token 7's
+  account, and only one of those two is still true. Custody is the one
+  that is true now.
+
+  It also makes a name behave like everything else this collection holds:
+  sell the token and the name goes with it, because the name was never
+  yours separately from the token. Put it in the GRIP and that is
+  permanent — the grip receives and cannot send, so a name sealed there
+  can never be taken out again, by anyone, including you.
+
+  An account's own word is not enough. Any contract can implement
+  `token()` and claim to be token 7's; the registry's answer for that id
+  must come back as the very address holding the name, or the claim is
+  discarded.
 
   ── who may do what, and the absence of an admin ──
 
@@ -66,6 +96,36 @@ contract Nameplate {
 
     mapping(bytes32 => uint256) public tokenOf;   // node → tokenId (0 = unbound)
 
+    /*═══════════════ one name, five chains ═══════════════
+
+      A resolver runs where its name lives, and .eth names live on
+      Ethereum. Reading `block.chainid` there answers `1` for every query,
+      so a single name could only ever point at the Ethereum deployment —
+      which is the wrong answer for four fifths of an edition that was
+      deliberately partitioned.
+
+      The partition is also the fix. Every id belongs to exactly one chain
+      by arithmetic, so the name needs no chain syntax at all: `1500.<name>`
+      is a Base token because 1500 is in Base's band, and a reader types
+      nothing they would have to be told. What the resolver cannot derive is
+      where the other four deployments sit, because those addresses did not
+      exist when it was constructed. That is the only thing a station holds.
+
+      The local chain needs no station: PREMISES and HUB are immutables, so
+      the deployment the resolver sits in always answers. Stations are for
+      the other four, they are write-once, and the authorisation is the ENS
+      registry's opinion of who owns the parent — the same mailbox rule the
+      parent slot already uses, not an admin.                            */
+    struct Station { address premises; address hub; }
+    mapping(uint256 => Station) public stationOf;      // chainId → deployment
+
+    /// @notice The edition, tiled across five chains. Must agree with
+    ///         `BANDS` in tools/site.mjs, which the suite checks tiles
+    ///         1..4096 exactly once with no hole and no overlap.
+    uint256 internal constant EDITION = 4096;
+
+    event StationSet(uint256 indexed chainId, address premises, address hub);
+
     event Bound(bytes32 indexed node, uint256 indexed token, address indexed by);
     event Unbound(bytes32 indexed node, uint256 indexed token);
     event ParentClaimed(bytes32 indexed node, address indexed by);
@@ -74,6 +134,10 @@ contract Nameplate {
     error NotTheNameOwner();
     error NotTheTokenHolder();
     error ParentAlreadyClaimed();
+    error ParentUnclaimed();
+    error StationAlreadySet();
+    error NotAnEditionChain();
+    error NothingThere();
     error UnknownQuery();
 
     bytes4 private constant ADDR_IFACE        = 0x3b3b57de; // addr(bytes32)
@@ -115,6 +179,22 @@ contract Nameplate {
         if (!_ownsNode(node, msg.sender)) revert NotTheNameOwner();
         parentNode = node;
         emit ParentClaimed(node, msg.sender);
+    }
+
+    /// @notice Tell this resolver where another chain's deployment lives,
+    ///         so `<id>.parent` can answer for an id in that chain's band.
+    /// @dev    Write-once per chain and only for a chain the edition
+    ///         actually uses. A station that could be rewritten would let
+    ///         whoever holds the parent silently repoint a token's site
+    ///         long after somebody bought it on the strength of that site.
+    function setStation(uint256 chainId, address premises_, address hub_) external {
+        if (parentNode == bytes32(0)) revert ParentUnclaimed();
+        if (!_ownsNode(parentNode, msg.sender)) revert NotTheNameOwner();
+        if (_bandFirst(chainId) == 0) revert NotAnEditionChain();
+        if (stationOf[chainId].premises != address(0)) revert StationAlreadySet();
+        if (premises_ == address(0) || hub_ == address(0)) revert NothingThere();
+        stationOf[chainId] = Station(premises_, hub_);
+        emit StationSet(chainId, premises_, hub_);
     }
 
     /*  The same three writes, taking the name as DNS wire format instead
@@ -165,11 +245,59 @@ contract Nameplate {
         return false;
     }
 
+    /*═══════════════ custody, which needs no transaction ═══════════════*/
+
+    /// @notice Which token holds this name's own NFT, and whether it is
+    ///         sealed in the grip. Zero when a wallet holds it, or when
+    ///         some other collection's account does.
+    function heldBy(bytes32 node)
+        public view returns (uint256 token, bool sealed_)
+    {
+        if (address(ENS) == address(0)) return (0, false);
+        address o = ENS.owner(node);
+        if (o == address(0) || o.code.length == 0) return (0, false);
+
+        /*  A wrapped name is owned in the registry by the wrapper, and by
+            a person inside it. Unwrap one level; a wrapper that does not
+            answer is simply the holder itself.                         */
+        (bool wok, bytes memory wret) = o.staticcall(
+            abi.encodeWithSelector(INameWrapperLike.ownerOf.selector, uint256(node)));
+        if (wok && wret.length == 32) {
+            address real = abi.decode(wret, (address));
+            if (real != address(0)) o = real;
+        }
+        if (o.code.length == 0) return (0, false);
+
+        (bool ok, bytes memory ret) = o.staticcall(
+            abi.encodeWithSelector(IBoundAccount.token.selector));
+        if (!ok || ret.length < 96) return (0, false);
+        (uint256 chainId, address coll, uint256 id) =
+            abi.decode(ret, (uint256, address, uint256));
+        if (chainId != block.chainid || coll != address(HUB) || id == 0) return (0, false);
+
+        /*  The account's own word, checked against the registry that
+            derives these addresses. Any contract can implement `token()`
+            and say it is token 7's; only one address actually is.      */
+        if (HUB.grip(id) == o) return (id, true);
+        if (HUB.account(id) == o) return (id, false);
+        return (0, false);
+    }
+
+    /// @dev Custody first, then the recorded binding. A bind can go stale —
+    ///      bind to 3, move the name into 7's account, and only one of the
+    ///      two is still true.
+    function _tokenFor(bytes32 node) internal view returns (uint256) {
+        (uint256 held, ) = heldBy(node);
+        if (held != 0) return held;
+        return tokenOf[node];
+    }
+
     /*═══════════════════ resolution ═══════════════════*/
 
     function addr(bytes32 node) public view returns (address) {
-        uint256 t = tokenOf[node];
-        return t == 0 ? address(0) : HUB.account(t);
+        uint256 t = _tokenFor(node);
+        if (t == 0 || _chainOfToken(t) != block.chainid) return address(0);
+        return HUB.account(t);
     }
 
     /// @notice Empty on purpose. This site is not on IPFS; it is the chain.
@@ -182,47 +310,118 @@ contract Nameplate {
     function text(bytes32 node, string calldata key)
         external view returns (string memory)
     {
-        return _text(tokenOf[node], key);
+        return _text(_tokenFor(node), key);
     }
 
     function _text(uint256 t, string memory key)
         private view returns (string memory)
     {
         bytes32 k = keccak256(bytes(key));
+
+        /*  Which chain this answer is about. A bound or wildcard token is
+            answered for the chain its id belongs to, which is arithmetic
+            rather than configuration; a bare parent is answered for the
+            chain the reader is already on.                             */
+        uint256 chain = t == 0 ? block.chainid : _chainOfToken(t);
+        (address site, address hub) = _siteFor(chain);
+
         /*  The one record that turns a name into this site. Chain-scoped
             per ERC-6821 (`w3q-default` would send every chain's traffic to
-            one deployment; naming the chain sends each name to its own). */
+            one deployment; naming the chain sends each name to its own).
+
+            Empty rather than wrong when the id belongs to a chain no
+            station has been set for. An answer naming a chain with the
+            local deployment's address on it would resolve, and resolve to
+            somebody else's contract.                                   */
         if (k == keccak256("contentcontract")) {
-            return string.concat(
-                "eip155:", block.chainid.str(), ":", LibNum.hexAddr(PREMISES));
+            if (site == address(0)) return "";
+            return string.concat("eip155:", chain.str(), ":", LibNum.hexAddr(site));
         }
-        if (t == 0) return "";
+        if (t == 0 || site == address(0)) return "";
         if (k == keccak256("avatar")) {
             return string.concat(
-                "eip155:", block.chainid.str(),
-                "/erc721:", LibNum.hexAddr(address(HUB)), "/", t.str());
+                "eip155:", chain.str(),
+                "/erc721:", LibNum.hexAddr(hub), "/", t.str());
         }
         if (k == keccak256("url")) {
-            string memory host = _gateway();
+            string memory host = _gateway(chain);
             /*  Where no gateway serves this chain there is no https URL to
                 give, and inventing one would send every reader to a host
                 that does not exist. The web3:// address is the real one
                 either way; a native client needs nothing else.         */
             if (bytes(host).length == 0) {
                 return string.concat(
-                    "web3://", LibNum.hexAddr(PREMISES), ":", block.chainid.str(),
+                    "web3://", LibNum.hexAddr(site), ":", chain.str(),
                     "/token/", t.str());
             }
             return string.concat(
-                "https://", _bare(PREMISES), host, "/token/", t.str());
+                "https://", _bare(site), host, "/token/", t.str());
         }
         if (k == keccak256("description")) {
+            /*  The account is a fact about the token's own chain, so it is
+                only read where the hub is this one. Elsewhere the sentence
+                stops rather than quoting an address from the wrong chain. */
+            if (chain != block.chainid)
+                return string.concat("IPSEITY #", t.str(),
+                    " \xc2\xb7 a self-rendering instrument, on chain ", chain.str());
             return string.concat(
                 "IPSEITY #", t.str(),
                 " \xc2\xb7 a self-rendering instrument; its account is ",
                 LibNum.hexAddr(HUB.account(t)));
         }
         return "";
+    }
+
+    /*═══════════════════ the partition, as arithmetic ═══════════════════*/
+
+    /// @notice The first id of a chain's band, or 0 if the edition does not
+    ///         use that chain. Must agree with `BANDS` in tools/site.mjs.
+    function _bandFirst(uint256 c) internal pure returns (uint256) {
+        if (c == 1)    return 1;       // Ethereum   1 .. 1024
+        if (c == 8453) return 1025;    // Base    1025 .. 2048
+        if (c == 130)  return 2049;    // Unichain 2049 .. 3072
+        if (c == 56)   return 3073;    // BNB      3073 .. 3584
+        if (c == 4663) return 3585;    // Robinhood 3585 .. 4096
+        return 0;
+    }
+
+    /// @notice Which chain an id lives on. Zero for an id outside the
+    ///         edition entirely.
+    /// @dev    A chain the edition does not use is a rehearsal, and a
+    ///         rehearsal holds the whole edition — the same rule
+    ///         `bandOrWhole` applies off chain. Without this a testnet
+    ///         would route its own token 7 to Ethereum and answer for a
+    ///         deployment on another network.
+    function _chainOfToken(uint256 id) internal view returns (uint256) {
+        if (id == 0 || id > EDITION) return 0;
+        if (_bandFirst(block.chainid) == 0) return block.chainid;
+        if (id <= 1024) return 1;
+        if (id <= 2048) return 8453;
+        if (id <= 3072) return 130;
+        if (id <= 3584) return 56;
+        return 4663;
+    }
+
+    /// @dev The deployment for a chain: this one's immutables where the
+    ///      chain is this one, a station otherwise, and zero where nobody
+    ///      has said. Zero is what makes every caller above answer empty
+    ///      instead of confidently wrong.
+    function _siteFor(uint256 chain)
+        internal view returns (address site, address hub)
+    {
+        if (chain == 0) return (address(0), address(0));
+        if (chain == block.chainid) return (PREMISES, address(HUB));
+        Station memory st = stationOf[chain];
+        return (st.premises, st.hub);
+    }
+
+    /// @notice Whether `<id>.parent` can be answered for at all: minted
+    ///         here if the id is this chain's, or a known station if not.
+    function _reachable(uint256 id) internal view returns (bool) {
+        uint256 chain = _chainOfToken(id);
+        if (chain == 0) return false;
+        if (chain == block.chainid) return id <= HUB.totalSupply();
+        return stationOf[chain].premises != address(0);
     }
 
     /*═══════════════════ ENSIP-10 wildcards ═══════════════════*/
@@ -232,15 +431,46 @@ contract Nameplate {
     function resolve(bytes calldata name, bytes calldata data)
         external view returns (bytes memory)
     {
-        uint256 t = tokenOf[_namehash(name, 0)];
+        uint256 t = _tokenFor(_namehash(name, 0));
+
+        /*  A numeric child of the parent that cannot be served is NOT the
+            parent. Both used to arrive here as `t == 0`, and `_text(0,…)`
+            answers for the bare name — so `1500.<parent>`, a Base token
+            this resolver has not been told the address of, was handed back
+            Ethereum's premises under chain 1. That record resolves. A
+            wallet would open the wrong deployment and be told nothing.
+
+            Silence is the only correct answer for a name that exists and
+            cannot be answered for.                                     */
+        bool unservable;
         if (t == 0 && parentNode != bytes32(0)) {
             (uint256 parsed, uint256 next, bool numeric) = _numericLabel(name);
-            if (numeric && parsed > 0 && parsed <= HUB.totalSupply()
-                && _namehash(name, next) == parentNode) t = parsed;
+            if (numeric && _namehash(name, next) == parentNode) {
+                /*  `_reachable` replaces a bare `<= HUB.totalSupply()`,
+                    which asked the local hub about an id the local hub does
+                    not own. Under the partition an id belongs to one chain
+                    and is minted there; the resolver either sits on that
+                    chain, or has been told where it is.                */
+                if (_reachable(parsed)) t = parsed;
+                else unservable = true;
+            }
         }
         bytes4 sel = bytes4(data[:4]);
+        if (unservable) {
+            if (sel == ADDR_IFACE) return abi.encode(address(0));
+            if (sel == CONTENTHASH_IFACE) return abi.encode(bytes(""));
+            if (sel == TEXT_IFACE) return abi.encode("");
+            revert UnknownQuery();
+        }
         if (sel == ADDR_IFACE) {
-            return abi.encode(t == 0 ? address(0) : HUB.account(t));
+            /*  An account is a contract on the token's own chain. Answering
+                with this chain's 6551 address for a token that lives
+                elsewhere would name an address that exists and is not the
+                token's — so sending to the name would send into the void.
+                Empty is the only honest answer from the wrong chain.   */
+            if (t == 0 || _chainOfToken(t) != block.chainid)
+                return abi.encode(address(0));
+            return abi.encode(HUB.account(t));
         }
         if (sel == CONTENTHASH_IFACE) return abi.encode(bytes(""));
         if (sel == TEXT_IFACE) {
@@ -253,14 +483,25 @@ contract Nameplate {
     /// @notice Which token a DNS-encoded name means, bound or wildcard —
     ///         one call for a gateway to know whose page to serve.
     function tokenForName(bytes calldata name) external view returns (uint256) {
-        uint256 t = tokenOf[_namehash(name, 0)];
+        uint256 t = _tokenFor(_namehash(name, 0));
         if (t != 0) return t;
         if (parentNode != bytes32(0)) {
             (uint256 parsed, uint256 next, bool numeric) = _numericLabel(name);
-            if (numeric && parsed > 0 && parsed <= HUB.totalSupply()
+            if (numeric && _reachable(parsed)
                 && _namehash(name, next) == parentNode) return parsed;
         }
         return 0;
+    }
+
+    /// @notice Which chain an id lives on, and where that deployment is —
+    ///         one call for a client that would rather ask than derive.
+    ///         `site` is zero when nobody has said where that chain is.
+    function whereIs(uint256 id)
+        external view returns (uint256 chain, address site, address hub, bool reachable)
+    {
+        chain = _chainOfToken(id);
+        (site, hub) = _siteFor(chain);
+        reachable = _reachable(id);
     }
 
     /*═══════════════════ helpers ═══════════════════*/
@@ -308,14 +549,17 @@ contract Nameplate {
         An unserved chain now returns empty and the caller says so. A
         collection whose whole argument is that it needs no server should
         not be the thing that prints a broken link.                      */
-    function _gateway() private view returns (string memory) {
-        uint256 c = block.chainid;
+    function _gateway(uint256 c) private pure returns (string memory) {
         if (c == 1)        return ".eth.w3link.io";
         if (c == 8453)     return ".base.w3link.io";
         if (c == 56)       return ".bnb.w3link.io";
         if (c == 11155111) return ".sep.w3link.io";
         if (c == 84532)    return ".basesep.w3link.io";
-        return "";              // no public gateway serves this chain
+        /*  Unichain (130) and Robinhood (4663) are in the edition and no
+            public gateway serves either, so a token in those bands gets a
+            web3:// URL and no https one. That is a fact about gateways,
+            not about the site — tools/portal.mjs serves any of them.  */
+        return "";
     }
 
     function supportsInterface(bytes4 id) external pure returns (bool) {

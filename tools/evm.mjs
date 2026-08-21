@@ -4,7 +4,7 @@
   with no node, no network and no fork.
 ───────────────────────────────────────────────────────────────────────────*/
 import { createVM, runTx } from "@ethereumjs/vm";
-import { Common, Mainnet, Hardfork } from "@ethereumjs/common";
+import { Common, Mainnet, Hardfork, createCustomCommon } from "@ethereumjs/common";
 import {
   Account, createAddressFromString, hexToBytes, bytesToHex, createAddressFromPrivateKey
 } from "@ethereumjs/util";
@@ -163,10 +163,25 @@ export class Chain {
     this.log = [];
   }
 
-  static async open() {
-    const vm = await createVM({ common });
+  /**
+   * @param {{chainId?: number|bigint}} [opts] A chain to pretend to be.
+   *
+   * Defaults to mainnet, which is what every existing suite expects. It is
+   * an option because `block.chainid` is an opcode and no mock can stand
+   * in front of it: a contract that behaves differently per chain — and
+   * this collection's do, since the edition is partitioned across five —
+   * has branches that simply cannot be reached from a harness pinned to
+   * one. The branch that protects every testnet was the one out of reach.
+   */
+  static async open(opts = {}) {
+    const chainCommon = opts.chainId === undefined
+      ? common
+      : createCustomCommon({ chainId: Number(opts.chainId) }, Mainnet,
+          { hardfork: Hardfork.Cancun });
+    const vm = await createVM({ common: chainCommon });
     const key = hexToBytes("0x" + "11".repeat(32));
     const chain = new Chain(vm, key);
+    chain.common = chainCommon;
     await vm.stateManager.putAccount(
       chain.from,
       new Account(0n, 10n ** 24n)
@@ -220,7 +235,12 @@ export class Chain {
         value: BigInt(value),
         data: hexToBytes(data.startsWith("0x") ? data : "0x" + data)
       },
-      { common }
+      /*  This chain's own common, not the module's. A legacy transaction
+          signed against mainnet and replayed on a chain that says it is
+          8453 is a signature over the wrong id, and the sender recovers to
+          somebody else — which reads as a balance error rather than as
+          what it is.                                                   */
+      { common: this.common || common }
     ).sign(this.key);
 
     const res = await runTx(this.vm, {
