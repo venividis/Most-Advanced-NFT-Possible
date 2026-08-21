@@ -463,7 +463,21 @@ contract Nameplate {
             somebody else's contract.                                   */
         if (k == keccak256("contentcontract")) {
             if (site == address(0)) return "";
-            return string.concat("eip155:", chain.str(), ":", LibNum.hexAddr(site));
+            /*  ERC-6821 takes either a bare 0x address or an ERC-3770
+                chain-specific one, and ERC-3770 is `shortName:address` with
+                the short name drawn from ethereum-lists/chains. It is not
+                `eip155:<id>:<address>`, which is what this returned until a
+                gateway was asked to parse one and could not.
+
+                The two look interchangeable and are not: CAIP-style
+                `eip155:` identifiers are correct for the avatar record
+                below, which is why the mistake reads as consistency. A
+                chain with no registered short name gets the bare address,
+                which resolves on whatever chain the reader is already on —
+                the only honest answer when the chain cannot be named.   */
+            string memory sn = _shortName(chain);
+            if (bytes(sn).length == 0) return LibNum.hexAddr(site);
+            return string.concat(sn, ":", LibNum.hexAddr(site));
         }
         if (t == 0 || site == address(0)) return "";
         if (k == keccak256("avatar")) {
@@ -663,6 +677,21 @@ contract Nameplate {
         bytes memory out = new bytes(40);
         for (uint256 i; i < 40; ++i) out[i] = h[i + 2];
         return string(out);
+    }
+
+    /// @dev The ERC-3770 short name for a chain, from ethereum-lists/chains,
+    ///      which is the registry ERC-3770 makes normative. Empty for a
+    ///      chain not in it — a name this contract invented would be worse
+    ///      than none, because a reader would try to resolve it.
+    function _shortName(uint256 c) private pure returns (string memory) {
+        if (c == 1)        return "eth";
+        if (c == 8453)     return "base";
+        if (c == 130)      return "unichain";
+        if (c == 56)       return "bnb";
+        if (c == 4663)     return "robinhoodchain";
+        if (c == 11155111) return "sep";
+        if (c == 84532)    return "basesep";
+        return "";
     }
 
     /*  The w3link host tail for this chain, or empty where no gateway runs.

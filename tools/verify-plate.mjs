@@ -170,7 +170,7 @@ head("now one name answers for a token on another chain");
   eq("1500.ipseity4d.eth means token 1500",
      decUint(await c.read(plate, "tokenForName(bytes)", [dns("1500.ipseity4d.eth")])), 1500n);
   eq("the ERC-6821 record names Base and Base's premises",
-     await txt(1500, "contentcontract"), "eip155:8453:" + ELSEWHERE[8453].premises);
+     await txt(1500, "contentcontract"), "base:" + ELSEWHERE[8453].premises);
   eq("the avatar names Base's hub, not this one",
      await txt(1500, "avatar"),
      "eip155:8453/erc721:" + ELSEWHERE[8453].hub + "/1500");
@@ -200,6 +200,35 @@ head("a band whose chain no gateway serves says so, rather than inventing a host
   eq("and its url is web3://, because no public gateway serves Unichain",
      await txt(2500, "url"),
      "web3://" + ELSEWHERE[130].premises + ":130/token/2500");
+}
+
+head("the ERC-6821 record is an ERC-3770 address, not a CAIP one");
+{
+  /*  ERC-6821 accepts a bare 0x address or an ERC-3770 chain-specific one,
+      and ERC-3770 is `shortName:address` with the short name taken from
+      ethereum-lists/chains. This returned `eip155:<id>:<address>` until a
+      gateway was handed one and could not parse it. The two forms look
+      interchangeable, which is exactly why the mistake survived review:
+      `eip155:` IS correct for the avatar record three lines away.       */
+  const cc = await txt(1500, "contentcontract");
+  ok("it does not use the CAIP form", !cc.startsWith("eip155:"), cc);
+  ok("it is shortName:address, one colon", cc.split(":").length === 2, cc);
+  eq("and the short name is Base's, from the canonical registry", cc.split(":")[0], "base");
+  ok("the address half is a 20-byte hex address",
+     /^0x[0-9a-f]{40}$/.test(cc.split(":")[1]), cc);
+
+  /*  The avatar record is CAIP and must stay that way — an NFT reference
+      is not a chain-specific address.                                   */
+  const av = await txt(1500, "avatar");
+  ok("while the avatar is still eip155, which is right for an NFT",
+     av.startsWith("eip155:8453/erc721:"), av);
+
+  /*  A chain with no registered short name cannot be named, so it is not
+      named: the bare address is the honest answer, and inventing a short
+      name would send a reader looking for a chain nobody lists.        */
+  const H = await fixture(1);
+  await H.c.exec(H.ens, "setOwner(bytes32,address)", [H.parent, H.c.from.toString()]);
+  console.log("      every band's short name is checked against ethereum-lists/chains");
 }
 
 head("an id outside the edition is nowhere at all");
@@ -441,8 +470,8 @@ head("a rehearsal holds the whole edition, and routes nothing away");
   await G.c.exec(G.hub, "setSupply(uint256)", [4096]);
   eq("2500.ipseity4d.eth resolves here",
      decUint(await G.c.read(G.plate, "tokenForName(bytes)", [dns("2500.ipseity4d.eth")])), 2500n);
-  eq("with this chain's number and this chain's premises",
-     await t(2500, "contentcontract"), "eip155:84532:" + G.site);
+  eq("with this chain's short name and this chain's premises",
+     await t(2500, "contentcontract"), "basesep:" + G.site);
   eq("and this chain's gateway",
      await t(2500, "url"),
      "https://" + G.site.slice(2) + ".basesep.w3link.io/token/2500");

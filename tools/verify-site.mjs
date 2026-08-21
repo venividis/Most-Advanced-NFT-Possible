@@ -2513,7 +2513,9 @@ head("the nameplate answers for the collection");
 
   const cc = decString(await c.read(plate, "text(bytes32,string)", [myNode, "contentcontract"]));
   eq("text(contentcontract) is the ERC-6821 record, chain-scoped, to this site",
-     cc, "eip155:1:" + site.premises.toLowerCase());
+     cc, "eth:" + site.premises.toLowerCase());
+  ok("which is an ERC-3770 chain-specific address, not a CAIP identifier",
+     !cc.startsWith("eip155:") && cc.split(":").length === 2, cc);
   const av = decString(await c.read(plate, "text(bytes32,string)", [myNode, "avatar"]));
   ok("and the avatar is the token itself, as ENS apps draw one",
      av === "eip155:1/erc721:" + nft.toLowerCase() + "/1", av);
