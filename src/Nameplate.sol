@@ -68,9 +68,13 @@ interface IBoundAccount {
 
   It also makes a name behave like everything else this collection holds:
   sell the token and the name goes with it, because the name was never
-  yours separately from the token. Put it in the GRIP and that is
-  permanent — the grip receives and cannot send, so a name sealed there
-  can never be taken out again, by anyone, including you.
+  yours separately from the token.
+
+  The ordinary place for it is the REACH, which can send it back out again
+  whenever you like. Nothing here requires more ceremony than moving the
+  name. The GRIP is available and is not the default: it receives and
+  cannot send, so a name put there is the token's permanently, which is a
+  promise worth making deliberately and never by accident.
 
   An account's own word is not enough. Any contract can implement
   `token()` and claim to be token 7's; the registry's answer for that id

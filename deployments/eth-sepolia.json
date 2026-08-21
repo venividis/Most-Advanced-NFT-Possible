@@ -63,5 +63,14 @@
  },
  "notes": {
   "nameplateNext": "The resolver with custody binding, expiry and cross-chain stations, deployed standalone against the real ENS registry. Not wired into the premises: the nameplate is an immutable constructor argument of PageName, which is one of Premises', so reaching it from /name needs a site redeploy (~106M gas, ~0.17 ETH at this chain's price). Readable directly meanwhile."
+ },
+ "live": {
+  "nameHeldByToken": {
+   "node": "0x58dade043dc519d6512cd0d232a485fbac556fe6c0eed0193af47bd6295855f3",
+   "heldBy": "token 2, in its reach \u2014 removable, not sealed",
+   "holder": "0xf305041d538b6f876d799c10305aee8c6efbecfe",
+   "resolver": "0xb65fa46580d9341690cfc714cbbd8de2b09386bf",
+   "note": "A real ENS node on Sepolia, owned by the token's own account and resolving through the Nameplate. Not a .eth second-level name: those cannot be registered on Sepolia at all \u2014 the NameWrapper reverts even called as the authorised controller, and the one contract that does hold controller rights only issues subnames whose registry ownership it keeps."
+  }
  }
 }
