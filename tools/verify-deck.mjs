@@ -333,6 +333,94 @@ head("the nodes themselves");
     !document.getElementById("sheet").classList.contains("open")));
 }
 
+head("a sealed node answers where it was tapped");
+{
+  await page.evaluate(() => window.__ip && window.__ip.closeAll && window.__ip.closeAll());
+  /*  A node the token has not opened. The old behaviour was a modal sheet
+      sliding up from the bottom of the screen, anchored to nothing, to
+      say one sentence about the dim thing tapped in the far corner.   */
+  /*  Not every sealed node reaches the plate: four of them (SELF, VAULT,
+      MARKET, MINT) carry a twin route and open that instead, deliberately,
+      because a page that does the job beats a plate that describes it.
+      So this looks for a sealed node with no twin — which is what the
+      plate exists for — rather than the first dim thing it finds.     */
+  const sealed = await page.evaluate(async () => {
+    const els = Array.from(document.querySelectorAll("#nodes .nd"))
+      .filter((x) => x.classList.contains("shut") && x.offsetParent !== null);
+    for (const e of els) {
+      const r = e.getBoundingClientRect();
+      e.click();
+      await new Promise((z) => setTimeout(z, 120));
+      const pl = document.getElementById("plate");
+      if (pl && !pl.hidden)
+        return { name: e.textContent.trim(), x: r.left + r.width / 2, y: r.top + r.height / 2,
+                 tried: els.length };
+    }
+    return null;
+  });
+  ok("a sealed node without a twin was found in the orbit", sealed !== null,
+     "every sealed node opened a surface instead — nothing reaches the plate");
+
+  if (sealed) {
+    const pl = await page.evaluate(() => {
+      const e = document.getElementById("plate");
+      if(!e || e.hidden) return null;
+      const r = e.getBoundingClientRect();
+      return { name: document.getElementById("plname").textContent.trim(),
+               note: document.getElementById("plnote").textContent,
+               go:   document.getElementById("plgo").textContent.trim(),
+               x: r.left, y: r.top, w: r.width, h: r.height,
+               sheet: document.getElementById("sheet").classList.contains("open") };
+    });
+    ok("the plate opened", pl !== null, "no plate");
+    if (pl) {
+      ok("and the modal sheet did not", !pl.sheet);
+      eq("it names the node that was tapped", pl.name, sealed.name);
+      ok("states the cost before offering the action",
+         /permanent/i.test(pl.note) && /transaction/i.test(pl.note), pl.note);
+      ok("and the action says what it does", /open/i.test(pl.go), pl.go);
+
+      /*  Anchored, not parked at an edge. The old sheet was always at the
+          bottom of the screen whichever node you tapped.               */
+      const near = Math.hypot((pl.x + pl.w / 2) - sealed.x, (pl.y + pl.h / 2) - sealed.y);
+      ok("it is placed near the node, not at a screen edge", near < 460,
+         "plate centre is " + Math.round(near) + "px from the node");
+      ok("and fully on screen", pl.x >= 0 && pl.y >= 0, JSON.stringify(pl));
+
+      const wired = await page.evaluate(() => {
+        const l = document.querySelector('#wires line[data-w="plate"]');
+        return l && l.style.display !== "none";
+      });
+      ok("a wire ties it to the node it came from", wired, "the plate's wire is not drawn");
+
+      /*  It must not chase the node. A target that drifts while a thumb is
+          on its way to it is not a target.                             */
+      await page.evaluate(() => { for(let k=0;k<40;k++) window.dispatchEvent(new Event("resize")); });
+      await page.waitForTimeout(300);
+      const moved = await page.evaluate(() => {
+        const r = document.getElementById("plate").getBoundingClientRect();
+        return { x: r.left, y: r.top };
+      });
+      ok("and it stays put while the solid turns underneath",
+         Math.abs(moved.x - pl.x) < 2 && Math.abs(moved.y - pl.y) < 2,
+         JSON.stringify({ was: [pl.x, pl.y], now: [moved.x, moved.y] }));
+
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(250);
+      ok("Escape dismisses it", await page.evaluate(() =>
+         document.getElementById("plate").hidden));
+      ok("and its wire goes with it", await page.evaluate(() => {
+         const l = document.querySelector('#wires line[data-w="plate"]');
+         return !l || l.style.display === "none";
+      }));
+      /*  The deck's wire is a different line for a different reason and
+          must be untouched by dismissing a plate.                      */
+      ok("while the deck's own wire is left alone", await page.evaluate(() =>
+         !!document.querySelector('#wires line[data-w="deck"]')));
+    }
+  }
+}
+
 head("no error the whole way through");
 ok("nothing threw", errs.length === 0, errs.slice(0, 4).join("\n      "));
 ok("and the only console noise is documents torn down mid-fetch",
