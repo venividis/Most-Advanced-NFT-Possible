@@ -22,6 +22,27 @@ So they were measured, on a real EVM, rather than recalled:
 | `tools/probe-port-abi.mjs` | whether ParleyPort speaks the protocol's ABI or the mock's |
 | `tools/probe-economy.mjs` | real gas for the settlement layer in `Bourse.sol` |
 
+`Plate.sol` and `RefField.sol` are the answer to the question the owner
+asked as "make the nft a GPU you can stake or mine", and they answer it by
+disagreeing with the premise. `Plate.sol` states it in its own header:
+
+> The compute is free: a phone draws this frame in sixteen milliseconds and
+> nobody needs paying for it. What is not free is the frame still being
+> there in twenty years at an address no company owns. So this market does
+> not buy rendering. It buys permanence, and it buys the guarantee that the
+> bytes are the right bytes.
+
+Correctness is not asserted by a committee, it is refuted by anybody
+willing to spend one transaction: a challenger names one pixel, proves it
+sits under the posted root, and the chain recomputes that pixel from the
+fixed-point reference field in `RefField.sol`. Disagreement pays the
+challenger out of the poster's bond and reopens the job.
+
+And it names its own ceiling, which is the part that makes it worth
+keeping: the pixel the chain recomputes is the FIXED POINT reference, not
+what any GPU drew. GLSL is not reproducible across drivers, so nothing on
+chain can ever certify a screenshot.
+
 `Bourse.sol`, `Parts.sol` and `Stall.sol` are prototypes those probes
 deploy. They are sketches with real gas costs, not proposals — read them
 as the arithmetic behind a recommendation and not as code anybody
@@ -36,6 +57,12 @@ read. They have been surveyed since, none of them is reachable from
 `npm run check`, and two mocks they added — `test/mocks/LzStub.sol` and
 `test/mocks/XSettle.sol` — do compile, which is why the suites stayed
 green rather than telling anybody.
+
+`Plate.sol` arrived importing `lib/SSTORE2.sol`, a bare path that resolves
+to nothing — the library is at `src/lib/`. Nothing in the check chain
+compiles this directory, which is exactly why a file that could not build
+sat here without complaint. Fixed, and all five contracts here now compile
+under `dirs: ["src","probe"]`.
 
 `probe-economy.mjs` was found broken and half-fixed: every deploy in it
 read `r.createdAddress` from a harness that returns `r.address`, so every
