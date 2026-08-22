@@ -178,14 +178,30 @@ if (verb === "deploy") {
     throw new Error(`the port landed at ${port}, not the predicted ${self} — every peer is now wrong`);
 
   /*  Read it back off the chain, because a deploy that is not read back
-      is a hope. eid, peers, and the delegate the constructor zeroed.   */
-  const localEid = Number(BigInt(await c.call(port, sel("LOCAL_EID()"))));
+      is a hope. eid, peers, and the delegate the constructor zeroed.
+
+      Read it back PATIENTLY: a load-balanced public endpoint answers
+      each request from whichever replica the balancer picks, and a
+      replica one block behind serves an eth_call against the deploy's
+      address as `0x` — an empty answer, not an error, so the transport
+      retry never fires. The first run of this tool crashed here on
+      exactly that, one line after a successful deploy. An empty answer
+      is "not yet visible", never a value.                              */
+  const patient = async (data) => {
+    for (let i = 0; i < 20; i++) {
+      const r = await c.call(port, data).catch(() => "0x");
+      if (r && r !== "0x") return r;
+      await new Promise((s) => setTimeout(s, 3000));
+    }
+    throw new Error("the chain never showed the deployed port to a read — check it by hand");
+  };
+  const localEid = Number(BigInt(await patient(sel("LOCAL_EID()"))));
   const delegate = "0x" + (await c.call(lz.endpoint, sel("delegates(address)") + b32(port))).slice(-40);
   console.log(`  landed at ${port}`);
   console.log(`  LOCAL_EID reads ${localEid}${localEid === lz.eid ? "" : "  (WRONG — expected " + lz.eid + ")"}`);
   console.log(`  delegate reads ${delegate}${/^0x0+$/.test(delegate) ? " — nobody, as constructed" : "  (WRONG — should be zero)"}`);
   for (const id of peerChains) {
-    const got = "0x" + (await c.call(port, sel("peerOf(uint32)") + w(lzFor(id).eid))).slice(-40);
+    const got = "0x" + (await patient(sel("peerOf(uint32)") + w(lzFor(id).eid))).slice(-40);
     console.log(`  peerOf(${lzFor(id).eid}) reads ${got}${got.toLowerCase() === self.toLowerCase() ? "" : "  (WRONG)"}`);
   }
 

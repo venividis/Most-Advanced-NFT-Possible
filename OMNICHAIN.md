@@ -283,19 +283,30 @@ RPC_URL=… PRIVATE_KEY=… node tools/port.mjs echo --port 0x… --from 1 --tex
 RPC_URL=… node tools/port.mjs walk --port 0x…
 ```
 
-This was not run here: the recorded deployer's key is not in this
-container, and deploying a shared-address port from hardhat's published
-development keys would hand the address to everyone who has read a
-hardhat banner. The tool refuses nothing about it; the runbook simply
-requires a key this session does not hold.
+This runbook has now been run, and the lane is live. The owner funded a
+fresh key generated in this container (0.02 / 0.01 testnet ETH), and the
+nonce-0 deploys landed the port at
+`0x65d1e9d08488a68ef6bf48e057ab69496333c7ae` on **both** chains, delegate
+zero on both, each naming the other as its only peer. Token #3 was
+minted to the key on Ethereum Sepolia and
+`echo(3, 0, "the commons, heard on another chain", "")` paid its quoted
+104,037,152,596,558 wei — the port's own default options on the wire.
+The real DVNs attested, the real executor delivered in about eighty
+seconds (`lzReceive(Origin,…)` dispatched, `Echoed` emitted in Base
+Sepolia block 45,828,666), and `port.mjs walk` read the message back off
+the far chain's own `eth_getLogs` in one single-block query. Every
+transaction hash is in `DEPLOYMENTS.md`; the machine records are
+`dist/port-84532.json` and `dist/port-11155111.json`. The first
+cross-chain message in the collection's history was composed, verified,
+delivered and re-read by infrastructure this repository does not run —
+which was the entire claim under test.
 
 ## 6 · What remains, stated so nobody mistakes it for done
 
-- **The lanes are not live.** No port is deployed on any chain,
-  testnet or mainnet, and `deployments/*.json` says so by omission.
-  The contract is protocol-correct on an in-process EVM and a probe;
-  it has never received a message from a real DVN. The first funded
-  rehearsal on the two Sepolias is the next measurement.
+- **The testnet lane is live; the mainnet lanes are not.** The two
+  Sepolias carry a working federation as of 2026-08-22. No mainnet
+  port exists, and the mainnet deployment decision — including whether
+  to pin DVNs per lane — remains open, per below.
 - **The clients do not yet show echoes.** `Echoed` logs are walkable —
   `port.mjs walk` does it — but `DeskTalk` and the console render only
   the local archive. Showing foreign speech means handing the pages the
