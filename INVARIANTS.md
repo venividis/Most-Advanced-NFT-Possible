@@ -947,14 +947,23 @@ Federation is a separate payable call. A social layer that needs a message
 to arrive before anyone can talk has a single point of silence.
 → `tools/verify-port.mjs` · *"the local commons never needed any of this"*
 
-**138. The verifier set is frozen in the constructor.**
+**138. Nobody can re-point the port's security, and what floats is named.**
 LayerZero lets an OApp choose which DVNs must attest and lets a delegate
 change that later, which is an admin key. The port calls
 `setDelegate(address(0))` at construction and carries no function that
-could set it again, so the attestation set is as immutable as the
-bytecode.
+could set it — or `setConfig`, or either library — again. An earlier
+version of this entry claimed the verifier set itself was therefore
+frozen, and that was wrong: an OApp that pins nothing runs on the
+endpoint's DEFAULT libraries and DVN set, which LayerZero Labs can roll
+forward without the port's consent. So the pin is now a constructor
+argument — lane libraries and raw `SetConfigParam` entries, applied once
+by the OApp itself (the one caller the endpoint authorizes with no
+delegate) and never writable again — and a deployment that passes empty
+arrays floats on the defaults as a stated choice. Admissible for speech;
+the contract's header says why it would not be for custody.
 → `tools/verify-port.mjs` · *"the verifier set is frozen in the
-  constructor"*
+  constructor"*, *"the pin: config written once, from the constructor,
+  or never"*
 
 **139. A block number from another chain is not a block number here.**
 Parley's walk works because each message carries the block of the previous
@@ -971,6 +980,46 @@ parses to nothing and encodes an EMPTY argument. The contract then
 reverted for a reason unrelated to the test, and the test looked like it
 had found a bug. It throws now.
 → `tools/evm.mjs` · `enc`
+
+**141. The port speaks the protocol's ABI, not its mock's.**
+EndpointV2 delivers with `Origin calldata` — a static three-word tuple,
+and the tuple is part of the canonical signature, so
+`lzReceive((uint32,bytes32,uint64),bytes32,bytes,address,bytes)` is
+`0x13137d65` and nothing else dispatches. For one stretch the port
+declared `bytes calldata origin` instead: a signature invented by its own
+mock, matched by nothing on any chain. Every assertion stayed green
+because every assertion drove that mock — a suite that shares a dialect
+with its subject cannot hear the accent. The probe measured it at the
+deployed bytecode (three protocol selectors, three `revert 0x`, no
+dispatch), the port now carries the canonical signatures plus the two
+questions the protocol asks before the first packet on a lane —
+`allowInitializePath` answering the peer table, `nextNonce` answering
+zero — and the mock endpoint now performs the real handshake and builds
+its delivery with `abi.encodeCall`, so the selector is the compiler's,
+not the file's.
+→ `tools/verify-port.mjs` · *"the port speaks the protocol's ABI, not
+  its mock's"*, `tools/probe-port-abi.mjs`
+
+**142. Empty options mean the default, never nothing-at-all.**
+The real send library refuses options that name no lzReceive gas — an
+empty `bytes` fails at QUOTE time. So the port treats empty as "use the
+default": a 22-byte type-3 blob naming 200,000 gas, written out
+byte-for-byte in the source. The mock refuses empty options the way
+ULN302 does, so the suite's own quotes prove the default reached the
+wire. If a destination's gas schedule ever outgrows the constant,
+delivery is permissionless — anyone re-executes the verified message
+with more.
+→ `tools/verify-port.mjs` · *"empty options became the default, because
+  the wire refuses nothing-at-all"*
+
+**143. A lane refuses on both sides of the border.**
+The endpoint consults `allowInitializePath` before the first packet on a
+lane can be verified, and the port's `lzReceive` makes the identical peer
+check itself — for the endpoint that forgot to ask. A message whose body
+claims a different origin than its DVN-attested envelope is refused
+rather than believed on either count.
+→ `tools/verify-port.mjs` · *"a peer nobody named cannot be heard — on
+  either side of the border"*
 
 ## Found by adversarial review, and fixed
 

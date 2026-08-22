@@ -12,6 +12,7 @@ interface ILayerZeroEndpointV2 {
     }
     struct MessagingFee { uint256 nativeFee; uint256 lzTokenFee; }
     struct MessagingReceipt { bytes32 guid; uint64 nonce; MessagingFee fee; }
+    struct SetConfigParam { uint32 eid; uint32 configType; bytes config; }
 
     function quote(MessagingParams calldata p, address sender)
         external view returns (MessagingFee memory);
@@ -19,7 +20,16 @@ interface ILayerZeroEndpointV2 {
         external payable returns (MessagingReceipt memory);
     function setDelegate(address delegate) external;
     function eid() external view returns (uint32);
+    function setSendLibrary(address oapp, uint32 dstEid, address lib) external;
+    function setReceiveLibrary(address oapp, uint32 srcEid, address lib, uint256 grace) external;
+    function setConfig(address oapp, address lib, SetConfigParam[] calldata params) external;
 }
+
+/*  The endpoint's envelope: which chain is speaking, as which OApp, at
+    which nonce. A STATIC tuple — three words laid inline — and the shape
+    is part of the signature: declare it as anything else and the selector
+    the endpoint dispatches on is not yours anymore.                     */
+struct Origin { uint32 srcEid; bytes32 sender; uint64 nonce; }
 
 /*═══════════════════════════════════════════════════════════════════════════
 
@@ -74,13 +84,33 @@ interface ILayerZeroEndpointV2 {
   conversation is walkable on the chain you are standing on, which is the
   only chain whose blocks you can ask about.
 
-  ── the verifier set is frozen in the constructor ──
+  ── the verifier set: no admin, and an honest account of what floats ──
 
   LayerZero lets an OApp choose which DVNs must attest to its messages, and
   lets a delegate change that later. A delegate is an admin key. So this
-  constructor sets the configuration and then calls `setDelegate(address(0))`,
-  and there is no function here that calls `setConfig` or `setDelegate`
-  again. After deployment the verifier set is as immutable as the bytecode.
+  constructor calls `setDelegate(address(0))`, and there is no function
+  here that calls `setConfig`, `setSendLibrary`, `setReceiveLibrary` or
+  `setDelegate` again. Nobody can re-point this port's security. That much
+  is as immutable as the bytecode.
+
+  An earlier version of this comment claimed more — that the verifier set
+  itself was frozen — and that was wrong. An OApp that pins nothing runs
+  on the endpoint's DEFAULT send library, receive library and DVN set, and
+  LayerZero Labs can roll those defaults forward without this contract's
+  consent. No admin here does not mean no movement there. So the
+  constructor now takes the pin as arguments: library choices per lane and
+  raw `SetConfigParam` entries, applied once, from inside the constructor —
+  the endpoint authorizes the OApp itself, so no delegate is ever needed —
+  and then the delegate is zeroed and the pin can never move again. A
+  deployment that passes empty pin arrays floats on the defaults, and is
+  choosing to; the arrays are in the constructor so the choice is written
+  where it cannot be quietly revised. Either way the failure stays bounded
+  by what this contract is: the worst a rolled default or a dead pinned
+  DVN can do is silence echoes or forge one, and a forged echo arrives
+  visibly foreign, under this contract's own event, attributable to its
+  lane. Speech, not custody, is what makes that trade admissible — pin a
+  1-of-1 verifier under something that MINTS and the same arrangement has
+  already cost other protocols nine figures.
 
   Two protocol properties are worth stating because they are the reason
   this is admissible at all. An unwired lane fails at QUOTE time — the
@@ -93,6 +123,17 @@ interface ILayerZeroEndpointV2 {
   dependency, which means no server is required for any of this to work.
 
 ═══════════════════════════════════════════════════════════════════════════*/
+/*  One lane's library choice, applied once at construction. `sendLib` and
+    `receiveLib` may each be zero to leave that direction on the default. */
+struct LanePin { uint32 eid; address sendLib; address receiveLib; }
+
+/*  One raw config entry, applied once at construction: which library it
+    is for, and the `SetConfigParam` the endpoint forwards to it. The
+    bytes are the library's own ABI (ULN config is type 2, executor
+    config type 1) — this contract does not interpret them, it only
+    guarantees they can never be written twice.                          */
+struct ConfigPin { address lib; uint32 eid; uint32 configType; bytes config; }
+
 contract ParleyPort {
     IParleyRead public immutable PARLEY;
     ILayerZeroEndpointV2 public immutable ENDPOINT;
@@ -101,6 +142,24 @@ contract ParleyPort {
     /// @dev Room 0. The only room that crosses.
     uint256 public constant COMMONS = 0;
     uint256 public constant MAX_BODY = 1024;
+
+    /*  What `echo` hands the endpoint when the caller passes no options.
+        The wire refuses empty options — ULN302 reverts a quote that names
+        no lzReceive gas at all — so "no options" has to mean "the
+        default", not "nothing". This is a type-3 options blob, laid out
+        byte for byte:
+
+          0003    the container tag (options type 3)
+          01      worker id: the executor
+          0011    option length, 17 = 1 type byte + 16 gas bytes
+          01      option type: LZRECEIVE
+          …30d40  200,000 gas, as a uint128
+
+        Several times what `lzReceive` spends; and if a destination's
+        schedule ever outgrows it, delivery is permissionless — anyone
+        can re-execute the verified message with more.                   */
+    bytes internal constant DEFAULT_OPTIONS =
+        hex"00030100110100000000000000000000000000030d40";
 
     /*  The peers, fixed at construction. A port that could learn a new peer
         afterwards is a port whose owner can introduce a chain nobody
@@ -135,7 +194,9 @@ contract ParleyPort {
         IParleyRead parley,
         ILayerZeroEndpointV2 endpoint,
         uint32[] memory peerEids,
-        bytes32[] memory peers
+        bytes32[] memory peers,
+        LanePin[] memory lanePins,
+        ConfigPin[] memory configPins
     ) {
         PARLEY = parley;
         ENDPOINT = endpoint;
@@ -145,8 +206,29 @@ contract ParleyPort {
             _peerEids.push(peerEids[i]);
             peerOf[peerEids[i]] = peers[i];
         }
+
+        /*  The pin, applied while this contract still may: the endpoint
+            authorizes the OApp itself, so the constructor is the one
+            moment configuration can be written without a delegate. Empty
+            arrays float on the endpoint's defaults — a stated choice,
+            argued in the header, not an oversight.                      */
+        for (uint256 i; i < lanePins.length; ++i) {
+            LanePin memory p = lanePins[i];
+            if (p.sendLib != address(0))
+                endpoint.setSendLibrary(address(this), p.eid, p.sendLib);
+            if (p.receiveLib != address(0))
+                endpoint.setReceiveLibrary(address(this), p.eid, p.receiveLib, 0);
+        }
+        for (uint256 i; i < configPins.length; ++i) {
+            ConfigPin memory p = configPins[i];
+            ILayerZeroEndpointV2.SetConfigParam[] memory one =
+                new ILayerZeroEndpointV2.SetConfigParam[](1);
+            one[0] = ILayerZeroEndpointV2.SetConfigParam(p.eid, p.configType, p.config);
+            endpoint.setConfig(address(this), p.lib, one);
+        }
+
         /*  No admin, from the first block. There is no function in this
-            contract that can undo this.                                 */
+            contract that can undo this — or any of the above.           */
         endpoint.setDelegate(address(0));
     }
 
@@ -163,11 +245,15 @@ contract ParleyPort {
         public view returns (uint256 total)
     {
         bytes memory m = abi.encode(LOCAL_EID, from, kind, body);
+        /*  Empty means the default, because on the real wire empty means
+            REFUSED: ULN302 reverts a quote whose options name no
+            lzReceive gas. A caller who knows better passes their own. */
+        bytes memory opts = options.length == 0 ? DEFAULT_OPTIONS : options;
         for (uint256 i; i < _peerEids.length; ++i) {
             total += ENDPOINT.quote(
                 ILayerZeroEndpointV2.MessagingParams({
                     dstEid: _peerEids[i], receiver: peerOf[_peerEids[i]],
-                    message: m, options: options, payInLzToken: false
+                    message: m, options: opts, payInLzToken: false
                 }), address(this)).nativeFee;
         }
     }
@@ -189,18 +275,19 @@ contract ParleyPort {
         if (msg.value < want) revert Underpaid(want);
 
         bytes memory m = abi.encode(LOCAL_EID, from, kind, body);
+        bytes memory opts = options.length == 0 ? DEFAULT_OPTIONS : options;
         uint256 spent;
         for (uint256 i; i < _peerEids.length; ++i) {
             uint32 dst = _peerEids[i];
             uint256 fee = ENDPOINT.quote(
                 ILayerZeroEndpointV2.MessagingParams({
                     dstEid: dst, receiver: peerOf[dst], message: m,
-                    options: options, payInLzToken: false
+                    options: opts, payInLzToken: false
                 }), address(this)).nativeFee;
             ILayerZeroEndpointV2.MessagingReceipt memory r = ENDPOINT.send{value: fee}(
                 ILayerZeroEndpointV2.MessagingParams({
                     dstEid: dst, receiver: peerOf[dst], message: m,
-                    options: options, payInLzToken: false
+                    options: opts, payInLzToken: false
                 }), msg.sender);
             spent += fee;
             emit Sent(dst, from, r.guid);
@@ -214,7 +301,54 @@ contract ParleyPort {
         }
     }
 
-    /*═══════════════════ hearing inward ═══════════════════*/
+    /*═══════════════════ hearing inward ═══════════════════
+
+      For one commit this side spoke the mock's dialect, not the
+      protocol's. The parameter was declared `bytes calldata origin` and
+      decoded by hand — because the mock endpoint was the only endpoint
+      this contract had ever met, and the mock had been written to match
+      the contract. EndpointV2 delivers with `Origin calldata`, a static
+      tuple, and the tuple is part of the canonical signature:
+
+        lzReceive((uint32,bytes32,uint64),bytes32,bytes,address,bytes)
+                                                             = 0x13137d65
+        lzReceive(bytes,bytes32,bytes,address,bytes)         = 0x42172c88
+
+      Different selector. Every real delivery would have fallen through
+      the dispatcher into a contract with no fallback, every retry would
+      have burned the executor's gas the same way, and no assertion here
+      would have said a word, because every assertion drove the mock.
+      `tools/probe-port-abi.mjs` measured it at the deployed bytecode —
+      the three protocol selectors answered `revert 0x`, no dispatch —
+      which is the only way a hole like this gets found: the suite that
+      shares a dialect with its subject cannot hear the accent.
+
+      The endpoint also asks two questions before the first packet on a
+      lane can ever be verified, and a receiver that cannot answer them
+      is not deaf but unborn: `allowInitializePath` gates the lane, and
+      `nextNonce` states the ordering promise. Both are below, and the
+      mock now performs the same handshake the real endpoint does.      */
+
+    /// @notice The endpoint consults this before the FIRST packet on a
+    ///         lane can be verified; answering false leaves the lane
+    ///         uninitialized forever.
+    /// @dev    The answer is the peer table — the same check lzReceive
+    ///         makes, asked earlier, by the protocol itself. No state,
+    ///         no authority, no way to answer differently later.
+    function allowInitializePath(Origin calldata origin) external view returns (bool) {
+        bytes32 want = peerOf[origin.srcEid];
+        return want != bytes32(0) && want == origin.sender;
+    }
+
+    /// @notice Zero, always: no ordered delivery is promised or wanted.
+    /// @dev    The endpoint never calls this; the off-chain executor asks
+    ///         it whether the OApp wants ordered execution before it will
+    ///         auto-deliver. Zero is the protocol's word for "no ordering
+    ///         promised — deliver what is attested, in any order". Speech
+    ///         carries its own back-links, so arrival order is cosmetic;
+    ///         a lane that must halt on one stuck message is a queue
+    ///         nobody asked for.
+    function nextNonce(uint32, bytes32) external pure returns (uint64) { return 0; }
 
     /// @notice Called by the endpoint once the DVNs have attested.
     /// @dev    The only authority checked is that the endpoint made the
@@ -224,19 +358,24 @@ contract ParleyPort {
     ///         foreign, attributable, and impossible to confuse with
     ///         something said locally.
     function lzReceive(
-        bytes calldata origin,      // (srcEid, sender, nonce), abi-encoded
+        Origin calldata origin,
         bytes32,                    // guid
         bytes calldata message,
-        address,
-        bytes calldata
+        address,                    // executor
+        bytes calldata              // extraData
     ) external payable {
         if (msg.sender != address(ENDPOINT)) revert NotTheEndpoint();
-        (uint32 srcEid, bytes32 sender, ) = abi.decode(origin, (uint32, bytes32, uint64));
-        bytes32 want = peerOf[srcEid];
-        if (want == bytes32(0) || want != sender) revert UnknownPeer(srcEid);
+        bytes32 want = peerOf[origin.srcEid];
+        if (want == bytes32(0) || want != origin.sender) revert UnknownPeer(origin.srcEid);
 
         (uint32 originEid, uint256 from, uint8 kind, bytes memory body) =
             abi.decode(message, (uint32, uint256, uint8, bytes));
+
+        /*  The eid inside the message is the sender's claim about itself;
+            the one in the envelope is what the DVNs attested. A peer that
+            says one thing to the verifiers and another in the body is
+            refused rather than believed on either count.                 */
+        if (originEid != origin.srcEid) revert UnknownPeer(originEid);
         if (body.length == 0 || body.length > MAX_BODY) revert BadBody();
 
         /*  The sender's back-link is dropped here. Its block number refers
