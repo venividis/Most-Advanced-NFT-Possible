@@ -42,11 +42,13 @@ html,body{height:100%;overflow:hidden;background:var(--void);color:var(--txt);
   -webkit-font-smoothing:antialiased}
 body{opacity:0;transition:opacity .9s var(--ease)}
 body.up{opacity:1}
-/*  --fx and --fy are the strip the deck has taken off the right and the
-    bottom. The field is inset by them rather than covered by them, so the
-    solid shrinks into the room that is left and every gesture it had —
-    orbit, wheel, pinch, node picking — keeps working on a smaller
-    rectangle whose origin is still (0,0).                              */
+/*  The field is the whole field. Two custom properties used to hold the
+    strip the deck had taken off the right or the bottom, and every size
+    here was written against them — `calc(100% - var(--fx,0px))`, which
+    with nothing setting it resolves to exactly 100% and reads like
+    something conditional. It was not dead code while the deck existed;
+    it is now, and dead code that still computes is worse than dead code
+    that does not, because it survives a search for what is unused.   */
 /*  Sized by calc rather than by insets. A canvas is a replaced element:
     given left, right and `width:auto` together, CSS drops the right offset
     and uses the intrinsic width — which for an untouched canvas is 2px,
@@ -54,10 +56,10 @@ body.up{opacity:1}
     reasoned about: the first build of this laid out an 1180x860 field as
     2x2 and drew nothing.                                              */
 canvas#field{position:fixed;left:0;top:0;
-  width:calc(100% - var(--fx,0px));height:calc(100% - var(--fy,0px));
+  width:100%;height:100%;
   display:block;touch-action:none;z-index:0}
 svg#wires{position:fixed;left:0;top:0;
-  width:calc(100% - var(--fx,0px));height:calc(100% - var(--fy,0px));
+  width:100%;height:100%;
   pointer-events:none;z-index:2}
 
 /*──────────────────────────── type ────────────────────────────*/
@@ -99,112 +101,33 @@ hr{border:0;height:1px;background:var(--rule);margin:12px 0}
 .led.live{background:var(--ok);box-shadow:0 0 9px var(--ok)}
 .led.ro{background:var(--a);box-shadow:0 0 9px var(--a-dim)}
 
-/*──────────────────────── the deck ────────────────────────*/
-/*  Up to four flat surfaces, loaded at once and shown one at a time. The
-    previous arrangement was a single full-screen veil for the terminal and
-    a new browser tab for everything else, which meant the instrument was
-    something you left in order to use the site.
+/*──────────────────────── where the deck was ────────────────────────*/
+/*  A deck stood here: up to four contract-rendered pages loaded at once
+    and shown one at a time, in a strip beside the field. It is gone, and
+    what it cost is worth writing down where the next person will find it.
 
-    The geometry does not change with the number of panes. One pane and
-    four panes give the field exactly the same rectangle; the strip grows
-    by one button. That is deliberate: a layout that reflows the field when
-    a fourth surface opens makes the count something you have to hold in
-    your head, and the count is the least interesting thing about it.
+    A pane was a whole second document. Open `/door` in one and the site's
+    front page arrived, which lists the collection; follow a token from
+    there and you reached `/token/<id>/live`, which is an entire second
+    instrument — a different token, its own ring, its own rotor bank, its
+    own raymarcher, running inside the first. That instrument carried the
+    same control that opened the deck, so it went round again, and the
+    reader who found it put it exactly right: it is interesting, and you
+    cannot tell where the copies came from. Every level was byte-identical
+    to the top one. Nothing said whose token you were looking at or how
+    far in you had walked.
 
-    Why one visible rather than four tiled: every flat page here is laid
-    out against `max-width:60rem` with a `dl` whose first column alone is
-    9.5rem. At 390pt a full-width pane leaves 342px of content and the page
-    renders in its own mobile layout; a half-width phone pane leaves 147px,
-    less than that first column, and the site's own layout breaks and
-    scrolls sideways. That is a measurement, not a preference.          */
-#deck{position:fixed;z-index:5;display:none;flex-direction:column;
-  background:var(--void-2);border:1px solid var(--rule-2)}
-#deck.on{display:flex}
-/*──────── the rail: the ring's own surfaces, not a row of tabs ────────
+    The heat was the arithmetic of that. Three 4-D distance fields at the
+    quality ladder's top tier, on one main thread, on a phone.
 
-    A tab bar was here. It was a second navigation for objects that already
-    have one — the nodes orbit the solid and each already draws a wire to
-    its own label — and it stated in 9px uppercase what the ring states in
-    geometry.
-
-    It cannot simply be deleted, though, and the reason is the geometry:
-    nodes ORBIT. A node behind the solid, or off a narrow edge, is not a
-    target. So the rail is what the ring cannot be — four fixed marks that
-    never move — and the wire is what a tab bar could never be: the focused
-    surface draws a line from its mark back to wherever its node currently
-    is. Stable to hit, honest about where it came from.
-
-    Each mark is the token's own hue, because `--a` is derived from the
-    token's section. Two tokens' decks are not the same colour.        */
-#dkrail{position:absolute;z-index:3;display:flex;pointer-events:none}
-#dkrail .dm{pointer-events:auto;position:relative;display:flex;align-items:center;
-  justify-content:center;background:transparent;border:0;padding:0;cursor:pointer;
-  font:inherit;color:var(--dim);transition:color .3s var(--ease)}
-/*  The mark itself: a ring that fills when its surface is the one you are
-    looking at. Nothing is written on it — the name belongs in one place,
-    and one place is the head.                                          */
-#dkrail .dm::before{content:"";width:7px;height:7px;border-radius:50%;
-  border:1px solid var(--rule-3);background:transparent;
-  transition:background .3s var(--ease),border-color .3s var(--ease),
-             transform .3s var(--ease),box-shadow .3s var(--ease)}
-#dkrail .dm:hover::before{border-color:var(--a-dim)}
-#dkrail .dm.on::before{background:var(--a);border-color:var(--a);transform:scale(1.34);
-  box-shadow:0 0 0 4px var(--a-ghost)}
-
-/*  The head: the one place a surface is named. One name at full size beats
-    four truncated to nothing, and the count lives on the rail.        */
-#dkhead{flex:0 0 auto;display:flex;align-items:center;gap:10px;height:34px;
-  padding:0 12px;border-bottom:1px solid var(--rule);background:var(--void-2)}
-#dkname{flex:1 1 auto;min-width:0;font-size:10px;letter-spacing:.24em;
-  text-transform:uppercase;color:var(--a);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#dkhead button{flex:0 0 auto;background:transparent;border:0;padding:4px 6px;cursor:pointer;
-  font:inherit;font-size:11px;color:var(--dim);transition:color .2s}
-#dkhead button:hover{color:var(--lit)}
-#dkwrap{flex:1 1 auto;position:relative;background:var(--void)}
-#dkwrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0;
-  background:var(--void);visibility:hidden}
-/*  visibility, not display. `display:none` removes the layout box, so a
-    responsive page relayouts from zero width when it comes back and loses
-    its scroll offset; visibility keeps box, offset and layout and still
-    stops the hidden document painting.                                 */
-#dkwrap iframe.on{visibility:visible}
-/*  Without this a resize drag dies the moment the pointer crosses into a
-    frame, because the frame swallows it. It is not dead CSS.           */
-#deck.drag #dkwrap iframe{pointer-events:none}
-#dkedge{position:absolute;z-index:2;touch-action:none}
-#dkedge:hover{background:var(--a-ghost)}
-@media (min-width:781px){
-  #deck{top:0;right:0;bottom:0;width:var(--dw,min(560px,46vw));border-width:0 0 0 1px}
-  #dkedge{left:0;top:0;bottom:0;width:10px;cursor:ew-resize}
-  /*  Outside the deck, in the field, so the marks sit between the solid
-      and the surface and the wire has somewhere to land.              */
-  #dkrail{left:-26px;top:0;bottom:0;width:26px;flex-direction:column;
-    justify-content:center;gap:18px}
-  #dkrail .dm{width:26px;height:26px}
-  body.dk #dock{right:var(--fx,0px)}
-  body.dk #coach{left:calc((100% - var(--fx,0px)) / 2)}
-}
-@media (min-width:1100px){ body.dk #sheet{right:var(--fx,0px)} }
-@media (max-width:780px){
-  #deck{left:0;right:0;bottom:calc(var(--dock) + var(--safeB));height:var(--dh,60%);
-    border-width:1px 0 0 0}
-  /*  The handle sits fully inside the deck. Overhanging it by even a few
-      pixels would start the drag on the canvas, which takes pointer
-      capture, and the gesture would orbit instead of resize.           */
-  #dkedge{left:0;right:0;top:0;height:12px;cursor:ns-resize}
-  /*  Above the deck on a phone, laid along it, for the same reason: the
-      field is up there and that is where the wire comes from.         */
-  #dkrail{left:0;right:0;top:-28px;height:28px;flex-direction:row;
-    justify-content:center;gap:22px}
-  /*  Forty-four square: on a phone these are the only thumb targets in
-      the whole deck, and a 7px dot is not a target.                   */
-  #dkrail .dm{width:44px;height:28px}
-  #dkhead{height:40px}
-}
+    So the ring is the navigation and a node opens a native plate — this
+    document, this token, one thread. Leaving is a navigation, which
+    replaces the document rather than stacking one on another. Looking at
+    somebody else's token is a thing the flat side should do well and
+    legibly; it is not a thing that should happen four deep by accident. */
 /*──────────────────────── node labels ────────────────────────*/
 #nodes{position:fixed;left:0;top:0;
-  width:calc(100% - var(--fx,0px));height:calc(100% - var(--fy,0px));
+  width:100%;height:100%;
   z-index:3;pointer-events:none}
 .nd{position:absolute;transform:translate(-50%,-50%);pointer-events:auto;cursor:pointer;
   padding:5px 10px;white-space:nowrap;font-size:9px;letter-spacing:.21em;
@@ -255,7 +178,7 @@ hr{border:0;height:1px;background:var(--rule);margin:12px 0}
 
 /*──────────────────────── ticker ────────────────────────*/
 #tick{position:fixed;left:0;z-index:6;
-  bottom:max(calc(var(--dock) + var(--safeB)), calc(var(--fy,0px) + 6px));
+  bottom:calc(var(--dock) + var(--safeB));
   padding:6px 13px;max-width:min(56vw,440px);pointer-events:none;
   font-size:10px;letter-spacing:.06em;color:var(--mid);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -486,9 +409,7 @@ pre.code b{color:var(--a);font-weight:400}
 <body>
 
 <canvas id="field"></canvas>
-<section id="deck" aria-label="the flat site">
-<div id="dkedge"></div><div id="dkrail" role="tablist"></div><div id="dkhead"><span id="dkname"></span><button id="dkshut" type="button" aria-label="Close this surface">×</button></div><div id="dkwrap"></div>
-</section>
+
 <svg id="wires" aria-hidden="true"></svg>
 <div id="nodes"></div>
 <div id="plate" hidden role="dialog" aria-labelledby="plname"><button id="plno" type="button" aria-label="Dismiss">×</button><div id="plname"></div><div id="plblurb"></div><p id="plnote"></p><button id="plgo" type="button"></button></div>
@@ -641,27 +562,18 @@ const NN = MODULES.length;
     never forms. These ride outside the shader's twelve — labels, wires
     and the picking ray know them; the field does not.                  */
 const DOORED = /^(https?|web3):$/.test(location.protocol);
-const DOORS = [
-  { id:"TERMINAL", name:"Terminal", ring:2, key:"", door:"/terminal",
-    blurb:"The site's terminal, drawn over the instrument. Every function, one line at a time; an agent drives the same words." },
-  { id:"DSWAP",    name:"Swap",     ring:2, key:"", door:"/swap",
-    blurb:"Any ERC-20 with a pool, against this chain's own Uniswap. Opens the 2-D swap surface." },
-  { id:"DLAUNCH",  name:"Launch",   ring:2, key:"", door:"/launch",
-    blurb:"A v4 launchpad: fixed-supply token, mined hook, pool. Opens the 2-D launch surface." },
-  { id:"DLOCK",    name:"Lock",     ring:2, key:"", door:"/lock",
-    blurb:"The vault: tokens in, a date on a bar, no early exit. Opens the 2-D lock surface." },
-  { id:"DSOCIAL",  name:"Social",   ring:2, key:"", door:"/chat",
-    blurb:"The commons, the rooms, and sealed whispers between tokens. Opens the 2-D social surface." },
-  { id:"DGALLERY", name:"Gallery",  ring:2, key:"", door:"/gallery",
-    blurb:"The whole collection, wearing its stills. Opens the 2-D gallery." },
-  { id:"DARCHIVE", name:"Archive",  ring:2, key:"", door:"/open",
-    blurb:"Every market open for business. Opens the 2-D archive." },
-  { id:"DESTATE",  name:"Estate",   ring:2, key:"", door:"/estate",
-    blurb:"Succession \u2014 a token that outlives its holder \u2014 and consignment: escrow with a floor an agent cannot go under. Opens the 2-D estate surface." },
-  { id:"DSITE",    name:"2D Site",  ring:2, key:"", door:"/door",
-    blurb:"The flat site entire, from its own front page \u2014 what you hold, the chains, the roll." }
-];
-if(DOORED) MODULES.push(...DOORS);
+/*  Where `/connect` goes. Named rather than inlined because it is the one
+    thing the console redesign will move, and a route spelled in three
+    places is a route that will be right in two of them.              */
+const LANDING = "/door";
+/*  A ring of seven door nodes used to orbit here, each carrying a route
+    into the flat site. They were the deck's entrances and nothing else:
+    with no deck to enter, a node whose whole definition is `door:"/swap"`
+    is a button that cannot be pressed.
+
+    Removing them shrinks the orbit back to the instrument's own twelve,
+    which is what the geometry was drawn for — the outer shell existed to
+    hold doors, and doors are now something you go through by leaving. */
 
 /* the eight solids. names, and how each behaves as w moves */
 const FORMS = [
@@ -1262,6 +1174,30 @@ const IDLE_HZ = CALM ? 4 : 10;
 const IDLE_MS = 1000 / IDLE_HZ;
 const CONVERGED = 96;
 let lastDraw = 0;
+
+/*  Two documents, one thread.
+
+    The throttle above answers a loop that is idle. It could never answer
+    the other half of the heat, because in that half the loop is not idle
+    — it is busy, and correctly so. When the token is opened inside
+    itself there are two complete raymarchers on one main thread, each
+    asking a phone for everything it has, and each one's quality ladder
+    reading the other's cost as its own device being slow.
+
+    Which of the two is being looked at is not ambiguous. The inner
+    section is the picture; the host is the frame around it. So the host
+    yields: it keeps drawing, because an inner section hanging in a field
+    frozen mid-turn reads as broken, but it draws at a walking pace and
+    spends the rest of the thread on the copy in front of it.
+
+    Kept on the class rather than beside it. `on` is what puts the inner
+    section on the screen, so there is one fact and one place holding it,
+    and no way for the yield and the picture to disagree.              */
+const NEST_HZ = CALM ? 2 : 5;
+const NEST_MS = 1000 / NEST_HZ;
+let nestBox = null;
+const nestUp = () =>
+  (nestBox || (nestBox = document.getElementById("nest"))).classList.contains("on");
 /*  Clamped, not just initialised: on a handheld the default was already
     the ceiling, and under reduced motion it started one above it and
     would only have come down by failing to keep up.                   */
@@ -1537,6 +1473,13 @@ function frame(now){
       }
     } else good = 0;
   }
+  /*  A ladder measuring frames per second cannot tell a slow device from
+      a busy one. With an inner section open it would read the copy's
+      cost as the device failing and climb down — or, worse, read a
+      thread the copy happened to leave free and climb up into it. It
+      sits at the bottom until the section is closed and then earns its
+      way back the ordinary way.                                      */
+  if(nestUp() && tier > 0){ tier = 0; good = 0; }
 
   VIS.pulse *= Math.pow(0.05, dt);
   VIS.ghost += ((L.dirty ? 1 : 0) - VIS.ghost) * Math.min(1, dt * 4);
@@ -1558,6 +1501,11 @@ function frame(now){
       orbit — `layout` is DOM transforms and an SVG line, which is what a
       browser does cheaply — so the piece keeps moving while the field
       holds the frame it already finished.                              */
+  /*  Ahead of the idle throttle, and not folded into it: the host is
+      NOT still while an inner section is open — the nodes orbit, the
+      solid turns — so every condition the idle path tests is false and
+      it would have drawn every frame of the one moment it must not. */
+  if(nestUp() && now - lastDraw < NEST_MS){ layout(); return; }
   if(still && accFrames >= CONVERGED && now - lastDraw < IDLE_MS){ layout(); return; }
   lastDraw = now;
 
@@ -1713,11 +1661,10 @@ function layout(){
     e.w.setAttribute("x2", lx.toFixed(1));  e.w.setAttribute("y2", ly.toFixed(1));
     e.w.setAttribute("stroke", VIS.sel === i ? "var(--a)" : "#212838");
   }
-  if(nestLive) placeNest();
+  if(nestUp()) placeNest();
   /*  The node moves every frame; a wire drawn only when the deck repaints
       would lag the thing it points at by however long you do not touch
       the deck. It is two setAttribute calls against one element.     */
-  if(dkI >= 0) dkWire();
   if(plateI >= 0) plateWire();
 }
 
@@ -2469,37 +2416,16 @@ const liveWord = () => packSection(L.rot, L.w, L.form, L.hue);
 const sheet = $("#sheet"), sbody = $("#sbody");
 let current = -1;
 
-/*  Which nodes have a flat surface worth opening, and which do not.
 
-    The rule, and it is the whole rule: a node opens a pane when the flat
-    site does something this frame cannot. It keeps its own controls when
-    the control IS the demonstration — ROTATE and SECTION commit the
-    orientation you are looking at right now, and that operand lives in
-    this frame's camera and nowhere on chain until the transaction lands.
-    There is no page that could show it, and there should not be.
+/*  One gesture, two outcomes, and both are drawn in this document. A node
+    the token has not opened shows the plate — what it is, what opening
+    costs, and the one transaction that does it. A node that is open shows
+    its own control.
 
-    SEND, ERC20, CALL, SIGN and SCAN keep their controls for a different
-    reason: no route does what they do. The site's only ERC-20 surface is
-    a Uniswap swap, and pointing "move a balance" at "trade a balance"
-    would be a lie told by a menu.                                      */
-const TWIN = {
-  SELF:   ["/token/$",        "Counter"],
-  VAULT:  ["/token/$/vault",  "Vault"],
-  MARKET: ["/token/$/market", "Market"],
-  /*  The mint node. /door is the only flat surface that can actually mint
-      — it carries the price and the terminal core — so ISSUE opens it,
-      and the pane is labelled Door rather than Issue because a tab that
-      claimed to be the node would be the misdirection.                 */
-  MINT:   ["/door",           "Door"]
-};
-
+    There used to be a third and a fourth outcome here, both of which
+    loaded a web page. That is what made clicking a node unpredictable:
+    four branches on conditions no viewer can see.                     */
 function open(i){
-  const dm = MODULES[i];
-  if(dm && dm.door) return dkOpen(dm.door, dm.name, i);
-  /*  A node with a twin opens the surface and offers the native panel
-      beside it, rather than choosing for the reader.                   */
-  const tw = dm && TWIN[dm.id];
-  if(tw && DOORED && !isOpen(i)) return dkOpen(dkPath(tw[0]), tw[1], i);
   if(!isOpen(i)) return plateOpen(i);
   VIS.sel = i;
   current = i;
@@ -2523,30 +2449,29 @@ function shut(){
 }
 $("#shut").onclick = shut;
 /*───────────────────────────────────────────────────────────────────────────
-  10b · THE DECK — the flat site, inside the instrument
+  10b · THE INSTRUMENT IS NOT A BROWSER
 
-  Every surface the collection serves is a page a contract renders, and
-  until now reaching one meant leaving this document. The deck holds up to
-  four of them at once, live, in a strip the field gives up rather than one
-  laid over it.
+  A deck used to live here: up to four contract-rendered pages, live, in a
+  strip the field gave up. It worked, and it was the wrong idea, and the
+  owner found the reason before the design did.
 
-  The rules that are not obvious, and that a later reader will otherwise
-  break:
+  Opening a surface left two things running. Not two views of one thing —
+  two documents, each with its own loop, one of them showing a DIFFERENT
+  token from the one you were inside. `visibility:hidden` stops a document
+  painting and not thinking, so the panes behind the visible one went on
+  asking for frames. It was reported as a phone getting hot, and every fix
+  for that was a throttle on a thing that should not have been running.
 
-    · `#dkwrap` is never written with innerHTML and a frame is never
-      re-parented or reordered. Moving an <iframe> in the DOM reloads its
-      document. That single rule is what makes "four live surfaces" true,
-      and violating it produces a bug report about a half-filled swap form
-      rather than an error.
-    · No `sandbox` attribute, deliberately. `allow-scripts` without
-      `allow-same-origin` gives the frame an opaque origin, no wallet
-      injects into it, and the pane reproduces exactly the failure the
-      premises contract documents for data: URLs — renders perfectly,
-      can never connect. The pair together grants nothing on a same-origin
-      frame, since the frame can reach up and remove the attribute.
-    · Only absolute paths built from SURF ever become a pane. Nothing
-      typed reaches a src.
+  So the instrument no longer opens web surfaces at all. A node opens its
+  own control, drawn here, in this document's language; a sealed node shows
+  the plate. Everything else is reached by LEAVING, which is what `/connect`
+  now does — the loop ends with the document rather than being paced down
+  behind another one.
+
+  What this buys, besides the heat: an instrument that is one thing. It was
+  becoming a browser with a picture in it.
 ───────────────────────────────────────────────────────────────────────────*/
+
 /*───────────────────── the plate ─────────────────────*/
 
 let plateI = -1, plateLink = null, plateAt = null;
@@ -2627,323 +2552,6 @@ addEventListener("pointerdown", e => {
   if(plateI >= 0 && !e.target.closest("#plate") && !e.target.closest(".nd")) plateShut();
 }, true);
 
-const DKMAX = 4;
-
-/*  The whole vocabulary of the deck, and the only allowlist of routes it
-    will load. `#` takes a number; `$` is this token's id. /live and /raw
-    are deliberately absent: one is this document again, the other is not
-    a page.                                                             */
-const SURF = {
-  door:"/door", terminal:"/terminal", chat:"/chat", rooms:"/rooms", room:"/room/#",
-  dm:"/dm/#", swap:"/swap", gallery:"/gallery", launch:"/launch", lock:"/lock",
-  seal:"/seal", keys:"/keys", name:"/name", estate:"/estate", archive:"/open",
-  projector:"/projector", services:"/services.json", self:"/token/$",
-  faces:"/token/$/faces", market:"/token/$/market", pool:"/token/$/pool",
-  rent:"/token/$/rent", vault:"/token/$/vault"
-};
-/*  The words people actually say, rather than the ones the routes are
-    named. "open world chat" has to work because that is what someone
-    types when they mean the commons.                                   */
-const ALIAS = {
-  chat:"world commons social say", archive:"open markets",
-  door:"site front home 2d index mint issue", self:"token counter",
-  rooms:"messages groups", market:"exchange trade", vault:"assets grip reach hands",
-  terminal:"console words", lock:"vault timelock", estate:"will succession consign",
-  seal:"soulbind bolt", keys:"session grant", name:"ens"
-};
-
-let dkTabs = [], dkI = -1, dkClock = 0;
-
-const dkPath = (t) => t.replace("$", String(S.id));
-
-/*  Same origin, so the deck can ask a pane whether closing it would throw
-    away typing. Where a gateway splits routes across origins this throws
-    and the answer is no — which is the same answer a browser gives about
-    a tab it cannot see into.                                           */
-function dkTyped(t){
-  try {
-    return Array.from(t.fr.contentDocument.querySelectorAll("input,textarea"))
-      .some(e => e.value && e.type !== "hidden");
-  } catch(e){ return false; }
-}
-
-function dkStage(){
-  const on = dkTabs.length > 0;
-  document.body.classList.toggle("dk", on);
-  $("#deck").classList.toggle("on", on);
-  const wide = innerWidth >= 781;
-  const r = on ? $("#deck").getBoundingClientRect() : null;
-  /*  From the edge, not from the size. On a phone the deck floats above
-      the dock, so its height alone understates the strip by exactly the
-      dock — and the field would draw underneath it.                   */
-  document.documentElement.style.setProperty("--fx",
-    on && wide  ? Math.round(innerWidth  - r.left) + "px" : "0px");
-  document.documentElement.style.setProperty("--fy",
-    on && !wide ? Math.round(innerHeight - r.top)  + "px" : "0px");
-  remeasure(); resize(); accFrames = 0;
-}
-
-/*  The rail is rebuilt on every paint and the frames are not touched. That
-    asymmetry is the whole safety property of this file: `#dkwrap` is never
-    written and a frame is never moved, so four live surfaces stay live.
-    The rail is a different element and may be thrown away freely.      */
-function dkPaint(){
-  const rail = $("#dkrail");
-  rail.innerHTML = dkTabs.map((t, k) =>
-    '<button class="dm' + (k === dkI ? " on" : "") + '" data-k="' + k +
-    '" role="tab" aria-selected="' + (k === dkI) + '" title="' + esc(t.label) +
-    '" aria-label="' + esc(t.label) + '"></button>').join("");
-  $("#dkname").textContent = dkI >= 0 ? dkTabs[dkI].label : "";
-  dkTabs.forEach((t, k) => {
-    t.fr.classList.toggle("on", k === dkI);
-    /*  After the class, so the frame that is about to be visible is woken
-        rather than woken and then hidden by its own paint.             */
-    if(!t.cold) dkQuiet(t, k !== dkI);
-  });
-  dkStage();
-  dkWire();
-}
-
-/*  The line from the focused surface's mark back to the node it came from.
-    A tab bar could not do this: the connection between "the thing you
-    clicked, orbiting out there" and "the thing you are looking at" was
-    left for the reader to remember. Here it is drawn.
-
-    It is one SVG line reused, never appended, because `layout` runs every
-    frame and a line per frame is a leak that looks like a slowdown.   */
-let dkLink = null;
-function dkWire(){
-  if(!dkLink){
-    dkLink = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    dkLink.setAttribute("stroke-width", "1");
-    dkLink.setAttribute("stroke", "var(--a-dim)");
-    dkLink.setAttribute("stroke-dasharray", "1 3");
-    /*  Named, because two dashed lines now leave the ring for two
-        different reasons and "the dashed one" stopped identifying either. */
-    dkLink.setAttribute("data-w", "deck");
-    $("#wires").appendChild(dkLink);
-  }
-  const t = dkI >= 0 ? dkTabs[dkI] : null;
-  const mark = t ? $("#dkrail").querySelector('.dm[data-k="' + dkI + '"]') : null;
-  const n = t && t.node != null ? labels[t.node] : null;
-  /*  Hidden unless the node is actually on screen. A wire to a node that
-      has orbited behind the solid points at nothing, and a line ending in
-      the middle of the field reads as a rendering fault.              */
-  if(!t || !mark || !n || !n.vis){ dkLink.style.display = "none"; return; }
-  const r = mark.getBoundingClientRect();
-  dkLink.style.display = "";
-  dkLink.setAttribute("x1", (n.lx || 0).toFixed(1));
-  dkLink.setAttribute("y1", (n.ly || 0).toFixed(1));
-  dkLink.setAttribute("x2", (r.left + r.width / 2).toFixed(1));
-  dkLink.setAttribute("y2", (r.top + r.height / 2).toFixed(1));
-}
-
-
-function dkLoad(k){
-  const t = dkTabs[k];
-  if(!t.cold) return;
-  t.cold = false;
-  t.fr.src = t.path;
-}
-
-/*───────────── a pane nobody is looking at should be still ─────────────
-
-  `visibility:hidden` stops a document painting. It does not stop it
-  THINKING: the frame's timers run, its loop keeps asking for frames, and
-  a browser only throttles that for a background tab, which a hidden
-  iframe in a foreground tab is not.
-
-  So four panes were four animation loops, all running, while one of them
-  was visible — on top of a field that was itself never idle. Reported as
-  a phone getting hot, and the throttle in the loop only ever addressed
-  the outer half of it.
-
-  Two things are done to a pane that loses focus, because one is polite
-  and the other is certain.
-
-  Polite: it is TOLD, in the standard way, that it is hidden. A page that
-  listens for visibilitychange — this collection's own instrument now does
-  — stops on its own and needs nothing else.
-
-  Certain: its requestAnimationFrame is parked. Not stubbed to nothing,
-  which would kill the loop for good: the callback is KEPT, and a loop
-  that queues one frame at a time therefore parks after exactly one and
-  resumes from where it stopped when the queue is flushed. Stubbing to a
-  no-op would look identical for as long as the pane stayed hidden and
-  then show a frozen page on the way back.
-
-  All of it inside a try. Where a gateway serves routes from another
-  origin the frame is unreachable, and the correct behaviour there is the
-  behaviour a browser already gives: leave it alone.                   */
-function dkQuiet(t, quiet){
-  let w, d;
-  try { w = t.fr.contentWindow; d = t.fr.contentDocument; } catch(e){ return; }
-  if(!w || !d || t.quiet === quiet) return;
-  t.quiet = quiet;
-  try {
-    Object.defineProperty(d, "hidden", { get: () => quiet, configurable: true });
-    Object.defineProperty(d, "visibilityState",
-      { get: () => quiet ? "hidden" : "visible", configurable: true });
-    d.dispatchEvent(new w.Event("visibilitychange"));
-  } catch(e){}
-  try {
-    if(quiet){
-      if(!t.raf){
-        t.raf = w.requestAnimationFrame.bind(w);
-        t.q = [];
-        w.requestAnimationFrame = (cb) => { t.q.push(cb); return 0; };
-      }
-    } else if(t.raf){
-      const real = t.raf, q = t.q || [];
-      w.requestAnimationFrame = real;
-      t.raf = null; t.q = [];
-      /*  Flushed through the real one rather than called directly, so a
-          callback still receives a timestamp and a frame to draw into. */
-      for(const cb of q) real(cb);
-    }
-  } catch(e){}
-}
-
-function dkFocus(k){
-  if(k < 0 || k >= dkTabs.length) return;
-  dkI = k;
-  dkTabs[k].t = ++dkClock;
-  dkLoad(k);
-  if(dkTabs[k].node != null) VIS.sel = dkTabs[k].node;
-  dkPaint();
-}
-
-function dkShed(k){
-  const t = dkTabs[k];
-  /*  about:blank before remove(), so the document is torn down now rather
-      than at the collector's convenience.                              */
-  try { t.fr.src = "about:blank"; } catch(e){}
-  t.fr.remove();
-  dkTabs.splice(k, 1);
-  if(dkI >= dkTabs.length) dkI = dkTabs.length - 1;
-  else if(dkI > k) dkI -= 1;
-}
-
-function dkClose(k){
-  if(k < 0 || k >= dkTabs.length) return;
-  dkShed(k);
-  dkPaint();
-  if(!dkTabs.length){ VIS.sel = -1; say("The deck is closed."); }
-}
-
-function dkCloseAll(){
-  while(dkTabs.length) dkShed(0);
-  dkI = -1; VIS.sel = -1; dkPaint();
-}
-
-function dkOpen(path, label, node){
-  if(!DOORED) return say("This copy is not served from an origin, so there is no flat site to reach. Open the token on a gateway.", "err");
-  if(!/^\/[^\/]/.test(path)) return say("That is not a path this deck will load.", "err");
-
-  /*  Dedupe by ROUTE and not by name: the ISSUE node and the 2D-SITE door
-      both point at /door, and two slots holding the same page would spend
-      a second page read to show the same bytes.                        */
-  const same = dkTabs.findIndex(t => t.path === path);
-  if(same >= 0){ if(node != null) dkTabs[same].node = node; return dkFocus(same); }
-
-  if(dkTabs.length >= DKMAX){
-    const clean = dkTabs.slice().sort((a, b) => a.t - b.t).filter(t => !dkTyped(t));
-    if(!clean.length)
-      return say("Four surfaces are open and every one has something typed in it. Close one — " +
-                 dkTabs.map(t => esc(t.label)).join(", ") + ".", "err");
-    const lru = clean[0];
-    say("Four is the limit; <b>" + esc(lru.label) + "</b> was closed to make room.");
-    dkShed(dkTabs.indexOf(lru));
-  }
-
-  const fr = document.createElement("iframe");
-  fr.title = label;
-  fr.setAttribute("referrerpolicy", "no-referrer");
-  $("#dkwrap").appendChild(fr);
-  dkTabs.push({ path: path, label: label, fr: fr, cold: true, t: ++dkClock, node: node });
-  dkFocus(dkTabs.length - 1);
-  shock();
-}
-
-$("#dkshut").addEventListener("click", () => { if(dkI >= 0) dkClose(dkI); });
-$("#dkrail").addEventListener("click", e => {
-  const b = e.target.closest(".dm");
-  if(!b) return;
-  const k = Number(b.dataset.k);
-  /*  Re-tapping the mark you are already on cycles the deck's height. A
-      thumb gesture rather than a drag, and on a phone the primary one.
-      Closing lives in the head, alone, where a mis-tap cannot reach it —
-      the rail's marks are all non-destructive by construction.        */
-  if(k === dkI && innerWidth < 781) return dkDetent();
-  dkFocus(k);
-});
-/*  Hovering a mark lights its node out in the field, which is the answer
-    to "which of these is that one" without opening anything.          */
-$("#dkrail").addEventListener("pointerover", e => {
-  const b = e.target.closest(".dm");
-  if(!b) return;
-  const t = dkTabs[Number(b.dataset.k)];
-  if(t && t.node != null && labels[t.node]) labels[t.node].d.classList.add("hi");
-});
-$("#dkrail").addEventListener("pointerout", () => {
-  labels.forEach(e => e.d.classList.remove("hi"));
-});
-
-const DETENTS = ["42%", "60%", "85%"];
-let detent = 1;
-function dkDetent(){
-  detent = (detent + 1) % DETENTS.length;
-  document.documentElement.style.setProperty("--dh", DETENTS[detent]);
-  dkStage();
-}
-
-/*  One handle, one axis. The deck owns one edge and the field owns the
-    rest, so there is no window that can be dragged half off a phone and
-    lost.                                                               */
-(function splitter(){
-  const edge = $("#dkedge"), deck = $("#deck");
-  let on = false;
-  edge.addEventListener("pointerdown", e => {
-    on = true; edge.setPointerCapture(e.pointerId);
-    deck.classList.add("drag"); e.preventDefault();
-  });
-  edge.addEventListener("pointermove", e => {
-    if(!on) return;
-    if(innerWidth >= 781){
-      const w = Math.min(Math.max(innerWidth - e.clientX, 320), innerWidth * 0.72);
-      document.documentElement.style.setProperty("--dw", Math.round(w) + "px");
-    } else {
-      const h = Math.min(Math.max(innerHeight - e.clientY, 140), innerHeight * 0.85);
-      document.documentElement.style.setProperty("--dh", Math.round(h) + "px");
-    }
-    dkStage();
-  });
-  const up = () => { if(!on) return; on = false; deck.classList.remove("drag"); dkStage(); };
-  edge.addEventListener("pointerup", up);
-  edge.addEventListener("pointercancel", up);
-})();
-
-addEventListener("resize", () => { if(dkTabs.length) dkStage(); });
-
-/*  Every query word must be a prefix of some word in the surface's name or
-    its aliases, which is what makes `open wor ch` reach the commons. On a
-    phone the characters saved are the difference between the palette
-    being the fast path and the slow one.                               */
-function dkNames(q){
-  const w = String(q).toLowerCase().split(/\s+/).filter(Boolean);
-  const num = w.find(x => /^\d+$/.test(x));
-  const ws = w.filter(x => x !== num);
-  const hit = Object.keys(SURF).filter(n =>
-    ws.every(x => (n + " " + (ALIAS[n] || "")).split(" ").some(y => y.startsWith(x))));
-  /*  Ambiguity is the palette's normal condition and needs no apology —
-      `open l` offering launch and lock is right. But a surface whose own
-      name is exactly what was typed must come first, or `open room 7`
-      loads /rooms and `open vault` loads /lock, because `rooms` starts
-      with `room` and `lock` answers to the alias `vault`.             */
-  const exact = ws.join(" ");
-  hit.sort((a, b) => (b === exact) - (a === exact));
-  return { hit: hit, num: num };
-}
 $("#confirm").addEventListener("click", e => { if(e.target.id === "confirm"){ $("#confirm").classList.remove("open"); pending = null; } });
 
 const kv  = (k, v, id) => '<div class="kv"><span class="k">' + esc(k) + '</span><span class="vv"' +
@@ -4043,7 +3651,7 @@ BUILD.MARKET = m => {
    out. Each section deeper is one more context, so the plane runs out of
    room well before the idea does. */
 const MAX_DEPTH = 3;
-let nestLive = false, nestNode = null;
+let nestNode = null;
 
 function placeNest(){
   const p = project(nestNode ? nestNode.pos : [0, 0, 0]);
@@ -4072,7 +3680,7 @@ BUILD.NEST = m => {
       const out = $("#n-out");
       if(DEPTH >= MAX_DEPTH) return;
       $("#n-off").onclick = () => {
-        nestLive = false; $("#nest").classList.remove("on");
+        $("#nest").classList.remove("on");
         $("#nestframe").src = "about:blank";
         say("The inner section is closed.");
       };
@@ -4094,7 +3702,6 @@ BUILD.NEST = m => {
         const frame = $("#nestframe");
         frame.srcdoc = html;
         nestNode = nodes.find(n => n.id === "NEST");
-        nestLive = true;
         $("#nest").classList.add("on");
         $("#nestbar").textContent = "IPSEITY #" + S.id + " · section " + (DEPTH + 1);
         placeNest();
@@ -4169,14 +3776,33 @@ const COMMANDS = [
       entries used to sit here, each hard-coding one route and each
       leaving the document; `open` reaches twenty-three surfaces and
       leaves nothing.                                                  */
-  ...(DOORED ? [
-    { t: "open", d: "open a flat surface in the deck \u2014 try: open swap, open world chat, open room 7",
-      k: "", run: () => window.__palette("open ") },
-    { t: "close", d: "close a surface, or: close all", k: "", run: () => window.__palette("close ") },
-    { t: "leave for the flat site", d: "Open /door in this tab instead of a pane.",
-      k: "", run: () => { location.href = "/door"; } }
-  ] : []),
-  { t: "Connect a wallet", d: "Announce for EIP-6963 providers and bind one.", k: "", run: () => connect() },
+  /*  The one way out, and it is one thing rather than two. Connecting and
+      arriving used to be separate — a wallet bound in this document, and
+      then, separately, a route opened in a pane beside it. That is why
+      the instrument had to become a browser: because the place you were
+      going had to fit inside it.
+
+      It does not. `/connect` binds a wallet and then LEAVES: the document
+      is replaced, this loop ends with it, and nothing is left running
+      behind anything. The heat that took two passes to chase was mostly
+      this, structurally — two documents alive because neither was allowed
+      to be the whole screen.
+
+      The wallet survives the navigation. A connection is granted to an
+      origin, not to a document, so the surface on the other side finds
+      the same provider already bound.                                 */
+  { t: "connect", d: DOORED
+      ? "Bind a wallet, then leave the instrument for the console."
+      : "Bind a wallet. (This copy is not served from an origin, so there is nowhere to go.)",
+    k: "", run: async () => {
+      await connect();
+      if(!NET.account) return;
+      if(!DOORED) return say("Connected. No origin to leave for.", "ok");
+      say("Connected \u00b7 leaving the instrument\u2026", "ok");
+      /*  One place, named once. When the console is rebuilt this is the
+          only line that moves.                                        */
+      location.href = LANDING;
+    } },
   { t: "Copy this token's URL", d: "The contract, chain and id, as a link.", k: "", run: () => {
       const u = (chainOf(S.chainId).ex || "") + "/token/" + S.collection + "?a=" + S.id;
       navigator.clipboard && navigator.clipboard.writeText(u);
@@ -4213,55 +3839,17 @@ const COMMANDS = [
       a reason that arrives after the control failed.                   */
   const shut = (t, why) => ({ t: t, d: why, k: "", shut: true, run: () => say(why, "err") });
 
-  /*  `open <name>` and `close <name>`, parsed before the filter runs,
-      because a single entry titled "open" can never match the string
-      "open swap" by substring. The leading slash a person actually types
-      is stripped, so `/open swap` costs them nothing.                  */
-  const rows = (verb, arg) => {
-    const set = verb === "close"
-      ? dkTabs.map(t => t.label.toLowerCase())
-      : Object.keys(SURF);
-    if(verb === "close"){
-      if(!dkTabs.length) return [shut("close", "nothing is open")];
-      const all = { t: "close all", d: "close every surface", k: "", run: () => dkCloseAll() };
-      const q2 = arg.trim();
-      if(!q2 || "all".startsWith(q2)) return [all].concat(dkTabs.map((t, k) =>
-        ({ t: "close " + t.label.toLowerCase(), d: t.path, k: "",
-           run: () => dkClose(dkTabs.indexOf(t)) })));
-      const m = dkTabs.filter(t => t.label.toLowerCase().startsWith(q2));
-      return m.length ? m.map(t => ({ t: "close " + t.label.toLowerCase(), d: t.path, k: "",
-                                      run: () => dkClose(dkTabs.indexOf(t)) }))
-                      : [shut("close " + q2, 'nothing open is named "' + q2 + '"')];
-    }
-    if(!DOORED) return [shut("open " + arg,
-      "this copy is not served from an origin, so there is no flat site to reach")];
-    const found = dkNames(arg);
-    const mk = (n) => {
-      const raw = SURF[n];
-      if(raw.indexOf("#") >= 0 && !found.num)
-        return shut("open " + n, 'needs a number \u2014 try "open ' + n + ' 7"');
-      const path = dkPath(raw).replace("#", String(found.num || 1));
-      /*  Title case, not upper. The rail's CSS already uppercases what it
-          shows, so shouting here changed nothing visible and made the
-          accessible name shout — a screen reader spells out an all-caps
-          word letter by letter. The label is data; the case is style.  */
-      return { t: "open " + n, d: path, k: "",
-               run: () => dkOpen(path, n.charAt(0).toUpperCase() + n.slice(1)) };
-    };
-    if(!arg.trim()) return Object.keys(SURF).map(mk);
-    /*  An unknown name answers the question actually being asked, which
-        is "what is there?" — the refusal, then the whole vocabulary.  */
-    if(!found.hit.length)
-      return [shut("open " + arg, 'no surface is named "' + arg.trim() + '"')]
-        .concat(Object.keys(SURF).map(mk));
-    return found.hit.map(mk);
-  };
+  /*  `open` and `close` used to be parsed here, ahead of the filter,
+      because a row titled "open" can never match "open swap" by substring.
+      Both verbs reached the deck, and there is no deck: the instrument
+      does not open web surfaces any more, it is left.
 
+      What replaced them needs no parser. `/connect` is a row like any
+      other, matched by substring like any other, and the leading slash a
+      person types is already stripped.                                */
   q.addEventListener("input", () => {
     const raw = q.value.toLowerCase().trim().replace(/^\//, "");
-    const m = /^(open|close)\b\s*(.*)$/.exec(raw);
-    items = m ? rows(m[1], m[2])
-              : (raw ? COMMANDS.filter(c => (c.t + " " + c.d).toLowerCase().includes(raw)) : COMMANDS);
+    items = raw ? COMMANDS.filter(c => (c.t + " " + c.d).toLowerCase().includes(raw)) : COMMANDS;
     sel = 0; paint();
   });
   q.addEventListener("keydown", e => {
@@ -4284,7 +3872,13 @@ const COMMANDS = [
   if(!DOORED){ if(two) two.remove(); return; }
   if(two){
     two.hidden = false;
-    two.addEventListener("click", () => dkOpen("/door", "Door"));
+    /*  The same departure the palette offers, on a control instead of a
+        word. It used to open /door in a pane — a second front door,
+        showing a different token, beside the one you were inside.    */
+    two.addEventListener("click", async () => {
+      await connect();
+      if(NET.account) location.href = LANDING;
+    });
   }
 })();
 
@@ -4298,13 +3892,10 @@ addEventListener("keydown", e => {
         one step at a time.                                            */
     if($("#confirm").classList.contains("open")){ $("#confirm").classList.remove("open"); pending = null; return; }
     if($("#pal").classList.contains("open")){ $("#pal").classList.remove("open"); return; }
+    if(plateI >= 0) return plateShut();
     if(sheet.classList.contains("open")) return shut();
-    if(dkI >= 0) return dkClose(dkI);
     return;
   }
-  /*  Forward through the open surfaces. A phone has no backtick and does
-      not need one: the strip is right there.                          */
-  if(k === "`" && dkTabs.length){ dkFocus((dkI + 1) % dkTabs.length); return; }
   const m = MODULES.find(x => x.key === k);
   if(m){ open(m.i); return; }
   if(k === "]") COMMANDS.find(c => c.t === "Next solid").run();

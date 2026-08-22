@@ -203,85 +203,98 @@ head("a page nobody is looking at stops");
   ok("and coming back starts it again", back > 0, "it never woke up");
 }
 
-head("a pane nobody is looking at stops too");
+head("the copy inside the token yields the thread to it");
 {
-  /*  visibility:hidden stops a document painting and not thinking. Four
-      panes were four loops running at once, on top of the field — which
-      is the half of the heat the loop's own throttle could never reach. */
-  /*  The field is stopped first, and this is the only way the measurement
-      is possible on a machine with no GPU: a 4-D distance field at a size
-      big enough to hold a palette pins the main thread so hard that
-      nothing responds — which is why the deck's harness throttles the loop
-      to three frames and why an earlier version of this block timed out
-      waiting for an input that was there all along.
+  /*  The deck is gone and with it the four panes this block used to
+      drive. What survives of the same fault is the one place two
+      complete raymarchers still run on one main thread: the token
+      opened inside itself. No throttle of the host's own could reach
+      that, and the idle throttle in particular could not — the host is
+      not idle while an inner section is open, it is being turned, which
+      is precisely the state the idle path declines to slow.
 
-      Hiding the document is not a trick borrowed for the test; it is the
-      pause this session added, used for what it is for. And it stops the
-      ENGINE's loop only: the browser's own background throttling keys off
-      real tab visibility, not off a property we defined, so the panes go
-      on running exactly as they would on a phone.                     */
+      Driven through the class the real open sets, because that IS the
+      state: `on` is what puts the inner section on the screen and what
+      the yield reads, one fact in one place. Opening it the whole way
+      would need a chain to answer tokenURI, which is not a dependency a
+      thermal measurement should carry — and the frame it would load is
+      a second software raymarcher on a machine with no GPU, which on
+      this machine measures the rasteriser and not the engine.       */
   await page.evaluate(() => {
-    Object.defineProperty(document, "hidden", { get: () => true, configurable: true });
+    Object.defineProperty(document, "hidden", { get: () => false, configurable: true });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await page.setViewportSize({ width: 900, height: 700 });
+  await page.waitForTimeout(600);
+
+  const box = await page.evaluate(() => {
+    const c = document.querySelector("canvas");
+    const r = c.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+
+  /*  Turned, both times, and for the same duration. A host measured
+      still against a host measured moving would credit the yield with
+      work the idle throttle was already doing.                      */
+  const turning = async () => {
+    await page.mouse.move(box.x, box.y);
+    await page.mouse.down();
+    const a = await page.evaluate(() => window.__draws);
+    for (let i = 0; i < 24; i++) {
+      await page.mouse.move(box.x + i * 6, box.y + i * 3);
+      await page.waitForTimeout(40);
+    }
+    const b = await page.evaluate(() => window.__draws);
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+    return (b - a) / (24 * 0.04);
+  };
+
+  const alone = await turning();
+  console.log(`      turning it with nothing else open: ${alone.toFixed(1)} draw calls/sec`);
+
+  const opened = await page.evaluate(() => {
+    const n = document.getElementById("nest");
+    if (!n) return false;
+    n.classList.add("on");
+    return n.classList.contains("on");
+  });
+  ok("the inner section has somewhere to open into", opened,
+     "#nest is not in the document");
+
+  const sharing = await turning();
+  console.log(`      turning it with a section open inside: ${sharing.toFixed(1)} draw calls/sec`);
+
+  const yielded = alone / Math.max(sharing, 0.01);
+  ok("the host drops to a walking pace while a section is open inside it",
+     yielded > 2.5,
+     `only ${yielded.toFixed(1)}x less work — the host is still running flat out`);
+
+  /*  Yielding, not stopping. An inner section hangs in the middle of the
+      host's field; a host frozen mid-turn behind it reads as a crash,
+      and a test that accepted zero here would pass a worse instrument. */
+  ok("and it yields rather than stopping, so the field behind it still moves",
+     sharing > 0, "the host froze completely behind the inner section");
+
+  await page.evaluate(() => document.getElementById("nest").classList.remove("on"));
   await page.waitForTimeout(500);
-  for (const route of ["swap", "gallery"]) {
-    await page.evaluate(() => window.__palette());
-    await page.fill("#palq", "open " + route);
-    await page.waitForTimeout(200);
-    await page.evaluate(() => {
-      const r = document.querySelector("#pallist .pi");
-      if (r) r.click();
-    });
-    await page.waitForTimeout(700);
-  }
+  const back = await turning();
+  console.log(`      after closing it: ${back.toFixed(1)} draw calls/sec`);
+  ok("and it takes the thread back when the section is closed",
+     back > sharing * 1.8,
+     `${back.toFixed(1)}/sec after closing against ${sharing.toFixed(1)}/sec while open`);
+  console.log(`      ${yielded.toFixed(1)}x less work while two documents share one thread`);
 
-  const n = await page.evaluate(() => document.querySelectorAll("#dkwrap iframe").length);
-  ok("two panes are open", n === 2, "got " + n);
-
-  if (n === 2) {
-    const ticks = async () => page.evaluate(() =>
-      Array.from(document.querySelectorAll("#dkwrap iframe"))
-        .map((f) => { try { return f.contentWindow.__ticks | 0; } catch(e){ return -1; } }));
-    const a = await ticks();
-    await page.waitForTimeout(1200);
-    const b = await ticks();
-    const moved = a.map((v, i) => b[i] - v);
-    console.log(`      frames advanced while one pane was focused: ${JSON.stringify(moved)}`);
-
-    const focused = await page.evaluate(() =>
-      Array.from(document.querySelectorAll("#dkwrap iframe")).findIndex((f) => f.classList.contains("on")));
-    ok("the focused pane keeps animating", moved[focused] > 0,
-       "the pane being looked at was parked");
-    const others = moved.filter((_, i) => i !== focused);
-    ok("and every pane behind it is parked", others.every((m) => m <= 1),
-       "unfocused panes advanced " + JSON.stringify(others) + " frames");
-
-    /*  Parked, not killed. A stub whose loop was stubbed to a no-op would
-        look identical until you came back to a frozen page.           */
-    /*  Clicked on the rail, not called: dkFocus is not on window either,
-        and a test that calls a function it cannot reach silently does
-        nothing and then reports the code broken.                      */
-    const k = await page.evaluate(() =>
-      Array.from(document.querySelectorAll("#dkwrap iframe")).findIndex((f) => !f.classList.contains("on")));
-    await page.click(`#dkrail .dm[data-k="${k}"]`);
-    await page.waitForTimeout(1200);
-    const c = await ticks();
-    const woke = c.map((v, i) => v - b[i]);
-    console.log(`      after switching focus: ${JSON.stringify(woke)}`);
-    ok("and starts again from where it stopped when you come back",
-       woke[k] > 0, "the pane brought back forward never resumed: " + JSON.stringify(woke));
-    /*  Not zero, and pretending otherwise would be a test tuned to pass.
-        Parking happens on the click, so the frame already in flight and
-        the one queued behind it still run — a handful out of the seventy
-        a second the pane was managing. What must be true is that it
-        STOPS, and a tenth is stopped.                                 */
-    ok("while the one you left parks in its turn",
-       woke[focused] < woke[k] / 5,
-       `left-behind pane ran ${woke[focused]} frames against ${woke[k]} — not parked`);
-    console.log(`      the pane you left ran ${woke[focused]} more frames, then stopped`);
-  }
+  /*  The ladder, read from source for the same reason as the block
+      above: a climb measured in frames per second cannot tell a slow
+      device from a busy one, and with a section open it would read the
+      copy's cost as the phone failing.                              */
+  const src = readFileSync("engine/ipseity.html", "utf8");
+  ok("and the quality ladder does not climb on the borrowed thread",
+     /nestUp\(\)\s*&&\s*tier > 0/.test(src),
+     "the ladder still climbs while an inner section holds the thread");
+  ok("the yield reads the same class that puts the section on the screen",
+     !/nestLive/.test(src) && /classList\.contains\("on"\)/.test(src),
+     "there is a second flag beside the class that can fall out of step");
 }
 
 await browser.close();
