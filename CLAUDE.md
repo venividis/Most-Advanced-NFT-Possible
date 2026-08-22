@@ -27,7 +27,8 @@ installer, GitHub, or crates.io). Everything runs through Node:
 - `tools/compile.mjs` — compiles `src/` with solc-js (0.8.36, viaIR,
   optimizer 800, cancun — mirroring `foundry.toml`), honours
   `remappings.txt`, and **fails any contract over the EIP-170 24,576-byte
-  ceiling**. Writes `out/solc.json`.
+  ceiling** (default CLI invocation only — `--quiet` and library use skip
+  the size gate). Writes `out/solc.json`.
 - `tools/evm.mjs` — an in-process EVM harness on `@ethereumjs/vm`: deploy,
   call, read, account for gas. All `verify-*` tools run on it.
 - `tools/forge.mjs` — **runs the Foundry test suite without Foundry**: a
@@ -69,8 +70,9 @@ verify:instrument`. Some have no npm alias — run directly:
 
 Browser-dependent (launch Playwright Chromium): `shots.mjs`,
 `testnet-drive.mjs`, `verify-console.mjs`, `verify-instrument.mjs`,
-`verify-thermal.mjs`. The last three are inside `npm run check`, so a full
-check needs a Playwright browser (`npx playwright install chromium`, or
+`verify-thermal.mjs`, `probe-emulator.mjs`. Of these, `verify-console`,
+`verify-instrument` and `verify-thermal` are inside `npm run check`, so a
+full check needs a Playwright browser (`npx playwright install chromium`, or
 point `PLAYWRIGHT_BROWSERS_PATH` at an existing one).
 
 Local end-to-end over a real wire:
@@ -113,7 +115,7 @@ engine/
   console.js console-lanes.js console.css           the /c console client (separate surface)
 test/                 *.t.sol suites + mocks/; run via `npm run forge`, not forge
 script/               Forge deploy scripts; Site.s.sol is STALE — tools/site.mjs is authoritative
-tools/                the actual build/test/verify/deploy toolchain (~60 scripts)
+tools/                the actual build/test/verify/deploy toolchain (~70 scripts)
 probe/                measurements, not machinery: nothing here ships or runs in `npm run check`
 deployments/          machine-checked deployment records (the authoritative ones)
 ```
@@ -125,8 +127,8 @@ deployments/          machine-checked deployment records (the authoritative ones
   engine reads all state from `window.IPSE`, which `tokenURI` writes into
   the gap between Engine's head and body shards. Face 0 is the live
   instrument, face 1 the still SVG sigil, face 2 the quartet. Use
-  `tokenURIAt(id, index)` in tests/scripts — `tokenURIs()` returns a
-  quarter-megabyte face 0.
+  `tokenURIAt(id, index)` in tests/scripts — `tokenURIs()` returns every
+  face at once (~129 KB, dominated by the ~104 KB face 0 document).
 - **Two vaults per token**: the Reach (`account(id)`) can act — sealable
   (balance-measurement enforcement, not enumeration), grants bounded
   session keys (`grantSession`: expiry, spend cap, target and selector
@@ -139,7 +141,8 @@ deployments/          machine-checked deployment records (the authoritative ones
   adding a page means a new Premises. Pages render HTML server-side; Desks
   carry the browser JS as Solidity string constants plus a JSON config
   block with *on-chain-computed selectors* — the browser ships no keccak,
-  no ABI coder, no floating point.
+  no ABI coder, and no floating point for any amount (all amounts are
+  BigInt).
 - **The market**: one pool per token, holder is the sole LP, the curve's
   virtual reserves derive from the token's orientation word. The curve is
   **anchored** — recomputed only on `openMarket`/`deposit`/`withdraw`/
@@ -227,17 +230,22 @@ deployments/          machine-checked deployment records (the authoritative ones
    deliberately conservative ES5-style, no WebGL) ships via SSTORE2 stores
    loaded by `tools/site.mjs`. A site redeploy does not update the
    instrument, nor vice versa.
-3. **Console naming tables exist twice** — `WORDS`/`ALIAS` in
-   `engine/console.js` and the verb table in `PageConsole.sol` — held
-   equal string-for-string by `verify-console.mjs`. Edit both. Console CSS
-   is stored raw (never gzip it: a script-inflated stylesheet means a
-   flash of unstyled console); the JS stores are separate.
+3. **The console verb words exist twice** — `WORDS` in
+   `engine/console.js` and `verbWord` in `PageConsole.sol` — held equal
+   string-for-string by `verify-console.mjs` (the JS-only `ALIAS` table is
+   checked only in that every alias key names one of the seven words).
+   Edit both. Console CSS is stored raw (never gzip it: a script-inflated
+   stylesheet means a flash of unstyled console); the JS lives in its own
+   single store (ConsoleCore — `console.js` and `console-lanes.js`
+   concatenated), separate from the CSS store.
 4. **Never**: make any swap path move the curve anchors; turn Pool's
    `curveWord` copy into a live `sectionOf` read; shorten a bond or seal
    (ratchets); add any outbound/admin path to `GripVault`; add admin,
    delegate, or peer mutation to `ParleyPort`; add fees or curators to
    Lease/Locker/Consign; hardcode a `0x` selector in a Desk (selectors are
-   keccak'd on chain in `_sel`); claim ERC-7857 conformance for the sealed
+   keccak'd on chain in `_sel`; the one existing literal is DeskLaunch's
+   `decimals()` fallback for chains without DeskUni); claim ERC-7857
+   conformance for the sealed
    kernel (`interfaces/Standards.sol` explains why not); remove
    `Premises.resolveMode()`.
 5. **`script/Site.s.sol` is stale.** The authoritative site deployment is
