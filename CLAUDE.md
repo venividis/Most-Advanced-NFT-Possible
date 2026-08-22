@@ -87,7 +87,10 @@ node tools/testnet-drive.mjs     # Chromium + injected wallet walks the whole si
 `tools/testnet.mjs` with `RPC_URL=… PRIVATE_KEY=0x…` deploys to a public
 testnet (~40 tx, ~69M gas). `node tools/recover-record.mjs
 deployments/<chain>.json` re-reads a recorded deployment off the chain and
-exits non-zero on any disagreement.
+exits non-zero on any disagreement. `node tools/port.mjs
+status|deploy|quote|echo|walk` deploys and drives the LayerZero commons
+port on real chains (same-address-everywhere via a fresh nonce-0 key;
+see `OMNICHAIN.md` §5).
 
 ## Layout
 
@@ -151,7 +154,11 @@ deployments/          machine-checked deployment records (the authoritative ones
 - **Messaging**: Parley messages are event logs carrying `prev` block
   pointers, so clients walk history with single-block `eth_getLogs` — no
   range scans, no indexer. The archive lives in that contract; redeploying
-  Parley ends the conversation.
+  Parley ends the conversation. `ParleyPort` federates the commons (room 0
+  only) over LayerZero V2 — real receiver ABI (`lzReceive(Origin,…)`,
+  `allowInitializePath`, `nextNonce`), no admin/delegate ever, security
+  config pinnable only at construction; tokens never bridge
+  (`OMNICHAIN.md` argues both halves).
 - **Multi-chain**: 4096 ids in five per-chain bands (arithmetic in
   `Nameplate.sol`, mirrored by `BANDS` in `tools/site.mjs` — keep them in
   lockstep). Testnet deployments are rehearsals holding the whole edition.
@@ -278,6 +285,7 @@ deployments/          machine-checked deployment records (the authoritative ones
 | Will this change break a stated guarantee | `INVARIANTS.md` — invariant → exact test that enforces it |
 | Console behavior, verbs, layout, refusals | `CONSOLE.md` |
 | Holding/running other tokens' code, shader splice roadmap | `COMPOSABILITY.md` |
+| LayerZero/ONFT research, the port's protocol ABI, federation runbook | `OMNICHAIN.md` |
 | Etch/inscription system (unbuilt spec) | `INSCRIPTION.md` |
 | What is deployed where, deployment history | `deployments/*.json`, then `DEPLOYMENTS.md` |
 | Agent integration: session keys, sealed kernel, ERC-7857 stance | `AGENT.md` |
