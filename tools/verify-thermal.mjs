@@ -53,8 +53,15 @@ const STATE = `<script>window.IPSE={id:7,collection:"0x${"11".repeat(20)}",chain
 
 const srv = createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/html" });
-  res.end(req.url.split("?")[0] === "/"
-    ? engine.replace("</head>", STATE + "</head>") : "<h1>stub</h1>");
+  const path = req.url.split("?")[0];
+  if (path === "/") return res.end(engine.replace("</head>", STATE + "</head>"));
+  /*  A stub that animates, because the thing under test is whether a pane
+      nobody is looking at keeps thinking. A static stub would pass by
+      having nothing to stop.                                          */
+  res.end(`<h1 id=who>${path}</h1><input id=f><script>
+    window.__ticks = 0;
+    (function loop(){ window.__ticks++; requestAnimationFrame(loop); })();
+  </script>`);
 });
 await new Promise((r) => srv.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${srv.address().port}`;
@@ -194,6 +201,87 @@ head("a page nobody is looking at stops");
   await page.waitForTimeout(400);
   const back = await rate(1200);
   ok("and coming back starts it again", back > 0, "it never woke up");
+}
+
+head("a pane nobody is looking at stops too");
+{
+  /*  visibility:hidden stops a document painting and not thinking. Four
+      panes were four loops running at once, on top of the field — which
+      is the half of the heat the loop's own throttle could never reach. */
+  /*  The field is stopped first, and this is the only way the measurement
+      is possible on a machine with no GPU: a 4-D distance field at a size
+      big enough to hold a palette pins the main thread so hard that
+      nothing responds — which is why the deck's harness throttles the loop
+      to three frames and why an earlier version of this block timed out
+      waiting for an input that was there all along.
+
+      Hiding the document is not a trick borrowed for the test; it is the
+      pause this session added, used for what it is for. And it stops the
+      ENGINE's loop only: the browser's own background throttling keys off
+      real tab visibility, not off a property we defined, so the panes go
+      on running exactly as they would on a phone.                     */
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { get: () => true, configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.waitForTimeout(500);
+  for (const route of ["swap", "gallery"]) {
+    await page.evaluate(() => window.__palette());
+    await page.fill("#palq", "open " + route);
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+      const r = document.querySelector("#pallist .pi");
+      if (r) r.click();
+    });
+    await page.waitForTimeout(700);
+  }
+
+  const n = await page.evaluate(() => document.querySelectorAll("#dkwrap iframe").length);
+  ok("two panes are open", n === 2, "got " + n);
+
+  if (n === 2) {
+    const ticks = async () => page.evaluate(() =>
+      Array.from(document.querySelectorAll("#dkwrap iframe"))
+        .map((f) => { try { return f.contentWindow.__ticks | 0; } catch(e){ return -1; } }));
+    const a = await ticks();
+    await page.waitForTimeout(1200);
+    const b = await ticks();
+    const moved = a.map((v, i) => b[i] - v);
+    console.log(`      frames advanced while one pane was focused: ${JSON.stringify(moved)}`);
+
+    const focused = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#dkwrap iframe")).findIndex((f) => f.classList.contains("on")));
+    ok("the focused pane keeps animating", moved[focused] > 0,
+       "the pane being looked at was parked");
+    const others = moved.filter((_, i) => i !== focused);
+    ok("and every pane behind it is parked", others.every((m) => m <= 1),
+       "unfocused panes advanced " + JSON.stringify(others) + " frames");
+
+    /*  Parked, not killed. A stub whose loop was stubbed to a no-op would
+        look identical until you came back to a frozen page.           */
+    /*  Clicked on the rail, not called: dkFocus is not on window either,
+        and a test that calls a function it cannot reach silently does
+        nothing and then reports the code broken.                      */
+    const k = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("#dkwrap iframe")).findIndex((f) => !f.classList.contains("on")));
+    await page.click(`#dkrail .dm[data-k="${k}"]`);
+    await page.waitForTimeout(1200);
+    const c = await ticks();
+    const woke = c.map((v, i) => v - b[i]);
+    console.log(`      after switching focus: ${JSON.stringify(woke)}`);
+    ok("and starts again from where it stopped when you come back",
+       woke[k] > 0, "the pane brought back forward never resumed: " + JSON.stringify(woke));
+    /*  Not zero, and pretending otherwise would be a test tuned to pass.
+        Parking happens on the click, so the frame already in flight and
+        the one queued behind it still run — a handful out of the seventy
+        a second the pane was managing. What must be true is that it
+        STOPS, and a tenth is stopped.                                 */
+    ok("while the one you left parks in its turn",
+       woke[focused] < woke[k] / 5,
+       `left-behind pane ran ${woke[focused]} frames against ${woke[k]} — not parked`);
+    console.log(`      the pane you left ran ${woke[focused]} more frames, then stopped`);
+  }
 }
 
 await browser.close();

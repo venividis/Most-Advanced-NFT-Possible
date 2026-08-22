@@ -2694,7 +2694,12 @@ function dkPaint(){
     '" role="tab" aria-selected="' + (k === dkI) + '" title="' + esc(t.label) +
     '" aria-label="' + esc(t.label) + '"></button>').join("");
   $("#dkname").textContent = dkI >= 0 ? dkTabs[dkI].label : "";
-  dkTabs.forEach((t, k) => t.fr.classList.toggle("on", k === dkI));
+  dkTabs.forEach((t, k) => {
+    t.fr.classList.toggle("on", k === dkI);
+    /*  After the class, so the frame that is about to be visible is woken
+        rather than woken and then hidden by its own paint.             */
+    if(!t.cold) dkQuiet(t, k !== dkI);
+  });
   dkStage();
   dkWire();
 }
@@ -2739,6 +2744,64 @@ function dkLoad(k){
   if(!t.cold) return;
   t.cold = false;
   t.fr.src = t.path;
+}
+
+/*───────────── a pane nobody is looking at should be still ─────────────
+
+  `visibility:hidden` stops a document painting. It does not stop it
+  THINKING: the frame's timers run, its loop keeps asking for frames, and
+  a browser only throttles that for a background tab, which a hidden
+  iframe in a foreground tab is not.
+
+  So four panes were four animation loops, all running, while one of them
+  was visible — on top of a field that was itself never idle. Reported as
+  a phone getting hot, and the throttle in the loop only ever addressed
+  the outer half of it.
+
+  Two things are done to a pane that loses focus, because one is polite
+  and the other is certain.
+
+  Polite: it is TOLD, in the standard way, that it is hidden. A page that
+  listens for visibilitychange — this collection's own instrument now does
+  — stops on its own and needs nothing else.
+
+  Certain: its requestAnimationFrame is parked. Not stubbed to nothing,
+  which would kill the loop for good: the callback is KEPT, and a loop
+  that queues one frame at a time therefore parks after exactly one and
+  resumes from where it stopped when the queue is flushed. Stubbing to a
+  no-op would look identical for as long as the pane stayed hidden and
+  then show a frozen page on the way back.
+
+  All of it inside a try. Where a gateway serves routes from another
+  origin the frame is unreachable, and the correct behaviour there is the
+  behaviour a browser already gives: leave it alone.                   */
+function dkQuiet(t, quiet){
+  let w, d;
+  try { w = t.fr.contentWindow; d = t.fr.contentDocument; } catch(e){ return; }
+  if(!w || !d || t.quiet === quiet) return;
+  t.quiet = quiet;
+  try {
+    Object.defineProperty(d, "hidden", { get: () => quiet, configurable: true });
+    Object.defineProperty(d, "visibilityState",
+      { get: () => quiet ? "hidden" : "visible", configurable: true });
+    d.dispatchEvent(new w.Event("visibilitychange"));
+  } catch(e){}
+  try {
+    if(quiet){
+      if(!t.raf){
+        t.raf = w.requestAnimationFrame.bind(w);
+        t.q = [];
+        w.requestAnimationFrame = (cb) => { t.q.push(cb); return 0; };
+      }
+    } else if(t.raf){
+      const real = t.raf, q = t.q || [];
+      w.requestAnimationFrame = real;
+      t.raf = null; t.q = [];
+      /*  Flushed through the real one rather than called directly, so a
+          callback still receives a timestamp and a frame to draw into. */
+      for(const cb of q) real(cb);
+    }
+  } catch(e){}
 }
 
 function dkFocus(k){
