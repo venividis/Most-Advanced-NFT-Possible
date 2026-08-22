@@ -276,9 +276,16 @@
 
   /*───────────────────────── arrival ─────────────────────────*/
 
+  /*  The document is already visible by the time this runs — the fade is a
+      CSS animation, so it cannot be withheld by a script that threw. What
+      arrives here is only what a contract could not render.
+
+      `ready` is handed on because the lanes need it. Painting a lane before
+      the wallet has answered produced a surface that told a holder to
+      connect a wallet while the crest beside it already said "you" —
+      correct twice and contradictory once, which is worse than either. */
   paintWalk();
-  connect(false);
-  document.body.classList.add("up");
+  C.ready = connect(false);
 
   /*  Escape closes the lane by going back to the token's own address,
       which keeps the URL and the screen agreeing at every moment.     */

@@ -45,9 +45,21 @@ html,body{background:var(--void);color:var(--txt);margin:0;height:100%;
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1,"zero" 1;
   -webkit-text-size-adjust:100%}
 /*  The document arrives rather than appearing. Nine tenths of a second is
-    long enough to read as deliberate and short enough that nobody waits. */
-body{opacity:0;transition:opacity .9s var(--ease);overflow:hidden}
-body.up{opacity:1}
+    long enough to read as deliberate and short enough that nobody waits.
+
+    An ANIMATION, not a class the script adds. It was a class for one
+    commit, and that made the entire server-rendered document — the thing
+    whose whole justification is that it is correct with no script at all —
+    invisible if a single line of the client threw. A fade nobody can fail
+    to trigger is worth more than a fade that is one exception away from a
+    black page.                                                          */
+body{opacity:0;animation:arrive .9s var(--ease) forwards;overflow:hidden}
+@keyframes arrive{to{opacity:1}}
+/*  Under reduced motion the rule at the top of this file cuts every
+    transition to nothing; an animation is not a transition, so it is cut
+    here as well. Otherwise the one thing a reader asked to stop is the
+    one thing that still moves.                                        */
+@media(prefers-reduced-motion:reduce){body{animation-duration:.01ms}}
 ::selection{background:var(--a);color:var(--void)}
 *{box-sizing:border-box}
 /*  Emphasis in this language is hue, not weight. Nothing here is bold.  */
@@ -79,7 +91,18 @@ a:hover,a:focus-visible{background:var(--a-ghost);outline:none}
   --a:hsl(var(--h) 92% 66%);
   --a-dim:hsl(var(--h) 62% 44%);
   --a-ghost:hsl(var(--h) 92% 66% / .10);
-  position:fixed;inset:0;pointer-events:none}
+  position:fixed;inset:0}
+
+/*  Only the bands you have walked OUT of are inert. They are decoration —
+    a rule in the margin and nothing else — laid over the whole viewport,
+    so without this they eat every click in the document.
+
+    The standing band must NOT have it. `pointer-events` inherits, and
+    `#root` contains the crest, both columns, the ticker and the command
+    line; setting it to none there made the entire console unclickable
+    while every screenshot of it looked perfect. A browser found that in
+    one click and no amount of reading the file would have.            */
+.sub.past{pointer-events:none}
 
 /*  The rule. It is the only thing in this document that says whose token
     you are reading and how far in you have walked, and it says both at

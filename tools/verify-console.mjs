@@ -207,6 +207,12 @@ const lease = await c.deploy(A("src/Lease.sol", "Lease").bytecode,
 const site = await deploySite(c, A, { hub: nft, pool, lease, sigil });
 const GET = getter(c, site.premises);
 
+/*  Three more, because the walk is the point and a walk needs somewhere to
+    go. With one token minted the LOOK lane offers #2, #3 and #4 — every
+    one of which 404s — and the browser section reported the client as
+    broken when the fixture was.                                        */
+for (let i = 0; i < 3; i++) await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+
 head("the console answers at one route, in three shapes");
 {
   const bare = await GET(["c"]);
@@ -248,9 +254,19 @@ head("the walk never reaches the contract");
      plain.body.length === walked.body.length,
      `${plain.body.length} vs ${walked.body.length}`);
 
-  ok("and no route segment is ever a fragment",
-     !plain.body.includes("#w=") || plain.body.includes('href="/c/'),
-     "the document has baked a walk into a served URL");
+  /*  What this means is that no URL the CONTRACT wrote carries a walk —
+      the walk is the client's, and it lives in the fragment. Written the
+      first time as "the string #w= does not appear", which passed only
+      until the client was inlined into the document and then failed
+      against its own source code. A test that greps a whole document for
+      a substring is testing the document's vocabulary, not its behaviour. */
+  const attrs = [...plain.body.matchAll(/(?:href|src)="([^"]*)"/g)].map((m) => m[1]);
+  ok("no URL the contract wrote carries a fragment",
+     attrs.every((u) => !u.includes("#")),
+     attrs.filter((u) => u.includes("#")).join(", "));
+  ok("and the ones it wrote are same-origin paths",
+     attrs.every((u) => u.startsWith("/")),
+     attrs.filter((u) => !u.startsWith("/")).join(", "));
 }
 
 head("the console does not start a second raymarcher");
@@ -305,6 +321,127 @@ head("the seven rows are in the served bytes, not painted later");
   ok("and so is the identity, so a scriptless reader still learns whose it is",
      /IPSEITY #1<\/h1>/.test(doc1) && /Held by/.test(doc1),
      "identity is painted by script");
+}
+
+/*═══════════════ and then a browser actually runs it ═══════════════*/
+/*  Every assertion above reads bytes. None of them proves the document
+    WORKS, and the first two faults in this console were both of that
+    kind: a key the client read that the contract never wrote, and a lane
+    that painted before the wallet answered and so told a holder to connect
+    one while the crest beside it already said "you". Neither is visible in
+    a string.                                                            */
+
+head("the console runs");
+{
+  const { chromium } = await import("playwright");
+  const { createServer } = await import("node:http");
+  const { existsSync } = await import("node:fs");
+
+  /*  The contract's own bytes, over HTTP, because the client navigates by
+      real URL and file:// has no origin to navigate within.            */
+  const srv = createServer(async (req, res) => {
+    const p = req.url.split("?")[0].split("#")[0];
+    const seg = p.split("/").filter(Boolean);
+    const r = await GET(seg);
+    res.writeHead(r.status, { "Content-Type": "text/html" });
+    res.end(r.body);
+  });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+
+  const EXE = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+               "/opt/pw-browsers/chromium/chrome-linux/chrome"].find(existsSync);
+  const browser = await chromium.launch({
+    executablePath: EXE, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+
+  /*  A wallet that answers as the holder and signs nothing. If a control
+      ever reaches eth_sendTransaction without a person pressing the slab's
+      button, this records it and the suite fails.                      */
+  await ctx.addInitScript(() => {
+    window.__sent = [];
+    window.ethereum = {
+      request: async ({ method, params }) => {
+        if (method === "eth_accounts" || method === "eth_requestAccounts")
+          return [window.CON.owner];
+        if (method === "eth_getBalance") return "0x16345785d8a0000";
+        if (method === "eth_call") return "0x";
+        if (method === "eth_sendTransaction") {
+          window.__sent.push(params[0]);
+          return "0x" + "ab".repeat(32);
+        }
+        throw new Error("stub: " + method);
+      }
+    };
+  });
+
+  const page = await ctx.newPage();
+  const errs = [];
+  page.on("pageerror", (e) => errs.push(String(e).slice(0, 160)));
+
+  await page.goto(base + "/c/1/hold", { waitUntil: "networkidle" });
+  await page.waitForTimeout(900);
+
+  ok("no script threw on the way in", errs.length === 0, errs.join(" | "));
+
+  /*  The fade is a CSS animation precisely so a script that threw cannot
+      leave the server-rendered document invisible. Checked, because it was
+      a class the script added for one commit and that is exactly the bug. */
+  const shown = await page.evaluate(() =>
+    parseFloat(getComputedStyle(document.body).opacity));
+  ok("the document is visible", shown > 0.9, `body opacity ${shown}`);
+
+  const held = await page.textContent("#held");
+  ok("the crest resolves the holder to one word", held.trim() === "you", `got "${held}"`);
+
+  const laneText = await page.textContent("#lane");
+  ok("the lane does not ask the holder to connect a wallet they connected",
+     !/Connect a wallet to act/.test(laneText),
+     "the lane painted before the wallet answered");
+  ok("and the contract's no-script note is gone once the controls exist",
+     !(await page.$("#lane-note")), "the note survived the controls");
+
+  const buttons = await page.$$eval("#lane button.b", (b) => b.map((x) => x.textContent.trim()));
+  ok("the lane painted controls", buttons.length >= 3, JSON.stringify(buttons));
+
+  /*  The one rule with no exception: there is no path from a field to a
+      broadcast. Pressing a control must raise the slab and send nothing. */
+  await page.click("#lane button.b");
+  await page.waitForTimeout(250);
+  const slabUp = await page.evaluate(() => document.querySelector("#cbox").classList.contains("on"));
+  const sentEarly = await page.evaluate(() => window.__sent.length);
+  ok("a control raises the confirm slab", slabUp, "no slab");
+  ok("and sends nothing before a person presses it", sentEarly === 0,
+     `${sentEarly} transaction(s) went out on a click`);
+
+  if (slabUp) {
+    await page.click("#cslab [data-go]");
+    await page.waitForTimeout(250);
+    const sent = await page.evaluate(() => window.__sent.length);
+    ok("and sends exactly one when they do", sent === 1, `${sent} transactions`);
+  }
+
+  /*  The walk. This is the whole reason the console exists, so it is
+      driven rather than asserted from source.                          */
+  await page.goto(base + "/c/1/look", { waitUntil: "networkidle" });
+  await page.waitForTimeout(700);
+  const chip = await page.$("#lane .chip");
+  ok("the look lane offers a token to walk into", !!chip, "no nearby chips");
+  if (chip) {
+    await chip.click();
+    await page.waitForTimeout(700);
+    const url = page.url();
+    ok("walking navigates to that token's own address", /\/c\/\d+/.test(url), url);
+    ok("and carries where it came from in the fragment, never the path",
+       /#w=1:\d+/.test(url) && !/\?/.test(url), url);
+    const rules = await page.evaluate(() => document.querySelectorAll(".sub").length);
+    ok("so the margin now carries two rules, one per token", rules === 2, `${rules} rules`);
+    const crumbs = await page.$$eval("#walk .cr", (b) => b.map((x) => x.textContent));
+    ok("and the crest names both", crumbs.length === 2, JSON.stringify(crumbs));
+  }
+
+  await browser.close();
+  srv.close();
 }
 
 console.log(`\n  ${fail ? "\x1b[31m" : "\x1b[32m"}${pass} passed, ${fail} failed\x1b[0m\n`);

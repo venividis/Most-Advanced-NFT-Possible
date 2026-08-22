@@ -438,7 +438,8 @@ export const VIA = [
   ["lease",       "pGallery",  "LEASE()"],
   ["lease",       "pManifest", "LEASE()"],
   ["consoleRead", "pConsole",  "READ()"],
-  ["consoleSkin", "pConsole",  "SKIN()"]
+  ["consoleSkin", "pConsole",  "SKIN()"],
+  ["consoleCore", "pConsole",  "CORE()"]
 ];
 
 /*  What a complete deployment contains, which is not the same question as
@@ -460,7 +461,7 @@ export const EXPECTED = [
   "pManifest", "pTalk", "pRooms", "pTerminal", "pGallery", "pLaunch", "pLock",
   "pHook", "pCast", "pSeal", "pKeys", "pName", "succession", "consign",
   "deskEstate", "deskWill", "pEstate",
-  "consoleSkin", "consoleRead", "pConsole", "premises"
+  "consoleSkin", "consoleCore", "consoleRead", "pConsole", "premises"
 ];
 
 /*──────────────── the deployment ────────────────*/
@@ -705,6 +706,23 @@ export async function deploySite(c, A,
   }
   await c.exec(consoleSkin, "freeze()", []);
 
+  /*  The client, in one store: the core and the lanes, concatenated in that
+      order because the lanes read `C.say` and `C.walkTo` off the object the
+      core hangs them on. Two files on disk because they are two jobs; one
+      contract because they are one script tag.                          */
+  const consoleCore = await c.deploy(
+    A("src/ConsoleSkin.sol", "ConsoleSkin").bytecode, "", "ConsoleCore");
+  const client = Buffer.concat([
+    fs.readFileSync(path.join(ROOT, "engine/console.js")),
+    Buffer.from("\n"),
+    fs.readFileSync(path.join(ROOT, "engine/console-lanes.js"))
+  ]);
+  for (let i = 0; i < client.length; i += 24_000) {
+    await c.exec(consoleCore, "load(bytes)",
+      ["0x" + client.subarray(i, i + 24_000).toString("hex")]);
+  }
+  await c.exec(consoleCore, "freeze()", []);
+
   const consoleRead = await c.deploy(
     A("src/ConsoleRead.sol", "ConsoleRead").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease),
@@ -712,7 +730,8 @@ export async function deploySite(c, A,
 
   const pConsole = await c.deploy(
     A("src/PageConsole.sol", "PageConsole").bytecode,
-    encodeAddressArg(hub) + encodeAddressArg(consoleRead) + encodeAddressArg(consoleSkin),
+    encodeAddressArg(hub) + encodeAddressArg(consoleRead) + encodeAddressArg(consoleSkin) +
+    encodeAddressArg(consoleCore),
     "PageConsole");
 
   /*  Three contracts, one cycle: the name page must know the resolver, the
@@ -761,6 +780,6 @@ export async function deploySite(c, A,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
     pTerminal, pGallery, pLaunch, pLock, pHook, pCast,
     pSeal, pKeys, pName, succession, consign, deskEstate, deskWill, pEstate,
-    consoleSkin, consoleRead, pConsole, premises
+    consoleSkin, consoleCore, consoleRead, pConsole, premises
   };
 }

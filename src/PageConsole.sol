@@ -67,11 +67,18 @@ contract PageConsole {
     IHub        public immutable HUB;
     ConsoleRead public immutable READ;
     ConsoleSkin public immutable SKIN;
+    /*  The same contract, a second instance. A byte store that shards past
+        EIP-170 and freezes is exactly what the client needs too, and a
+        second copy of that logic under a different name would be a second
+        thing to keep correct for no gain. One holds the stylesheet, one
+        holds the script; neither knows what it is holding.            */
+    ConsoleSkin public immutable CORE;
 
-    constructor(IHub hub, ConsoleRead read_, ConsoleSkin skin) {
+    constructor(IHub hub, ConsoleRead read_, ConsoleSkin skin, ConsoleSkin core) {
         HUB = hub;
         READ = read_;
         SKIN = skin;
+        CORE = core;
     }
 
     /*═══════════════════ the seven ═══════════════════*/
@@ -147,7 +154,7 @@ contract PageConsole {
             "<div id=col>", _still(id), _ident(id, v, c), _verbs(verb, c), "</div>",
             "<div id=lane", verb == 0 ? "" : " class=on", ">", _lane(verb, v, c), "</div>",
             "</div>",
-            _foot(id, v, c),
+            _foot(id, verb, v, c),
             "</div></body></html>"
         );
     }
@@ -339,13 +346,16 @@ contract PageConsole {
             "<h2 class=k style=\"margin:0 0 10px\">", verbName(verb), "</h2>",
             "<p class=blurb>", verbSub(verb), "</p>",
             body,
-            "<p class=s style=\"color:var(--warn);margin-top:16px\">This surface is being "
-            "built. What it shows above is read from the chain this block; what it cannot "
-            "yet do, it does not pretend to.</p>"
+            /*  Removed by the client the moment it paints controls. Left in
+                the served bytes because without a script it is the truth:
+                the state above is read on chain and the acts are not here. */
+            "<p class=s id=lane-note style=\"color:var(--warn);margin-top:16px\">The state "
+            "above was read from the chain in the same call that produced this page. The "
+            "controls need the console's script, which has not run.</p>"
         );
     }
 
-    function _foot(uint256 id, TokenView memory v, ConsoleRead.Clocks memory c)
+    function _foot(uint256 id, uint8 verb, TokenView memory v, ConsoleRead.Clocks memory c)
         private view returns (string memory)
     {
         return string.concat(
@@ -354,7 +364,7 @@ contract PageConsole {
             "<input id=cin type=text autocomplete=off spellcheck=false "
             "placeholder=\"a verb, or #1024\" aria-label=\"the command line\"></div>",
             "<div id=cbox><div class=slab id=cslab></div></div>",
-            _seed(id, v, c)
+            _seed(id, verb, v, c)
         );
     }
 
@@ -362,11 +372,22 @@ contract PageConsole {
         it is parsed, and holding every address and every fact the console's
         script would otherwise have to ask for. State arrives WITH the
         document rather than a round trip after it.                       */
-    function _seed(uint256 id, TokenView memory v, ConsoleRead.Clocks memory c)
+    function _seed(uint256 id, uint8 verb, TokenView memory v, ConsoleRead.Clocks memory c)
         private view returns (string memory)
     {
+        /*  Split in two, and not for tidiness: one concat of this many
+            expressions is past what the EVM stack holds, and solc says so
+            as "too deep in the stack by 1 slots" rather than as anything a
+            reader would recognise. Two halves, each comfortably inside it. */
         return string.concat(
-            "<script>window.CON={id:", id.str(),
+            "<script>window.CON={", _seedWho(id, v), _seedWhat(verb, c),
+            "};</script><script>", string(CORE.css()), "</script>"
+        );
+    }
+
+    function _seedWho(uint256 id, TokenView memory v) private view returns (string memory) {
+        return string.concat(
+            "id:", id.str(),
             ",chain:", block.chainid.str(),
             ",hue:", _hue(v.word).str(),
             ",word:\"", uint256(v.word).str(), "\"",
@@ -374,16 +395,59 @@ contract PageConsole {
             ",read:\"", LibNum.hexAddr(address(READ)), "\"",
             ",owner:\"", LibNum.hexAddr(v.owner), "\"",
             ",reach:\"", LibNum.hexAddr(v.boundAccount), "\"",
-            ",grip:\"", LibNum.hexAddr(v.grip), "\"",
-            ",ops:", uint256(v.ops).str(),
-            ",xfers:", uint256(v.xfers).str(),
-            ",strata:", uint256(v.strata).str(),
-            ",locked:", v.locked ? "true" : "false",
+            ",grip:\"", LibNum.hexAddr(v.grip), "\""
+        );
+    }
+
+    function _seedWhat(uint8 verb, ConsoleRead.Clocks memory c)
+        private view returns (string memory)
+    {
+        return string.concat(
             ",reported:", uint256(c.reported).str(),
             ",first:", HUB.FIRST_ID().str(),
             ",last:", HUB.LAST_ID().str(),
-            "};document.body.classList.add(\"up\");</script>"
+            /*  Which lane is open, so the client knows what Escape closes.
+                It was read by the script before anything wrote it, which is
+                the quietest kind of broken: no error, no warning, a key
+                that simply does nothing.                                */
+            ",verb:", uint256(verb).str(),
+            _sels()
         );
+    }
+
+    /*  Every selector the client needs, derived HERE. Solidity has keccak;
+        a browser does not, and shipping two kilobytes of it so the client
+        can recompute what this contract already knows is a client that can
+        be wrong about something it never needed to decide.
+
+        Its own function, and not for tidiness: folded into the line above
+        it, this many expressions in one concat is past what the EVM stack
+        holds and solc reports it as "too deep in the stack by 1 slots",
+        which names the symptom and not the cause.                       */
+    function _sels() private pure returns (string memory) {
+        return string.concat(
+            ",sel:{commit:\"", _sel("commit(uint256,uint256)"),
+            "\",embody:\"", _sel("embody(uint256)"),
+            "\",embodyGrip:\"", _sel("embodyGrip(uint256)"),
+            "\",xfer:\"", _sel("transferFrom(address,address,uint256)"),
+            "\",mint:\"", _sel("mint()"),
+            "\"}"
+        );
+    }
+
+    /*  The four bytes a client sends, and nothing about how they were
+        arrived at. A signature spelled in two places is a signature that
+        will differ in one of them.                                      */
+    function _sel(string memory sig) private pure returns (string memory) {
+        bytes4 s = bytes4(keccak256(bytes(sig)));
+        bytes memory hexd = "0123456789abcdef";
+        bytes memory o = new bytes(10);
+        o[0] = "0"; o[1] = "x";
+        for (uint256 k; k < 4; ++k) {
+            o[2 + k * 2] = hexd[uint8(s[k]) >> 4];
+            o[3 + k * 2] = hexd[uint8(s[k]) & 0x0f];
+        }
+        return string(o);
     }
 
     /*═══════════════════ words for numbers ═══════════════════*/
