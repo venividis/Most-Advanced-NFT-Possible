@@ -60,7 +60,7 @@ import {ConsoleSkin} from "./ConsoleSkin.sol";
   spinner over a number nobody read.
 
 ═══════════════════════════════════════════════════════════════════════════*/
-contract Console {
+contract PageConsole {
     using LibNum for uint256;
     using Section for uint256;
 

@@ -50,6 +50,23 @@ contract ConsoleRead {
     IPoolRead  public immutable POOL;
     ILeaseRead public immutable LEASE;
 
+    /*  `try` is not enough on its own, and finding that out is the reason
+        this contract has a test.
+
+        Solidity inserts an `extcodesize` check before any external call
+        that returns data, and that check reverts BEFORE the call is made —
+        so it is not the call failing, and `catch` never sees it. Against an
+        address with no code at all, `try POOL.market(id) { } catch { }`
+        reverts the whole transaction, which is precisely the failure the
+        wrapping was written to prevent.
+
+        Two of the five chains this collection ships on have no pool and no
+        lease. Without this check the console is a 500 on both of them, and
+        the try/catch reads as protection while providing none.        */
+    function _live(address a) private view returns (bool ok_) {
+        assembly { ok_ := gt(extcodesize(a), 0) }
+    }
+
     constructor(IHub hub, IPoolRead pool, ILeaseRead lease) {
         HUB = hub;
         POOL = pool;
@@ -85,7 +102,7 @@ contract ConsoleRead {
     ///         token to render. Every other clear bit is a section of the
     ///         console that prints "not reported" and stays useful.
     function look(uint256 id) external view returns (TokenView memory v, Clocks memory c) {
-        try HUB.viewOf(id) returns (TokenView memory got) {
+        if (_live(address(HUB))) try HUB.viewOf(id) returns (TokenView memory got) {
             v = got;
             c.reported |= BIT_HUB;
         } catch {
@@ -99,12 +116,12 @@ contract ConsoleRead {
             one contract and `ownerOf` is the ERC-721 answer. Where they
             disagree the console shows the ERC-721 one and says they
             disagree, which has caught a stale index before.             */
-        try HUB.ownerOf(id) returns (address o) {
+        if (_live(address(HUB))) try HUB.ownerOf(id) returns (address o) {
             v.owner = o;
             c.reported |= BIT_OWNER;
         } catch {}
 
-        try POOL.market(id) returns (
+        if (_live(address(POOL))) try POOL.market(id) returns (
             address base, address quote,
             uint112, uint112,
             uint16 feeBps, bool open,
@@ -119,7 +136,7 @@ contract ConsoleRead {
             c.reported |= BIT_POOL;
         } catch {}
 
-        try LEASE.listing(id) returns (
+        if (_live(address(LEASE))) try LEASE.listing(id) returns (
             bool rentable, uint8,
             uint128 perDay, uint32 minDays, uint32 maxDays,
             address renter, uint64 until,
@@ -143,7 +160,7 @@ contract ConsoleRead {
             by the hub rather than by the lease. Read separately, because a
             token can carry a user with no listing at all — an outright
             grant is not a rental and the console says so.               */
-        try HUB.userOf(id) returns (address u) {
+        if (_live(address(HUB))) try HUB.userOf(id) returns (address u) {
             c.user = u;
             try HUB.userExpires(id) returns (uint256 e) {
                 c.userExpires = e > type(uint64).max ? type(uint64).max : uint64(e);

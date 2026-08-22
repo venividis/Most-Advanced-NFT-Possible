@@ -391,7 +391,8 @@ export const PAGES = {
   pSwap: "P_SWAP()",         pGallery: "P_GALLERY()", pLaunch: "P_LAUNCH()",
   pLock: "P_LOCK()",         pHook: "P_HOOK()",       pCast: "P_CAST()",
   pSeal: "P_SEAL()",         pKeys: "P_KEYS()",       pName: "P_NAME()",
-  pEstate: "P_ESTATE()"
+  pEstate: "P_ESTATE()",
+  pConsole: "P_CONSOLE()"
 };
 
 /*  The desks and the machinery behind them, each read from a contract that
@@ -435,7 +436,9 @@ export const VIA = [
   ["succession",  "pEstate",   "SUCC()"],
   ["consign",     "pEstate",   "CONS()"],
   ["lease",       "pGallery",  "LEASE()"],
-  ["lease",       "pManifest", "LEASE()"]
+  ["lease",       "pManifest", "LEASE()"],
+  ["consoleRead", "pConsole",  "READ()"],
+  ["consoleSkin", "pConsole",  "SKIN()"]
 ];
 
 /*  What a complete deployment contains, which is not the same question as
@@ -456,7 +459,8 @@ export const EXPECTED = [
   "deskTalk", "deskTerm", "pDoor", "pToken", "pMarket", "pPool", "pServices",
   "pManifest", "pTalk", "pRooms", "pTerminal", "pGallery", "pLaunch", "pLock",
   "pHook", "pCast", "pSeal", "pKeys", "pName", "succession", "consign",
-  "deskEstate", "deskWill", "pEstate", "premises"
+  "deskEstate", "deskWill", "pEstate",
+  "consoleSkin", "consoleRead", "pConsole", "premises"
 ];
 
 /*──────────────── the deployment ────────────────*/
@@ -706,10 +710,10 @@ export async function deploySite(c, A,
     encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease),
     "ConsoleRead");
 
-  const console_ = await c.deploy(
-    A("src/Console.sol", "Console").bytecode,
+  const pConsole = await c.deploy(
+    A("src/PageConsole.sol", "PageConsole").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(consoleRead) + encodeAddressArg(consoleSkin),
-    "Console");
+    "PageConsole");
 
   /*  Three contracts, one cycle: the name page must know the resolver, the
       resolver must know the premises, and the premises must know the name
@@ -736,7 +740,7 @@ export async function deploySite(c, A,
     encodeAddressArg(pLaunch) + encodeAddressArg(pLock) + encodeAddressArg(pHook) +
     encodeAddressArg(pCast) + encodeAddressArg(pSeal) +
     encodeAddressArg(pKeys) + encodeAddressArg(pName) + encodeAddressArg(pEstate) +
-    encodeAddressArg(console_),
+    encodeAddressArg(pConsole),
     "Premises");
 
   /*  The resolver deploys on every chain so the address matches
@@ -757,6 +761,6 @@ export async function deploySite(c, A,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
     pTerminal, pGallery, pLaunch, pLock, pHook, pCast,
     pSeal, pKeys, pName, succession, consign, deskEstate, deskWill, pEstate,
-    consoleSkin, consoleRead, console: console_, premises
+    consoleSkin, consoleRead, pConsole, premises
   };
 }
