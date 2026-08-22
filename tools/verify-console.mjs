@@ -331,6 +331,31 @@ head("the seven rows are in the served bytes, not painted later");
     one while the crest beside it already said "you". Neither is visible in
     a string.                                                            */
 
+head("the instrument leaves for the console, and for this token");
+{
+  /*  The one line the whole redesign was for. `/connect` used to land on
+      /door — one address for every token, so a holder who had just been
+      holding #2049 arrived at a page about the collection and had to find
+      their own token in it.
+
+      Read from the engine's source rather than driven, for the reason its
+      own thermal suite gives: the engine's top-level bindings are not
+      reachable from an injected evaluate, and exporting one onto window so
+      a test could see it would put a byte in the shipped instrument that
+      exists for this file's benefit.                                   */
+  const eng = fs.readFileSync(path.join(ROOT, "engine/ipseity.html"), "utf8");
+  ok("the instrument lands in the console",
+     /const LANDING = \(\) => "\/c\/" \+ S\.id;/.test(eng),
+     "LANDING is not /c/<id>");
+  ok("and it carries the id, so it is this token's console and not the site's front page",
+     !/const LANDING = "\/door"/.test(eng), "LANDING is still a constant /door");
+  ok("leaving is top, not window, so a nested section cannot open a console inside itself",
+     /top\.location\.href = to/.test(eng), "leave() navigates the frame it is in");
+  ok("and it falls back when a framing origin refuses to hand over top",
+     /catch\s*\(e\)\s*\{\s*location\.href = to/.test(eng),
+     "a cross-origin frame would throw and go nowhere");
+}
+
 head("the console runs");
 {
   const { chromium } = await import("playwright");

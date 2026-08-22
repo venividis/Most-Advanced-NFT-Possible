@@ -79,3 +79,22 @@ const s = await ch.send({ to: STALL, data: enc("ship(uint256)",[0n]), label:"shi
 console.log("ship gas:", s.gas);
 const rf = await ch.send({ to: STALL, data: enc("refund(uint256)",[0n]), label:"refund" });
 console.log("refund gas:", rf.gas);
+
+// ── how the page scales: string.concat in a loop is quadratic ──
+console.log("\nitems  html bytes  request() gas");
+async function pageAt(n){
+  const m = await measureRequest([]);
+  const buf = Buffer.from(m.ret.replace(/^0x/,""),"hex").toString("latin1");
+  const i = buf.indexOf("<!doctype");
+  const html = buf.slice(i).replace(/\0+$/,"");
+  return { gas: m.gas, bytes: html.length };
+}
+let shown = new Set();
+for (const k of [8,16,32,64,128,256,384,512]) {
+  while ((await ch.read(STALL, "itemCount()", [])) && Number(BigInt(await ch.read(STALL,"itemCount()",[]))) < k) {
+    await ch.send({ to: STALL, data: enc("list(bytes,uint128,uint32,uint32)",
+      [Buffer.from("Black tee, heavyweight cotton").toString("hex"), BigInt(1e16), 50n, 7n]), label:"listN" });
+  }
+  const p = await pageAt(k);
+  console.log(String(k).padStart(5), String(p.bytes).padStart(11), String(p.gas).padStart(14));
+}

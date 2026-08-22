@@ -562,10 +562,20 @@ const NN = MODULES.length;
     never forms. These ride outside the shader's twelve — labels, wires
     and the picking ray know them; the field does not.                  */
 const DOORED = /^(https?|web3):$/.test(location.protocol);
-/*  Where `/connect` goes. Named rather than inlined because it is the one
-    thing the console redesign will move, and a route spelled in three
-    places is a route that will be right in two of them.              */
-const LANDING = "/door";
+/*  Where `/connect` goes, and it is now the console rather than the flat
+    site's front page.
+
+    A FUNCTION, because the id is part of the address. `/door` was one
+    string for every token, which is exactly what was wrong with it: a
+    holder who typed /connect arrived at a page about the collection and
+    then had to find their own token in it. `/c/<id>` is a page about the
+    thing they were just holding, and it is the same address whether they
+    typed the word, pressed the control, or were sent the link by
+    somebody else.
+
+    Named in one place because a route spelled in three is a route that
+    will be right in two of them.                                     */
+const LANDING = () => "/c/" + S.id;
 /*  Leaving is `top`, not `window`, and the difference is the whole reason
     the instruments stacked. A section opened inside itself runs in a frame
     of its host's document; a console navigated from inside that frame would
@@ -3812,7 +3822,7 @@ const COMMANDS = [
       say("Connected \u00b7 leaving the instrument\u2026", "ok");
       /*  One place, named once. When the console is rebuilt this is the
           only line that moves.                                        */
-      leave(LANDING);
+      leave(LANDING());
     } },
   { t: "Copy this token's URL", d: "The contract, chain and id, as a link.", k: "", run: () => {
       const u = (chainOf(S.chainId).ex || "") + "/token/" + S.collection + "?a=" + S.id;
@@ -3888,7 +3898,7 @@ const COMMANDS = [
         showing a different token, beside the one you were inside.    */
     two.addEventListener("click", async () => {
       await connect();
-      if(NET.account) leave(LANDING);
+      if(NET.account) leave(LANDING());
     });
   }
 })();
