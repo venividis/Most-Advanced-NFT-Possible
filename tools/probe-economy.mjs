@@ -60,7 +60,7 @@ const quorum = await c.send({ data: A("probe/Bourse.sol", "Quorum").bytecode
   .then(r => { G["deploy.Quorum"] = r.gas; return r.address; });
 const purse = await dep("Purse", encodeAddressArg(quorum));
 const lz    = await c.send({ data: A("probe/Bourse.sol", "LzWitness").bytecode
-  + encodeAddressArg(ep) + w(0x60) + w(0xa0) + w(1) + w(30101) + w(1) + "22".repeat(32) })
+  + encodeAddressArg(ep) + encodeAddressArg(me) + w(0x80) + w(0xc0) + w(1) + w(30101) + w(1) + "22".repeat(32) })
   .then(r => { G["deploy.LzWitness"] = r.gas; return r.address; });
 
 const seller = await c.as("0x" + "a1".repeat(32));
@@ -147,6 +147,6 @@ console.log("\n  end state");
 console.log("    owner of #1 (local sale)      ", decAddr(await c.read(nft, "ownerOf(uint256)", [1])), "buyer:", buyer.from.toString());
 console.log("    owner of #2 (seller fill)     ", decAddr(await c.read(nft, "ownerOf(uint256)", [2])));
 console.log("    owner of #3 (filler)          ", decAddr(await c.read(nft, "ownerOf(uint256)", [3])));
-console.log("    owner of #5 (reclaimed)       ", decAddr(await c.read(nft, "ownerOf(uint256)", [5])), "seller:", seller.from.toString());
+console.log("    owner of #4 (reclaimed)       ", decAddr(await c.read(nft, "ownerOf(uint256)", [4])), "seller:", seller.from.toString());
 console.log("    purse owed to filler          ", decUint(await c.read(purse, "owed(address)", [filler.from.toString()])));
 console.log("    ops on #1 after sale          ", decUint(await c.read(nft, "statsOf(uint256)", [1]), 0));

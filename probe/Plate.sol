@@ -115,7 +115,7 @@ contract Plate {
 
     /// @notice Post the frame and stand behind it. The bytes go in as
     ///         contract code; the root is over the pixels, in row order.
-    function post(bytes32 job, bytes32 root, bytes[] calldata chunks)
+    function post(bytes32 job, bytes32 root, bytes calldata chunk)
         external payable
     {
         Job storage J = _job[job];
@@ -124,16 +124,22 @@ contract Plate {
         if (block.timestamp > J.closesAt) revert Closed();
         if (msg.value < MIN_BOND) revert BondTooSmall();
 
-        uint256 n;
-        for (uint256 i; i < chunks.length; ++i) {
-            _shards[job].push(SSTORE2.write(chunks[i]));
-            n += chunks[i].length;
-        }
+        _shards[job].push(SSTORE2.write(chunk));
         J.poster = msg.sender;
         J.bond = uint96(msg.value);
         J.root = root;
         J.postedAt = uint64(block.timestamp);
-        emit Posted(job, msg.sender, root, n, chunks.length);
+        emit Posted(job, msg.sender, root, chunk.length, 1);
+    }
+
+    /// @notice A frame wider than one shard arrives in pieces. Only the
+    ///         poster may add to their own, and only before it is paid.
+    function addShard(bytes32 job, bytes calldata chunk) external {
+        Job storage J = _job[job];
+        if (J.poster != msg.sender) revert NotPosted();
+        if (J.paid) revert AlreadyPaid();
+        _shards[job].push(SSTORE2.write(chunk));
+        emit Posted(job, msg.sender, J.root, chunk.length, _shards[job].length);
     }
 
     /// @notice Refute one pixel. Cheaper than trusting anybody.

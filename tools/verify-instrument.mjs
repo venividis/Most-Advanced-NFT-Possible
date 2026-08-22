@@ -264,9 +264,17 @@ head("`/connect` binds a wallet and then leaves");
 
   /*  The navigation is the assertion. Waited for rather than polled,
       because it is the whole point: the loop ends with the document.  */
-  const gone = page.waitForURL(/\/door$/, { timeout: 15000 }).then(() => true).catch(() => false);
+  /*  `/c/7`, not `/door`, and the id is the assertion rather than a detail.
+      This waited on /door for as long as the flat site's front page was
+      where /connect went — one address for every token in the edition, so
+      a holder who had just been turning #7 arrived somewhere that did not
+      know which token they were holding. The label above it already read
+      "for the console" while the pattern below it still read /door, which
+      is how a test goes on passing after the thing it describes has
+      changed underneath it.                                            */
+  const gone = page.waitForURL(/\/c\/7$/, { timeout: 15000 }).then(() => true).catch(() => false);
   await page.evaluate(() => document.querySelectorAll("#pallist .pi")[0].click());
-  ok("pressing it leaves the instrument for the console", await gone,
+  ok("pressing it leaves the instrument for THIS token's console", await gone,
      "still on " + page.url());
   ok("and the instrument is not left running underneath",
      await page.evaluate(() => !document.querySelector("canvas")),

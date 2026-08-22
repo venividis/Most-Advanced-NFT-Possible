@@ -439,12 +439,36 @@ contract LzWitness is IWitness {
     mapping(uint32 => bytes32) public peerOf;      // fixed at construction
     mapping(bytes32 => uint64) private _seen;
 
-    event Witnessed(bytes32 indexed digest, uint32 srcEid, uint64 nonce);
-    error NotTheEndpoint(); error NotAPeer(); error BadBody();
+    /// @dev NOT frozen, and that is the second lesson from ParleyPort. An
+    ///      OApp with no way to reach `EndpointV2.setConfig` is pinned to
+    ///      LayerZero's defaults forever — which on two of this collection's
+    ///      five chains is a single DVN that only reverts. The power is
+    ///      confined to the endpoint address, so it can name verifiers and
+    ///      libraries and can never move a token or an ether.
+    address public governor;
 
-    constructor(address endpoint, uint32[] memory eids, bytes32[] memory peers) {
-        ENDPOINT = endpoint;
+    event Witnessed(bytes32 indexed digest, uint32 srcEid, uint64 nonce);
+    event GovernorSet(address indexed governor);
+    error NotTheEndpoint(); error NotAPeer(); error BadBody();
+    error NotGovernor(); error OnlyEndpoint(); error ConfigFailed(bytes reason);
+
+    constructor(address endpoint, address governor_, uint32[] memory eids, bytes32[] memory peers) {
+        ENDPOINT = endpoint; governor = governor_;
         for (uint256 i; i < eids.length; ++i) peerOf[eids[i]] = peers[i];
+        emit GovernorSet(governor_);
+    }
+
+    /// @notice Name the verifier set, or leave one behind. Seven days'
+    ///         notice, because the governor is a Timelock and nothing else.
+    function configure(bytes calldata data) external returns (bytes memory) {
+        if (msg.sender != governor) revert NotGovernor();
+        (bool ok, bytes memory r) = ENDPOINT.call(data);
+        if (!ok) revert ConfigFailed(r);
+        return r;
+    }
+    function setGovernor(address g) external {
+        if (msg.sender != governor) revert NotGovernor();
+        governor = g; emit GovernorSet(g);
     }
 
     function seen(bytes32 d) external view returns (uint64) { return _seen[d]; }
