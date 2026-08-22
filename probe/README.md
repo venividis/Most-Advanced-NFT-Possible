@@ -64,7 +64,31 @@ compiles this directory, which is exactly why a file that could not build
 sat here without complaint. Fixed, and all five contracts here now compile
 under `dirs: ["src","probe"]`.
 
-`probe-economy.mjs` was found broken and half-fixed: every deploy in it
+## What the adversarial pass found
+
+`_AttackLiar.sol` is eight lines and it is a finding: an ERC-721 that
+answers every call and moves nothing. `Berth` never checked, so a lot
+could be listed against a contract that satisfies the interface and
+transfers no token.
+
+`Bourse.sol` gained the fix for a second one, and the way it was found is
+the point — it was measured, not reviewed. An earlier draft let a filler
+record the order receipt in a call of its own. Every field in that call is
+public, so anybody could claim a funded order without having bought
+anything. A receipt that is not written by the purchase is not evidence of
+a purchase, so it is written by `buyFor` or not at all.
+
+`AuditB64.sol` and `tools/audit-b64.mjs` exist because a design document
+had been extrapolating base64 cost from a fitted formula
+(`84.76*N + N^2/20972`) rather than measuring it, and because `tokenURI`
+wraps twice, which is the case an estimate drawn from one wrap gets wrong.
+
+`probe-economy.mjs` now runs end to end and prints real gas for a
+cross-chain sale, its refund and its reclaim.
+
+## The state of probe-economy
+
+It was found broken and half-fixed: every deploy in it
 read `r.createdAddress` from a harness that returns `r.address`, so every
 address it captured was `undefined`. That fix is real and is kept. The
 probe still reverts partway through, at `reclaim(bytes32)` with a custom

@@ -78,8 +78,9 @@ const r1 = await run("A. list", seller.exec(berth, "list(address,uint256,uint96,
 const lotId = (n) => "0x" + bytesToHex(keccak256(hexToBytes(
   "0x" + w(1) + berth.slice(2).padStart(64, "0") + seller.from.toString().slice(2).padStart(64, "0") + w(n))));
 const L1 = lotId(0), L2 = lotId(1), L3 = lotId(2), L4 = lotId(3);
-await run("A. buyFor (local, to self)", buyer.exec(berth, "buyFor(bytes32,uint96,address,bytes32)",
-  [L1, PRICE, buyer.from.toString(), "0x" + "00".repeat(32)], { value: PRICE }));
+await run("A. buyFor (local, to self)", buyer.exec(berth,
+  "buyFor(bytes32,uint96,address,bytes32,uint96,uint64)",
+  [L1, PRICE, buyer.from.toString(), "0x" + "00".repeat(32), 0, 0], { value: PRICE }));
 await run("A. withdraw (seller)", seller.exec(berth, "withdraw()", []));
 
 /* ═════ path B · seller-fill: money on the away chain, no capital moves ═════ */
@@ -108,11 +109,9 @@ await run("C. list", seller.exec(berth, "list(address,uint256,uint96,uint64)", [
 await run("C. commit  (AWAY)", buyer.exec(purse,
   "commit(bytes32,uint32,address,bytes32,address,uint64,uint8)",
   [O2, 1, berth, L3, buyer.from.toString(), FAR, 1], { value: PRICE }));
-await run("C. buyFor  (HOME: filler pays, buyer receives)", filler.exec(berth,
-  "buyFor(bytes32,uint96,address,bytes32)", [L3, PRICE, buyer.from.toString(), "0x" + "00".repeat(32)],
-  { value: PRICE }));
-await run("C. markFilled (HOME: the filler's receipt)", filler.exec(berth,
-  "markFilled(bytes32,bytes32,address,uint96,uint64)", [O2, L3, buyer.from.toString(), PRICE, FAR]));
+await run("C. buyFor  (HOME: filler pays+binds the order)", filler.exec(berth,
+  "buyFor(bytes32,uint96,address,bytes32,uint96,uint64)",
+  [L3, PRICE, buyer.from.toString(), O2, PRICE, FAR], { value: PRICE }));
 const D2 = await c.read(berth, "digestOf(bytes32)", [O2]);
 await run("C. witness 1 lands (AWAY)", c.exec(wit1, "witness(bytes32)", [D2]));
 await run("C. claim   (AWAY: 1 of 2 witnesses)", c.exec(purse, "claim(bytes32,address,address,uint96)",

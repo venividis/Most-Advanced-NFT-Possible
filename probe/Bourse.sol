@@ -105,9 +105,10 @@ contract Berth {
       own capital — the only path in this design where a cross-chain buyer
       is served at the speed of one block. Royalty is taken here, so the
       away statement carries none.                                        */
-    function buyFor(bytes32 lot, uint96 agreed, address to, bytes32 order)
-        external payable once
-    {
+    function buyFor(
+        bytes32 lot, uint96 agreed, address to,
+        bytes32 order, uint96 awayPrice, uint64 refundAfter
+    ) external payable once {
         Lot memory L = _lot[lot];
         if (L.seller == address(0)) revert NoLot();
         if (L.ask == 0) revert NotOffered();
@@ -118,6 +119,23 @@ contract Berth {
         if (msg.value < price) revert Underpaid(price);
 
         delete _lot[lot];
+
+        /*  The order receipt is written HERE or nowhere. An earlier draft
+            let a filler record it in a second call, and measuring that
+            call is what showed the hole: every field in it is public, so
+            anybody could claim a funded order without having bought
+            anything. A receipt that is not written by the purchase is not
+            evidence of a purchase.                                      */
+        if (order != bytes32(0)) {
+            if (_receipt[order].when != 0) revert OrderTaken();
+            if (refundAfter < block.timestamp + MARGIN) revert TooCloseToRefund(refundAfter);
+            _receipt[order] = Receipt({
+                lot: lot, recipient: to, payee: msg.sender, price: awayPrice,
+                refundAfter: refundAfter, royaltyTo: address(0), royaltyAmt: 0,
+                when: uint64(block.timestamp)
+            });
+            emit Delivered(order, lot, to, msg.sender, awayPrice);
+        }
 
         uint256 roy;
         if (address(HUB) != address(0)) {
@@ -169,24 +187,6 @@ contract Berth {
 
         IERC721Min(L.collection).transferFrom(address(this), recipient, L.tokenId);
         emit Delivered(order, lot, recipient, L.seller, awayPrice);
-    }
-
-    /*──── a filler's receipt, for money they must still go and fetch ────
-      The filler already paid the seller through `buyFor`, so there is no
-      royalty left to take. They record the order here so the Wire has
-      something to witness.                                              */
-    function markFilled(bytes32 order, bytes32 lot, address recipient, uint96 awayPrice, uint64 refundAfter)
-        external
-    {
-        if (order == bytes32(0)) revert NoOrder();
-        if (_receipt[order].when != 0) revert OrderTaken();
-        if (refundAfter < block.timestamp + MARGIN) revert TooCloseToRefund(refundAfter);
-        _receipt[order] = Receipt({
-            lot: lot, recipient: recipient, payee: msg.sender, price: awayPrice,
-            refundAfter: refundAfter, royaltyTo: address(0), royaltyAmt: 0,
-            when: uint64(block.timestamp)
-        });
-        emit Delivered(order, lot, recipient, msg.sender, awayPrice);
     }
 
     function reclaim(bytes32 lot) external once {
