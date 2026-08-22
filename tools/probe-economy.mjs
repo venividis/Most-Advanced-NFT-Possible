@@ -44,24 +44,24 @@ const dep = async (name, args = "") => {
   const a = A("probe/Bourse.sol", name);
   const r = await c.send({ data: a.bytecode + args, label: "deploy." + name });
   G["deploy." + name] = r.gas;
-  return r.createdAddress;
+  return r.address;
 };
 const berth = await dep("Berth", encodeAddressArg(nft));
 const ep    = await dep("StubEndpoint");
 /* one peer: dstEid 30184 (Base), receiver = the away witness, set below */
 const wire  = await c.send({ data: A("probe/Bourse.sol", "Wire").bytecode
-  + encodeAddressArg(berth) + encodeAddressArg(ep) + w(0xa0) + w(0xe0) + w(1) + w(30184) + w(1) + "11".repeat(32) })
-  .then(r => { G["deploy.Wire"] = r.gas; return r.createdAddress; });
+  + encodeAddressArg(berth) + encodeAddressArg(ep) + w(0x80) + w(0xc0) + w(1) + w(30184) + w(1) + "11".repeat(32) })
+  .then(r => { G["deploy.Wire"] = r.gas; return r.address; });
 
 const wit1 = await dep("StubWitness", encodeAddressArg(me));
 const wit2 = await dep("StubWitness", encodeAddressArg(me));
 const quorum = await c.send({ data: A("probe/Bourse.sol", "Quorum").bytecode
   + encodeAddressArg(me) + w(0x40) + w(2) + encodeAddressArg(wit1) + encodeAddressArg(wit2) })
-  .then(r => { G["deploy.Quorum"] = r.gas; return r.createdAddress; });
+  .then(r => { G["deploy.Quorum"] = r.gas; return r.address; });
 const purse = await dep("Purse", encodeAddressArg(quorum));
 const lz    = await c.send({ data: A("probe/Bourse.sol", "LzWitness").bytecode
   + encodeAddressArg(ep) + w(0x60) + w(0xa0) + w(1) + w(30101) + w(1) + "22".repeat(32) })
-  .then(r => { G["deploy.LzWitness"] = r.gas; return r.createdAddress; });
+  .then(r => { G["deploy.LzWitness"] = r.gas; return r.address; });
 
 const seller = await c.as("0x" + "a1".repeat(32));
 const buyer  = await c.as("0x" + "b2".repeat(32));
@@ -75,7 +75,6 @@ const PRICE = 2n * 10n ** 17n;
 /* ═════ path A · an ordinary local sale (the baseline) ═════ */
 await run("A. approve", seller.exec(nft, "approve(address,uint256)", [berth, 1]));
 const r1 = await run("A. list", seller.exec(berth, "list(address,uint256,uint96,uint64)", [nft, 1, PRICE, FAR]));
-const LOT1 = "0x" + r1.logs.find(l => l.topics.length > 1)?.topics[1] ?? null;
 const lotId = (n) => "0x" + bytesToHex(keccak256(hexToBytes(
   "0x" + w(1) + berth.slice(2).padStart(64, "0") + seller.from.toString().slice(2).padStart(64, "0") + w(n))));
 const L1 = lotId(0), L2 = lotId(1), L3 = lotId(2), L4 = lotId(3);
@@ -128,9 +127,9 @@ warp(T0 + 14n * 3600n);
 await run("D. refund  (AWAY: permissionless)", filler.exec(purse, "refund(bytes32)", [O3]));
 await seller.exec(nft, "approve(address,uint256)", [berth, 4]);
 await run("D. list (a lot nobody buys)", seller.exec(berth, "list(address,uint256,uint96,uint64)",
-  [nft, 4, PRICE, T0 + 15n * 3600n]));
-warp(T0 + 16n * 3600n);
-await run("D. reclaim (HOME: permissionless)", filler.exec(berth, "reclaim(bytes32)", [lotId(4)]));
+  [nft, 4, PRICE, T0 + 14n * 3600n + 86500n]));
+warp(T0 + 14n * 3600n + 90000n);
+await run("D. reclaim (HOME: permissionless)", filler.exec(berth, "reclaim(bytes32)", [lotId(3)]));
 
 /* ═════ sizes ═════ */
 console.log("\n  runtime bytecode");
