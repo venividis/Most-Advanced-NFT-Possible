@@ -88,6 +88,30 @@ contract Berth {
         unchecked { lot = keccak256(abi.encode(block.chainid, address(this), msg.sender, nonceOf[msg.sender]++)); }
         _lot[lot] = Lot(msg.sender, collection, tokenId, ask, until);
         IERC721Min(collection).transferFrom(msg.sender, address(this), tokenId);
+        /*  There is no check here, and that is the finding rather than an
+            omission.
+
+            `_AttackLiar.sol` is eight lines: transferFrom returns cleanly
+            and moves nothing, supportsInterface says yes, and ownerOf
+            returns `msg.sender` — so it answers whatever the caller wants
+            to hear. An `ownerOf(tokenId) == address(this)` check was added
+            here and the attack defeated it in the same run, because the
+            check calls back into the attacker's own contract and it simply
+            said yes.
+
+            Every verification available to a marketplace has that shape.
+            You cannot ask a contract whether it is honest; the answer
+            comes from the contract. A balance delta, a supportsInterface
+            probe, a receiver callback — all of them are calls into the
+            thing under suspicion.
+
+            So this is not a contract-layer problem and pretending it is
+            produces a check that looks like protection and is not, which
+            is worse than none. A buyer is buying a NAMED COLLECTION at a
+            known address; a lot listed against a lookalike is an identity
+            problem, answered by showing the collection address and by
+            whatever curation the venue chooses to do, and never by asking
+            the lookalike to confess.                                    */
         emit Listed(lot, msg.sender, collection, tokenId, ask, until);
     }
 

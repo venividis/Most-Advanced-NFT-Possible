@@ -64,6 +64,44 @@ compiles this directory, which is exactly why a file that could not build
 sat here without complaint. Fixed, and all five contracts here now compile
 under `dirs: ["src","probe"]`.
 
+## Four open holes in the marketplace prototype
+
+`tools/attack-bourse.mjs` runs four attacks against `Bourse.sol` and all
+four still land. They are recorded here rather than fixed, because the
+prototype exists to price a design and a hole priced is worth more than a
+hole patched in a sketch nobody will deploy.
+
+**B1 · the away-chain order-id namespace is free to squat.** An attacker
+commits 0 wei at a victim's order id; the real buyer's 0.2 ETH commit then
+reverts. Cost: one zero-value transaction, and the id is dead forever —
+`refund()` sets `spent` and never clears `orderOf[order].buyer`.
+
+**B2 · the home-chain receipt namespace is free to squat.** The attacker
+self-buys a 1-wei junk lot naming the victim's order id, and the honest
+seller can no longer deliver against it. Outlay: 1 wei, refunded to itself
+through `owed[]`. Gas only.
+
+**B3 · Berth never checks the asset arrived, and cannot.** This one is the
+interesting one. `_AttackLiar.sol` is eight lines whose `transferFrom`
+moves nothing and whose `ownerOf` returns `msg.sender`, so it tells every
+caller what that caller hopes to hear. An `ownerOf(tokenId) ==
+address(this)` check was added to `list()` and the attack defeated it in
+the same run: the check calls into the attacker's contract and the
+attacker said yes.
+
+Every verification available here has that shape. You cannot ask a
+contract whether it is honest, because the answer comes from the contract.
+So the check was removed rather than kept, on the principle this codebase
+learned twice in one day — a guard that looks like protection and is not
+is worse than none. It is an identity problem: a buyer is buying a named
+collection at a known address, and the answer is showing that address and
+curating, never asking the lookalike to confess.
+
+**B4 · the global rate limiter is a starvation lever.** The attacker fills
+all eight of an hour's claim budget with 1-wei orders; the honest seller,
+whose asset is already delivered, cannot claim. Cost for the hour: eight
+wei and gas.
+
 ## What the adversarial pass found
 
 `_AttackLiar.sol` is eight lines and it is a finding: an ERC-721 that
