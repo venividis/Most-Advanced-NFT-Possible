@@ -90,15 +90,37 @@ export const LAYERZERO = {
     wrote it down were both wrong: "can never be heard" is false, it
     receives perfectly.
 
-    Robinhood's TESTNET (46630) has no endpoint at any of the three
-    canonical addresses — mainnet-early, mainnet-late, or the testnet
-    address 0x6EDCE654…f10f. The chain answers; LayerZero is simply not
-    deployed on it. An earlier probe of mine checked the testnet with
-    mainnet addresses and concluded the same thing for the wrong reason,
-    which is how a right answer can still be a bad measurement. Base
-    Sepolia was used as the control: the same probe finds its endpoint at
-    the testnet address, eid 40245, with three read libraries.          */
+    Robinhood's TESTNET (46630) was reported here, twice, as having no
+    endpoint at all — measured at the three canonical addresses,
+    mainnet-early, mainnet-late, and the testnet address 0x6EDCE654…f10f,
+    all empty. The measurement was real and the conclusion was still
+    false: there is a FOURTH address. LayerZero's own metadata registry
+    places Robinhood testnet's endpoint at 0x3aCAAf60…Fe32, and reading
+    that address over the chain's public RPC finds 24,005 bytes of code —
+    the size of a full EndpointV2 — whose eid() answers 40451. "Not at
+    the addresses I knew" had been written down as "not deployed", which
+    is the same bad step as probing only the first canonical address,
+    made one address deeper. The table below carries it now. Base
+    Sepolia remains the control: endpoint at the testnet address, eid
+    40245, with three read libraries.
+
+    One more trap, from the same registry: it still carries a LEGACY
+    record for Ethereum Sepolia at eid 30161 — V1's numbering plus
+    30000, staged "mainnet", with no EndpointV2 behind it. The live V2
+    record is eid 40161. Wire 40161; a port built to 30161 is built to
+    a dead number.                                                    */
 export const canRead = (chainId) => !!(LAYERZERO[Number(chainId)] || {}).read;
+
+/*  The rehearsal chains' endpoints, measured the same way (code present,
+    eid() answering). Testnet eids are 40xxx as mainnet's are 30xxx, and
+    neither has any relation to the EVM chain id — never derive one from
+    the other. Robinhood's testnet endpoint is the one at the
+    non-canonical address; see the correction above.                    */
+export const LAYERZERO_TESTNETS = {
+  11155111: { name: "Ethereum Sepolia", eid: 40161, endpoint: "0x6EDCE65403992e310A62460808c4b910D972f10f" },
+  84532:    { name: "Base Sepolia",     eid: 40245, endpoint: "0x6EDCE65403992e310A62460808c4b910D972f10f" },
+  46630:    { name: "Robinhood Testnet", eid: 40451, endpoint: "0x3aCAAf60502791D199a5a5F0B173D78229eBFe32" },
+};
 
 /*  Who a chain's port should be built to hear. Every OTHER chain of the
     edition that has an endpoint — the port carries speech, which every
