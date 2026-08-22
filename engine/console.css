@@ -86,8 +86,15 @@ a:hover,a:focus-visible{background:var(--a-ghost);outline:none}
     every scroll position without occupying a line of type. Depth is the
     number of lines in the left margin. That is the breadcrumb, and it
     costs four declarations.                                             */
-.sub::before{content:"";position:absolute;left:11px;top:0;bottom:0;width:1px;
-  background:var(--a-dim)}
+/*  --own is how far in this particular band sits: 0 for the outermost,
+    22px more for each level after it. Every band is fixed to the whole
+    viewport — none of them holds anything in flow — so the rule cannot
+    come from a padding chain and has to be placed from that number.   */
+.sub::before{content:"";position:absolute;left:calc(11px + var(--own,0px));
+  top:0;bottom:0;width:1px;background:var(--a-dim)}
+/*  Full strength for the band being stood in, dimmed for every band you
+    could walk back out to. That is the only difference between them, and
+    it is enough: the bright rule is here, the dim ones are the way back. */
 .sub.here::before{background:var(--a)}
 
 /*  ::before cannot take a tap, and the rule has to be the way back out, so
