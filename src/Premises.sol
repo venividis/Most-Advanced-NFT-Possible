@@ -45,6 +45,15 @@ interface IPageKeys     { function keys() external view returns (string memory);
 interface IPageName     { function namePage() external view returns (string memory); }
 interface IPageEstate   { function estatePage() external view returns (string memory); }
 
+/*  The console. One route where nineteen were, so this is the only page
+    interface here that takes a verb: `/c/<id>/hand` is a real address you
+    can send somebody, and it opens on the thing they need rather than on a
+    front door they then have to navigate out of.                        */
+interface IConsole {
+    function doc(uint256 id, uint8 verb) external view returns (string memory);
+    function verbOf(string memory word) external pure returns (uint8);
+}
+
 interface IPageServices {
     function rent(uint256 id) external view returns (string memory);
     function vault(uint256 id) external view returns (string memory);
@@ -158,6 +167,7 @@ contract Premises {
     IPageKeys     public immutable P_KEYS;
     IPageName     public immutable P_NAME;
     IPageEstate   public immutable P_ESTATE;
+    IConsole      public immutable P_CONSOLE;
 
     struct KeyValue { string key; string value; }
 
@@ -177,6 +187,7 @@ contract Premises {
         IPageGallery gallery; IPageLaunch launch; IPageLock lock;
         IPageHook hook; IPageCast cast; IPageSeal seal; IPageKeys keys;
         IPageName name; IPageEstate estate;
+        IConsole console;
     }
 
     /// @dev Seventeen flat addresses is past what even viaIR keeps on a
@@ -203,6 +214,7 @@ contract Premises {
         P_KEYS = p.keys;
         P_NAME = p.name;
         P_ESTATE = p.estate;
+        P_CONSOLE = p.console;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -365,6 +377,33 @@ contract Premises {
         if (_eq(resource[0], "estate")) {
             if (n != 1) return _notFound();
             return (200, P_ESTATE.estatePage(), _headers(HTML));
+        }
+
+        /*═══════════════ the console ═══════════════*/
+
+        /*  `/c`, `/c/<id>`, `/c/<id>/<verb>`. One human route, so it does
+            not have to distinguish itself from anything, and short because
+            a phone's address bar truncates and `/c/2049/hand` fits whole.
+
+            Every state of the console is a real URL. That is not a
+            convenience: it is what makes a walk into somebody else's token
+            a thing you can send to them rather than a thing that only
+            exists inside one tab's history.                            */
+        if (_eq(resource[0], "c")) {
+            if (n == 1) {
+                uint256 first = HUB.FIRST_ID();
+                if (HUB.totalSupply() == 0) return _notFound();
+                return (200, P_CONSOLE.doc(first, 0), _headers(HTML));
+            }
+            (bool okC, uint256 cid) = _toUint(resource[1]);
+            if (!okC || !_exists(cid)) return _notFound();
+            if (n == 2) return (200, P_CONSOLE.doc(cid, 0), _headers(HTML));
+            if (n != 3) return _notFound();
+            /*  An unknown verb is not a 404. The id resolved, the token is
+                real, and the console opens on it with nothing expanded —
+                which is what a person who mistyped one word wanted, and
+                strictly better than being told the token does not exist. */
+            return (200, P_CONSOLE.doc(cid, P_CONSOLE.verbOf(resource[2])), _headers(HTML));
         }
 
         if (_eq(resource[0], "hook")) {

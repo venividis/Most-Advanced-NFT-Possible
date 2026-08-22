@@ -118,6 +118,13 @@ const GET = getter(c, site.premises);
 fs.mkdirSync(OUT, { recursive: true });
 const pages = [
   [[], "index.html", "the collection"],
+  /*  The console, at all three of its shapes. Every state of it is a real
+      URL, so every state of it is a file here, and a walk into another
+      token is a thing you can send somebody rather than a thing that only
+      exists inside one tab's history.                                  */
+  [["c"], "c.html", "the console, on the first token"],
+  [["c", "1"], "c-1.html", "the console"],
+  [["c", "1", "hand"], "c-1-hand.html", "the console, opened on HAND IT ON"],
   [["token", "1"], "token-1.html", "the counter"],
   [["token", "1", "market"], "token-1-market.html", "the swap card"],
   [["token", "1", "pool"], "token-1-pool.html", "the holder's side"],

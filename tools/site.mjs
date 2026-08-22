@@ -6,8 +6,13 @@
   second thing to forget to update, and the specific way that goes wrong here
   is a tool that keeps passing against a wiring nobody ships.
 ───────────────────────────────────────────────────────────────────────────*/
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { sel, encodeAddressArg } from "./evm.mjs";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /*  ABI encoding for exactly the two shapes this file needs: a `string[]`
     going out, and a `(uint16,string,(string,string)[])` coming back. Both
@@ -663,6 +668,49 @@ export async function deploySite(c, A,
     encodeAddressArg(hub) + encodeAddressArg(succession) + encodeAddressArg(consign),
     "PageEstate");
 
+  /*  Ahead of the nameplate's prediction below, and it has to be. That
+      prediction is `nonce + 2` — this deploy, the premises, then the
+      resolver — and the stylesheet is loaded with a LOOP of transactions
+      whose length depends on how long the stylesheet is. Anything that
+      bumps the deployer's nonce by a number nobody wrote down cannot sit
+      between a prediction and the thing it predicts. The guard below
+      caught this the first time it was put in the wrong place.        */
+  /*  The console, and its two halves.
+
+      The skin holds ten kilobytes of stylesheet as contract code, because
+      a document that has to build its own CSS every call is paying for it
+      on every read forever. It is loaded raw rather than gzipped: a
+      <style> has to be there before the first paint, and inflating one in
+      JavaScript is a flash of unstyled console on every load.
+
+      The reader is separate from the document for a reason that only
+      shows up on the chains where things are missing — it wraps every
+      satellite call, so one absent contract degrades a section instead of
+      reverting the page.                                                */
+  const consoleSkin = await c.deploy(
+    A("src/ConsoleSkin.sol", "ConsoleSkin").bytecode, "", "ConsoleSkin");
+
+  /*  Hex, not a Buffer: the harness takes bytes as a 0x string and says so
+      rather than encoding something plausible. Sharded at 24,000 because
+      EIP-170 stops a data contract at 24,575 and a stylesheet that grows
+      past one shard should not need this loop rewritten.               */
+  const css = fs.readFileSync(path.join(ROOT, "engine/console.css"));
+  for (let i = 0; i < css.length; i += 24_000) {
+    await c.exec(consoleSkin, "load(bytes)",
+      ["0x" + css.subarray(i, i + 24_000).toString("hex")]);
+  }
+  await c.exec(consoleSkin, "freeze()", []);
+
+  const consoleRead = await c.deploy(
+    A("src/ConsoleRead.sol", "ConsoleRead").bytecode,
+    encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease),
+    "ConsoleRead");
+
+  const console_ = await c.deploy(
+    A("src/Console.sol", "Console").bytecode,
+    encodeAddressArg(hub) + encodeAddressArg(consoleRead) + encodeAddressArg(consoleSkin),
+    "Console");
+
   /*  Three contracts, one cycle: the name page must know the resolver, the
       resolver must know the premises, and the premises must know the name
       page. Somebody has to be told where a contract will be before it is
@@ -687,7 +735,8 @@ export async function deploySite(c, A,
     encodeAddressArg(pTerminal) + encodeAddressArg(pSwap) + encodeAddressArg(pGallery) +
     encodeAddressArg(pLaunch) + encodeAddressArg(pLock) + encodeAddressArg(pHook) +
     encodeAddressArg(pCast) + encodeAddressArg(pSeal) +
-    encodeAddressArg(pKeys) + encodeAddressArg(pName) + encodeAddressArg(pEstate),
+    encodeAddressArg(pKeys) + encodeAddressArg(pName) + encodeAddressArg(pEstate) +
+    encodeAddressArg(console_),
     "Premises");
 
   /*  The resolver deploys on every chain so the address matches
@@ -707,6 +756,7 @@ export async function deploySite(c, A,
     chrome, parley, roster, deskRooms, kiln, locker, venue, nameplate, deskU, deskT, deskL, deskSeal, pSwap, desk, deskTalk, deskTerm,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
     pTerminal, pGallery, pLaunch, pLock, pHook, pCast,
-    pSeal, pKeys, pName, succession, consign, deskEstate, deskWill, pEstate, premises
+    pSeal, pKeys, pName, succession, consign, deskEstate, deskWill, pEstate,
+    consoleSkin, consoleRead, console: console_, premises
   };
 }

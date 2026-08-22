@@ -566,6 +566,17 @@ const DOORED = /^(https?|web3):$/.test(location.protocol);
     thing the console redesign will move, and a route spelled in three
     places is a route that will be right in two of them.              */
 const LANDING = "/door";
+/*  Leaving is `top`, not `window`, and the difference is the whole reason
+    the instruments stacked. A section opened inside itself runs in a frame
+    of its host's document; a console navigated from inside that frame would
+    be a console inside an instrument, which is the arrangement this design
+    just spent a commit removing. `top` moves the document that is actually
+    on screen.
+
+    A marketplace that frames this token from another origin will refuse to
+    hand over `top` — the throw IS the refusal, and in that case this frame
+    is the only document there is to move, so it moves itself.          */
+const leave = (to) => { try { top.location.href = to; } catch(e){ location.href = to; } };
 /*  A ring of seven door nodes used to orbit here, each carrying a route
     into the flat site. They were the deck's entrances and nothing else:
     with no deck to enter, a node whose whole definition is `door:"/swap"`
@@ -3050,7 +3061,7 @@ BUILD.VAULT = m => {
     '<p class="s" style="margin:10px 0;color:var(--mid)">Receives and never spends. There is no ' +
     '<em>execute</em>, no withdraw, no sweep, no rescue, no admin — not for you, not for anyone, ' +
     'ever. What it holds is a floor a buyer can price, because no one has a function with which ' +
-    'to move it. <b style="color:var(--w)">Anything sent here is here permanently.</b></p>' +
+    'to move it. <b style="color:var(--warn)">Anything sent here is here permanently.</b></p>' +
     '<button class="b" id="g-make">Bring the Grip into being</button>' +
 
     '<hr><div class="k">Derived here, not asked for</div>' +
@@ -3801,7 +3812,7 @@ const COMMANDS = [
       say("Connected \u00b7 leaving the instrument\u2026", "ok");
       /*  One place, named once. When the console is rebuilt this is the
           only line that moves.                                        */
-      location.href = LANDING;
+      leave(LANDING);
     } },
   { t: "Copy this token's URL", d: "The contract, chain and id, as a link.", k: "", run: () => {
       const u = (chainOf(S.chainId).ex || "") + "/token/" + S.collection + "?a=" + S.id;
@@ -3877,7 +3888,7 @@ const COMMANDS = [
         showing a different token, beside the one you were inside.    */
     two.addEventListener("click", async () => {
       await connect();
-      if(NET.account) location.href = LANDING;
+      if(NET.account) leave(LANDING);
     });
   }
 })();
