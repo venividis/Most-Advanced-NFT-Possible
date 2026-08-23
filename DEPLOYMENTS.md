@@ -627,3 +627,40 @@ foreign conversation with no indexer. Costs, measured: ~0.00267 ETH on
 Ethereum Sepolia for deploy + mint + echo; ~0.0000096 ETH on Base Sepolia
 for its deploy. The records are `deployments/port-84532.json` and
 `deployments/port-11155111.json`; the runbook is `OMNICHAIN.md` §5.
+
+### The redesigned site ships, and a key gets its door — 2026-08-23
+
+`tools/redeploy-site.mjs` replaced the Base Sepolia site with the
+interaction redesign — the ways-map door with a priced mint button, the
+console upgrades in fresh stores, `services.json/2`, and the new
+`/k/<id>/<key>` route — keeping the Parley and every message in it. The
+deploy key was the port federation's own; the whole run cost about
+0.0012 ETH at Base Sepolia's prices.
+
+```
+Premises     0xd4e64108b923f2eb845c05e65610a9520e6b26ee   (live, 11 routes probed 200)
+Parley       0xaa8b3ff644638a29333953328fb877e8dd23e0f2   (unchanged)
+```
+
+Verified live off the public RPC rather than assumed: the door serves the
+ways map with the tesseract gone and the mint priced in its label; the
+manifest declares `ipseity.services/2` with six services and the
+`deskTerm` address; `/c/1` and `/k/1/<key>` answer.
+
+Then the agent front door was used for real. Token #3 was minted to the
+deploy key (174,729 gas), its Reach embodied at
+`0xed5560d3589bd25cbac39426499b254fc70099ea` (102,471 gas), and a
+session granted to a fresh key — may call `commit` on the hub, expires
+in seven days, spend cap zero (153,231 gas). The page at
+
+```
+web3://0xd4e64108b923f2eb845c05e65610a9520e6b26ee:84532/k/3/0x31b23c2e798fa33f89fb210f5af33fff2fe1a5c5
+```
+
+reads the envelope off the chain and says: active, granted by the
+current holder. The one surface where the actor is not the holder,
+serving its first actor.
+
+Ethereum Sepolia's redeploy waits on gas: at 0.96 gwei the run needs
+roughly 0.10–0.14 ETH and the deploy key holds 0.017. It ships the same
+way the moment the key is topped up.
