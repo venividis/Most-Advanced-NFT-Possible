@@ -42,6 +42,14 @@ be trusted: `node tools/recover-record.mjs deployments/<chain>.json` reads them
 back off the chain and exits non-zero if the file and the chain disagree. Both
 records reconcile at 0 disagreeing, 0 unreachable, 0 missing, 0 contradicted.
 
+The ParleyPort federation is live between the two testnets — the same
+contract at the same address on both chains, each naming the other as its
+only peer:
+
+```
+ParleyPort   0x65d1e9d08488a68ef6bf48e057ab69496333c7ae   on 84532 and 11155111
+```
+
 ## Base Sepolia · chain 84532
 
 Deployed 2026-08-18 over `https://base-sepolia-rpc.publicnode.com` with signed
@@ -581,3 +589,41 @@ until it is called, this is reversible, and after it nothing is.
 
 44,318 bytes stored, inflating to 129,033 — about 690 bytes on chain for
 the whole mechanism.
+
+### The commons crosses a border — 2026-08-22
+
+The port that had never met a real endpoint met two. A fresh key, funded
+by the owner on both testnets and nowhere else, deployed `ParleyPort` at
+nonce 0 on Base Sepolia and Ethereum Sepolia, so CREATE put it at the same
+address on both — `0x65d1e9d08488a68ef6bf48e057ab69496333c7ae` — and each
+port names that address on the other chain's eid as its only peer. No
+second pass, no registry, no admin: the delegate reads zero on both
+endpoints, as constructed.
+
+```
+port (both chains)   0x65d1e9d08488a68ef6bf48e057ab69496333c7ae
+deployer             0x9a916d0bebf561643dc638c65f7afa8442d3fd13  (nonce-0 trick; disposable)
+mint of #3           0xcf018dc066e6912f5bbb853e35826ecff02bd5f87f39f3a3fcddaf3d028c2286  (eth-sepolia)
+echo out             0xff7b05c86c0843a9153c2e113fbbbfe0e973db7737526eb90e58f4123bb180e5  (323,518 gas)
+delivery             0xe44941a1c36fe4d8d442a5523fde1f076bf8f562e446e2908748b36b4ea05b38  (base-sepolia, block 45828666)
+```
+
+Token #3 was minted on Ethereum Sepolia to the deploy key (the hub's
+testnet price, 0.0001 ETH), and `echo(3, 0, "the commons, heard on
+another chain", "")` paid the quoted 104,037,152,596,558 wei — the
+port's own 22-byte default options on the wire, since the caller passed
+none. The DVNs attested and the executor delivered in about eighty
+seconds, and `node tools/port.mjs walk` read it back off Base Sepolia's
+own `eth_getLogs`: one single-block query, from eid 40161, token 3, the
+body intact. The federated archive walks exactly like the local one,
+which was the design's whole claim.
+
+What this run proves: the protocol-ABI fix is real (a message composed by
+the real ULN, verified by real DVNs, executed by the real executor,
+landed in `lzReceive(Origin,…)` and emitted `Echoed`); the
+same-address-everywhere wiring closes with no admin; the default options
+satisfy a real send library; and an unfunded stranger can read the whole
+foreign conversation with no indexer. Costs, measured: ~0.00267 ETH on
+Ethereum Sepolia for deploy + mint + echo; ~0.0000096 ETH on Base Sepolia
+for its deploy. The records are `deployments/port-84532.json` and
+`deployments/port-11155111.json`; the runbook is `OMNICHAIN.md` §5.

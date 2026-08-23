@@ -274,10 +274,12 @@ contract DeskTalk {
         "const want=was&&MINE.some(t=>t.toString()===was)?was:MINE[0].toString();"
         "if(sel)sel.value=want;await become(want)};"
 
+        /*  Holding nothing is not a failure, so it does not wear the
+            failure colour — the sentence is the information.            */
         "const hello=async()=>{const p=await I.connect();"
         "const a=await p.request({method:'eth_accounts'});await sight(a[0]);"
         "if(!MINE.length)I.say('that wallet holds none of these tokens \\u2014 "
-        "you can read everything and say nothing','no');else I.say('speaking as #'+ME,'ok')};"
+        "you can read everything and say nothing');else I.say('speaking as #'+ME,'ok')};"
 
         "return{boot:boot,hello:hello,become:become,send:send,paint:paint,watch:watch,on:on,"
         "back:back,B2H:B2H,H2B:H2B,TXT:TXT,ARG:ARG,me:()=>ME,mine:()=>MINE,"
@@ -306,6 +308,10 @@ contract DeskTalk {
         "(()=>{const K=window.IPT;if(!K)return;const I=window.IP,$=I.$;"
         "const box=$('yours');const stage=$('rig');"
         "K.on((me,mine)=>{if(!box)return;box.textContent='';"
+        /*  Holding nothing is information, not an error: it renders in the
+            page's own voice, never in refusal red. For one version it wore
+            the same styling as a failed transaction, which told a curious
+            visitor they had done something wrong by arriving.           */
         "if(!mine||!mine.length){const p=document.createElement('p');p.className='e';"
         "p.textContent=me===null&&!I.acct()?'Not connected yet.':"
         "'This wallet holds none of these tokens. Everything here is still readable.';"
@@ -313,13 +319,17 @@ contract DeskTalk {
         "for(const t of mine){const row=document.createElement('div');row.className='room';"
         "const b=document.createElement('b');b.textContent='IPSEITY #'+t;"
         "const g=document.createElement('span');"
+        /*  The console first: it is the surface built to be used. The
+            instrument is the artwork and stays one click away.          */
+        "const k=document.createElement('a');k.className='g';k.href='/c/'+t;"
+        "k.textContent='its console';"
         "const a=document.createElement('a');a.className='g';a.href='/token/'+t+'/live';"
         "a.textContent='open the instrument';"
         "const c=document.createElement('a');c.className='g';c.href='/token/'+t;"
         "c.textContent='its counter';"
         "const d=document.createElement('a');d.className='g';d.href='/dm/'+t;"
         "d.textContent='its messages';"
-        "g.append(a,c,d);row.append(b,g);"
+        "g.append(k,a,c,d);row.append(b,g);"
         /*  The instrument in a frame, on demand and never before. It is a
             21M gas eth_call to read one, and a front page that spends that
             on every visit is a front page that gets a node to stop

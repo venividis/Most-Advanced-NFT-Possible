@@ -76,9 +76,56 @@
 
   /*───────────────────────── the confirm slab ─────────────────────────*/
 
-  function propose(title, lines, tx) {
+  /*  §E.9, finally shipped. The slab always states where the transaction
+      goes, what it carries, and which function it calls — a person should
+      never have to trust the lane's title over the bytes. And after the
+      press, the sentence keeps moving: sent, then mined or reverted, read
+      back off the wallet's own node one hash at a time. "Sent · 0x…" used
+      to be the entire post-signature experience of this console, which
+      left a holder refreshing a block explorer to learn whether their own
+      turn had landed.                                                    */
+
+  function watch(h) {
+    var p = provider();
+    if (!p) return;
+    var tries = 0;
+    var poll = function () {
+      tries += 1;
+      p.request({ method: "eth_getTransactionReceipt", params: [h] })
+        .then(function (r) {
+          if (r && r.blockNumber) {
+            var n = parseInt(r.blockNumber, 16);
+            if (r.status === "0x0") {
+              say("It reverted in block " + n + ". Nothing changed.", "err");
+            } else {
+              say("Mined in block " + n + ". What this page shows may lag it by one.", "ok");
+            }
+            return;
+          }
+          if (tries === 22) say("Still not mined. The chain is slow or the fee was low.");
+          if (tries < 45) setTimeout(poll, 4000);
+          else say("Not mined after three minutes. The wallet may still land it — check there.");
+        })
+        /*  A wallet that cannot answer for receipts is not a failure of
+            the transaction — stop asking rather than guessing.          */
+        .catch(function () {});
+    };
+    setTimeout(poll, 4000);
+  }
+
+  function propose(title, lines, tx, fn) {
     var box = $("#cbox"), slab = $("#cslab");
     if (!box || !slab) return;
+
+    /*  The wrong chain refuses HERE, before a slab exists — §E.5. The
+        crest already offers the move; a slab built for the wrong chain is
+        a trap with a countdown. Unknown is not wrong: a provider that
+        cannot say its chain leaves the wallet's own guard in charge.    */
+    if (C.chainOk === false) {
+      return say("Your wallet is on another chain. This token lives on chain " +
+                 C.chain + " — the crest offers the move.", "err");
+    }
+
     slab.innerHTML =
       '<div class="k" style="margin-bottom:10px"></div>' +
       '<div class="body"></div>' +
@@ -86,13 +133,17 @@
       '<button class="b g" type="button" data-no>Not now</button>';
     slab.querySelector(".k").textContent = title;
     var body = slab.querySelector(".body");
-    lines.forEach(function (l) {
+    var put = function (k, v) {
       var d = document.createElement("div");
       d.className = "kv";
-      var a = document.createElement("span"); a.className = "k"; a.textContent = l[0];
-      var b = document.createElement("span"); b.className = "v"; b.textContent = l[1];
+      var a = document.createElement("span"); a.className = "k"; a.textContent = k;
+      var b = document.createElement("span"); b.className = "v"; b.textContent = v;
       d.appendChild(a); d.appendChild(b); body.appendChild(d);
-    });
+    };
+    lines.forEach(function (l) { put(l[0], l[1]); });
+    put("To", short(tx.to));
+    if (tx.value) put("Value", eth(BigInt(tx.value)) + " ETH");
+    if (tx.data && tx.data.length >= 10) put("Function", (fn ? fn + " · " : "") + tx.data.slice(0, 10));
     slab.querySelector("[data-go]").textContent = "Sign it";
     box.classList.add("on");
 
@@ -104,7 +155,10 @@
       if (!p || !C.account) return say("Connect a wallet first.", "err");
       say("Waiting for the wallet…");
       p.request({ method: "eth_sendTransaction", params: [Object.assign({ from: C.account }, tx)] })
-        .then(function (h) { say("Sent · " + h.slice(0, 10) + "…", "ok"); })
+        .then(function (h) {
+          say("Sent · " + h.slice(0, 10) + "… — watching for the block.", "ok");
+          watch(h);
+        })
         .catch(function (e) { say(e && e.message ? e.message : "The wallet refused.", "err"); });
     };
   }
@@ -235,12 +289,24 @@
       next |= BigInt(form) << 112n;
       next |= BigInt(hu.value) << 120n;
       if (next === word) return say("Nothing has moved.", "err");
-      propose("TURN IT", [
-        ["Token", "#" + C.id],
-        ["The word now", word.toString()],
-        ["The word after", next.toString()],
-        ["Hue", String(Math.floor(Number(hu.value) * 360 / 256)) + "°"]
-      ], { to: C.hub, data: C.sel.commit + enc.uint(C.id) + enc.uint(next) });
+
+      /*  The slab used to print the word before and after as two raw
+          decimal uint256s, which no person can audit. It says what moved
+          now, plane by plane, in degrees — the word itself rides in the
+          calldata the slab already names.                               */
+      var deg = function (v) { return String(Math.round(v * 360 / 65536)) + "°"; };
+      var linesOut = [["Token", "#" + C.id]];
+      planes.forEach(function (nm, i) {
+        var now = vals[i], then = Number(inputs[i].value);
+        if (now !== then) linesOut.push([nm, deg(now) + " → " + deg(then)]);
+      });
+      if (Number(cut.value) !== wCut)
+        linesOut.push(["Cut", deg(wCut) + " → " + deg(Number(cut.value))]);
+      if (Number(hu.value) !== hue)
+        linesOut.push(["Hue", String(Math.floor(Number(hu.value) * 360 / 256)) + "°"]);
+      propose("TURN IT", linesOut,
+        { to: C.hub, data: C.sel.commit + enc.uint(C.id) + enc.uint(next) },
+        "commit(uint256,uint256)");
     });
   };
 
@@ -333,6 +399,21 @@
     });
     unbuilt(h, "For an afternoon, for a season and for a price — session keys, the " +
                "lease and consignment — are not built into the console yet.");
+
+    /*  The one the console will never build, pointed at instead: a session
+        key's holder is not the token's holder and does not arrive from an
+        instrument, so their door is their own — /k/<id>/<key> shows what a
+        granted key may do and builds its one act. Granting still happens
+        at /keys, as the holder.                                          */
+    var links = el("p", "s");
+    var a1 = el("a", "g", "grant a bounded key at /keys");
+    a1.href = "/keys";
+    var a2 = el("a", "g", "a granted key's own door is /k/" + C.id + "/‹key›");
+    a2.href = "/k/" + C.id + "/" + (C.account || "0x0000000000000000000000000000000000000000");
+    links.appendChild(a1);
+    links.appendChild(document.createTextNode(" · "));
+    links.appendChild(a2);
+    h.appendChild(links);
   };
 
   /* 5 · SPEAK AS IT */
@@ -347,12 +428,32 @@
     h.appendChild(el("div", "k", "DRAW THE NEXT ONE"));
     note(h, "Every token is minted on the chain whose band its number falls in. This " +
             "chain issues " + C.first + " to " + C.last + ".");
+
+    /*  The price, read before the button and attached to the send. The
+        first version claimed "read by the wallet from the contract" and
+        sent no value at all — a payable mint proposed at zero, which
+        reverts, on the strength of a thing no injected wallet actually
+        does. The cost is stated before the button, and the button sends
+        what was stated; a price that does not answer refuses to guess. */
+    var price = null;
+    var row = kv(h, "Price now", "reading…");
+    call(C.hub, C.sel.price).then(function (r) {
+      if (r && r !== "0x") {
+        price = BigInt(r);
+        row.lastChild.textContent = eth(price) + " ETH, to the collection";
+      } else {
+        row.lastChild.textContent = "not reported";
+      }
+    }).catch(function () { row.lastChild.textContent = "not reported"; });
+
     button(h, "Review the mint", false, function () {
+      if (price == null)
+        return say("The price did not answer, and the console will not guess a payable value.", "err");
       propose("DRAW THE NEXT ONE", [
         ["On", "chain " + C.chain],
-        ["Band", "#" + C.first + " to #" + C.last],
-        ["Price", "read by the wallet from the contract"]
-      ], { to: C.hub, data: C.sel.mint });
+        ["Band", "#" + C.first + " to #" + C.last]
+      ], { to: C.hub, data: C.sel.mint, value: "0x" + price.toString(16) },
+        "mint()");
     });
     unbuilt(h, "Launching a coin and giving the token a name are not built into the " +
                "console yet.");

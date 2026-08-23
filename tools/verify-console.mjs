@@ -436,6 +436,9 @@ head("the console runs");
   const slabUp = await page.evaluate(() => document.querySelector("#cbox").classList.contains("on"));
   const sentEarly = await page.evaluate(() => window.__sent.length);
   ok("a control raises the confirm slab", slabUp, "no slab");
+  const slabText = await page.textContent("#cslab");
+  ok("and the slab names where the transaction goes and what it calls",
+     /To/.test(slabText) && /Function/.test(slabText), slabText.slice(0, 120));
   ok("and sends nothing before a person presses it", sentEarly === 0,
      `${sentEarly} transaction(s) went out on a click`);
 
@@ -445,6 +448,64 @@ head("the console runs");
     const sent = await page.evaluate(() => window.__sent.length);
     ok("and sends exactly one when they do", sent === 1, `${sent} transactions`);
   }
+
+  /*  The wrong chain — §E.5, finally driven. A wallet answering from
+      another chain must be refused BEFORE a slab exists: a slab built
+      for the wrong chain is a trap with a countdown. The crest carries
+      the offer to move; nothing here may reach eth_sendTransaction.   */
+  const ctx2 = await browser.newContext({ viewport: { width: 420, height: 900 } });
+  await ctx2.addInitScript(() => {
+    window.__sent = [];
+    window.ethereum = {
+      request: async ({ method }) => {
+        if (method === "eth_accounts" || method === "eth_requestAccounts")
+          return [window.CON.owner];
+        if (method === "eth_chainId") return "0x270f";     // chain 9999, never ours
+        if (method === "eth_getBalance") return "0x0";
+        if (method === "eth_call") return "0x";
+        if (method === "eth_sendTransaction") {
+          window.__sent.push(1);
+          return "0x" + "ab".repeat(32);
+        }
+        throw new Error("stub: " + method);
+      }
+    };
+  });
+  const page2 = await ctx2.newPage();
+  await page2.goto(base + "/c/1/hold", { waitUntil: "networkidle" });
+  await page2.waitForTimeout(900);
+  const crest2 = await page2.textContent("#acct");
+  ok("the crest names the wrong chain and offers the move",
+     /wallet on chain 9999/.test(crest2), `crest reads "${crest2}"`);
+  await page2.click("#lane button.b");
+  await page2.waitForTimeout(250);
+  const slab2 = await page2.evaluate(() =>
+    document.querySelector("#cbox").classList.contains("on"));
+  const sent2 = await page2.evaluate(() => window.__sent.length);
+  ok("a control on the wrong chain raises no slab", !slab2, "the slab opened");
+  ok("and nothing was sent", sent2 === 0, `${sent2} transaction(s)`);
+  await ctx2.close();
+
+  /*  The mint refuses to guess. The stub answers every eth_call with
+      empty bytes, so the price is "not reported" — and a payable value
+      the page cannot read is a value it must never invent.            */
+  await page.goto(base + "/c/1/make", { waitUntil: "networkidle" });
+  await page.waitForTimeout(900);
+  const priceRow = await page.textContent("#lane");
+  ok("an unanswered price renders as not reported, never as zero",
+     /not reported/.test(priceRow), priceRow.slice(0, 160));
+  const before3 = await page.evaluate(() => window.__sent.length);
+  const mintBtns = await page.$$("#lane button.b");
+  for (const b of mintBtns) {
+    const t = await b.textContent();
+    if (/mint/i.test(t)) { await b.click(); break; }
+  }
+  await page.waitForTimeout(250);
+  const slab3 = await page.evaluate(() =>
+    document.querySelector("#cbox").classList.contains("on"));
+  const sent3 = await page.evaluate(() => window.__sent.length);
+  ok("the mint will not propose a payable value it could not read",
+     !slab3 && sent3 === before3, `slab ${slab3}, sent ${sent3 - before3}`);
 
   /*  The walk. This is the whole reason the console exists, so it is
       driven rather than asserted from source.                          */

@@ -65,28 +65,34 @@ contract PageDoor {
         uint256 supply = HUB.totalSupply();
         (, uint64 said,,,,,,,) = PARLEY.stateOf(0);
 
+        /*  Three halves, because one concat of everything is past what
+            even viaIR keeps on the stack — the same wall Premises hit at
+            seventeen constructor arguments, met here at about as many
+            parts. The split is by role: what the page says, what it
+            reports, and the scripts that make it act.                   */
+        return string.concat(_top(), _talk(said), _chains(), _facts(supply),
+                             _roll(supply), _scripts());
+    }
+
+    function _top() private view returns (string memory) {
         return string.concat(
             CHROME.head("IPSEITY"),
             CHROME.navTop(0),
             "<h1>IPSEITY</h1>"
-            "<p class=e>ipseity, n. &mdash; the property of being oneself; selfhood as "
+            "<p>ipseity, n. &mdash; the property of being oneself; selfhood as "
             "distinct from any of its appearances.</p>"
-            /*  The solid itself is the first interface: a 4-polytope turned
-                slowly through two of its planes, its inner-cube vertices
-                the eight doors of this site. Hover names one; entering it
-                is a click. The page below remains for hands that prefer a
-                list, and for JavaScript that is switched off.            */
-            "<div class=tess4><canvas id=tess width=560 height=560></canvas>"
-            "<p id=tessl>&nbsp;</p></div>",
-            _tess(),
-            "<p class=e>A four-dimensional solid, and the instrument for turning it, are the same "
+            "<p>A four-dimensional solid, and the instrument for turning it, are the same "
             "token. What a holder sees is a three-dimensional section of a 4-polytope: the "
-            "solid is never on screen, only the 3-space that currently cuts through it.</p>"
-            "<p class=e>Every token returns its own control surface from <code>tokenURI</code> "
+            "solid is never on screen, only the 3-space that currently cuts through it. "
+            "Every token returns its own control surface from <code>tokenURI</code> "
             "&mdash; a WebGL2 engine, a keccak-256, an ABI coder and a wallet client, held "
             "in this chain's state as contract bytecode. Nothing is fetched, including by "
-            "this page. This site is the door to it: connect below and whatever you hold "
-            "opens.</p>",
+            "this page.</p>",
+            /*  The ways in — see _ways. There used to be a rotating gold
+                tesseract here; the console's specification called it the
+                symptom and deleted it from that design, and this page has
+                caught up with its own design.                            */
+            _ways(),
             DESK.bare(),
             TALK.config(0, 0, 0),
             /*  The voice: the same terminal an agent drives, on the door
@@ -97,12 +103,15 @@ contract PageDoor {
             "placeholder=\"help \xc2\xb7 go swap \xc2\xb7 mint \xc2\xb7 say \xe2\x80\xa6\" "
             "aria-label=\"terminal input\">",
             TERM.config(),
-            _enter(),
-            _talk(said),
-            _chains(),
-            _facts(supply),
-            _roll(supply),
-            "<div id=s></div>",
+            _enter()
+        );
+    }
+
+    /*  No status line of this page's own: `foot()` already carries one,
+        and two elements with one id meant the second was inert — the
+        classic duplicate nobody notices because the first one answers. */
+    function _scripts() private view returns (string memory) {
+        return string.concat(
             CHROME.wallet(),
             DESK.core(),
             TERM.core(),
@@ -116,90 +125,102 @@ contract PageDoor {
 
     /*═══════════════════ the way in ═══════════════════*/
 
-    /// @dev The tesseract: sixteen vertices of (±1,±1,±1,±1), turned in the
-    ///      xw and yz planes, projected 4→3 by the w-light and 3→2 by the
-    ///      z-light. The eight inner-cube vertices are this site's doors;
-    ///      the geometry is the navigation. `window.TESS` carries the same
-    ///      door list as data, so an agent — or a page with no canvas —
-    ///      walks the identical set.
-    function _tess() private pure returns (string memory) {
-        return string.concat("<script>", TESS_JS, "</script>");
+    /// @dev The door map, rendered once and read twice. Each row names the
+    ///      task in a person's words, links the route, and defines the one
+    ///      word of house vocabulary it depends on — because "the Reach",
+    ///      "the commons" and "a token's own market" were being used on
+    ///      this page before anything said what they meant. The script at
+    ///      the end derives `window.DOORS` from these anchors, so the list
+    ///      a program enumerates is the identical list a person read; the
+    ///      predecessor kept three hand-written copies of the door map (a
+    ///      canvas tesseract, the nav, the terminal's `go` table) and they
+    ///      had already drifted — `go estate` failed while the nav offered
+    ///      it. The tesseract itself — a 2-D gold cartoon of the artwork,
+    ///      mouse-only, unreachable by keyboard or thumb — was called the
+    ///      symptom by the console's specification and deleted there;
+    ///      this page has caught up with its own design.
+    function _ways() private view returns (string memory) {
+        /*  Its own supply read, deliberately: threading `supply` from
+            `door()` through a third call was the three slots that pushed
+            the whole page past what viaIR keeps on the stack.           */
+        uint256 supply = HUB.totalSupply();
+        return string.concat(
+            "<h2 id=ways-h>ways in</h2><ul id=ways class=r>"
+            "<li><a data-w=see href=\"/gallery\">SEE THEM</a> &mdash; every token issued "
+            "on this chain, drawn by the chain itself.</li>"
+            "<li><a data-w=console href=\"", supply == 0 ? "/door" : "/c/1",
+            "\">OPEN A CONSOLE</a> &mdash; one plain control room per token: turn it, "
+            "hold, trade, hand on, speak, make, look. Yours once you connect; anyone "
+            "may read.</li>"
+            "<li><a data-w=talk href=\"/chat\">TALK</a> &mdash; the commons, the one room "
+            "every token is already in. Messages are logs on this chain; there is no "
+            "server and nothing is ever deleted.</li>"
+            "<li><a data-w=trade href=\"/open\">TRADE A TOKEN</a> &mdash; each token runs "
+            "its own two-asset market, and this lists the ones open for business. "
+            "Fees go to the token.</li>"
+            "<li><a data-w=swap href=\"/swap\">SWAP COINS</a> &mdash; this chain&#39;s "
+            "Uniswap, for any pair. Separate from a token&#39;s own market on purpose: "
+            "who is paid the fee should never be a surprise.</li>"
+            "<li><a data-w=launch href=\"/launch\">LAUNCH A COIN</a> &mdash; a fixed-supply "
+            "coin with no owner and no levers, minted to you, from any token you hold.</li>"
+            "<li><a data-w=lock href=\"/lock\">LOCK VALUE</a> &mdash; time-lock any coin, "
+            "or pay into a token&#39;s Grip: the vault whose bytecode has no way out.</li>"
+            "<li><a data-w=terminal href=\"/terminal\">THE TERMINAL</a> &mdash; every "
+            "function of the site as typed words. The same words an agent drives.</li>"
+            "<li><a data-w=keys href=\"/keys\">GRANT A KEY</a> &mdash; hand a bot or a "
+            "model a bounded session key: what it may call, on what, up to how much, "
+            "until when.</li>"
+            "<li><a data-w=program href=\"/services.json\">FOR A PROGRAM</a> &mdash; the "
+            "same shopfront as machine-readable JSON, selectors included.</li>"
+            "</ul>"
+            /*  One source: the data IS the DOM. A program that wants the
+                door list reads window.DOORS; a person reads the same rows;
+                neither can drift from the other because neither is a copy. */
+            "<script>window.DOORS=[].slice.call("
+            "document.querySelectorAll('[data-w]')).map(function(a){"
+            "return{word:a.dataset.w,path:a.getAttribute('href')}})</script>"
+        );
     }
 
-    string internal constant TESS_JS =
-        "(()=>{"
-        "const D=[['terminal','/terminal'],['swap','/swap'],['launch','/launch'],"
-        "['lock','/lock'],['social','/chat'],['market','/gallery'],"
-        "['archive','/open'],['manifest','/services.json']];"
-        "window.TESS={doors:D.map(d=>d[0]),go:i=>{const d=D[i];"
-        "if(d)location.href=d[1];return d?d[1]:null}};"
-        "const cv=document.getElementById('tess');"
-        "if(!cv||!cv.getContext)return;"
-        "const cx=cv.getContext('2d');if(!cx)return;"
-        /*  vertices: index bit3 is w. The w=-1 cube (indices 0-7) carries
-            the doors, and keeps them whichever cube the turn brings near. */
-        "const V=[];for(let i=0;i<16;i++)"
-        "V.push([i&1?1:-1,i&2?1:-1,i&4?1:-1,i&8?1:-1]);"
-        "const E=[];for(let a=0;a<16;a++)for(let b=a+1;b<16;b++){"
-        "let d=a^b;if(d&&!(d&(d-1)))E.push([a,b])}"
-        "const W=560,C=W/2;let t=0,mx=-1,my=-1,hot=-1;"
-        "const P=new Array(16);"
-        "const lbl=document.getElementById('tessl');"
-        "const frame=()=>{"
-        "t+=.0038;"
-        "const c1=Math.cos(t),s1=Math.sin(t),c2=Math.cos(t*.62),s2=Math.sin(t*.62);"
-        "cx.clearRect(0,0,W,W);"
-        "for(let i=0;i<16;i++){const v=V[i];"
-        "let x=v[0]*c1-v[3]*s1,w=v[0]*s1+v[3]*c1;"
-        "let y=v[1]*c2-v[2]*s2,z=v[1]*s2+v[2]*c2;"
-        "const k4=2.6/(3.2-w);x*=k4;y*=k4;z*=k4;"
-        "const k3=2.1/(3.6-z);"
-        "P[i]=[C+x*k3*C*.62,C+y*k3*C*.62,k3]}"
-        "hot=-1;"
-        "if(mx>=0)for(let i=0;i<8;i++){const p=P[i];"
-        "const dx=p[0]-mx,dy=p[1]-my;if(dx*dx+dy*dy<340){hot=i;break}}"
-        "cx.lineWidth=1;"
-        "for(const e of E){const p=P[e[0]],q=P[e[1]];"
-        "const g=(p[2]+q[2])*.5;"
-        "cx.strokeStyle='rgba(224,193,132,'+(.10+g*.16).toFixed(3)+')';"
-        "cx.beginPath();cx.moveTo(p[0],p[1]);cx.lineTo(q[0],q[1]);cx.stroke()}"
-        "for(let i=0;i<16;i++){const p=P[i];const door=i<8;"
-        "const r=door?(i===hot?7:4.4):2;"
-        "cx.beginPath();cx.arc(p[0],p[1],r,0,6.2832);"
-        "cx.shadowColor='rgba(244,221,166,.9)';cx.shadowBlur=door?(i===hot?26:12):5;"
-        "cx.fillStyle=door?(i===hot?'#fff4d8':'#e8cd8f'):'rgba(224,193,132,.5)';"
-        "cx.fill();cx.shadowBlur=0;"
-        "if(door&&i===hot){cx.font='11px ui-sans-serif,system-ui';"
-        "cx.fillStyle='#f4dda6';cx.textAlign='center';"
-        "cx.fillText(D[i][0].toUpperCase(),p[0],p[1]-14)}}"
-        "if(lbl)lbl.textContent=hot>=0?D[hot][0]:'\u00a0';"
-        "cv.style.cursor=hot>=0?'pointer':'crosshair';"
-        "(window.requestAnimationFrame||(f=>setTimeout(f,40)))(frame)};"
-        "const at=e=>{const b=cv.getBoundingClientRect();"
-        "const k=W/b.width;mx=(e.clientX-b.left)*k;my=(e.clientY-b.top)*k};"
-        "cv.addEventListener('mousemove',at);"
-        "cv.addEventListener('mouseleave',()=>{mx=my=-1});"
-        "cv.addEventListener('click',e=>{at(e);"
-        "if(hot>=0)window.TESS.go(hot)});"
-        "frame()})();";
-
-    function _enter() private pure returns (string memory) {
-        return
+    function _enter() private view returns (string memory) {
+        return string.concat(
             "<h2>what you hold</h2>"
             "<div class=gate>"
             "<h3>Connect</h3>"
-            "<p class=e>This page reads <code>balanceOf</code> and then walks "
+            "<p>This page reads <code>balanceOf</code> and then walks "
             "<code>tokenOfOwnerByIndex</code>, so it learns which tokens are yours from "
             "the collection rather than from a list somebody keeps. Nothing is sent "
             "anywhere; the only thing that leaves your browser is an <code>eth_call</code> "
-            "to your own node.</p>"
-            "<button id=go>connect</button>"
+            "to your own node. If your wallet answers from another chain, the buttons "
+            "under <b>chains</b> below move it here.</p>"
+            "<button id=go>connect</button> ",
+            _mintButton(),
             "</div>"
             "<div id=yours></div>"
             "<div id=rig></div>"
             "<p class=e>Opening the instrument here costs your node a 21M gas "
             "<code>eth_call</code> &mdash; the whole document comes back in one read. It "
-            "happens when you ask for it and never on arrival.</p>";
+            "happens when you ask for it and never on arrival.</p>"
+        );
+    }
+
+    /*  The mint, at the door, at last. The price was already on this page
+        and the terminal always had the word; what was missing was a button
+        where a newcomer stands. It runs the terminal's own `mint` — one
+        code path for the person and the agent, which is the rule that
+        keeps them honest — so everything the terminal checks and prints,
+        this checks and prints. Its own function because the price read
+        inside the page's main concat is what pushed the build past the
+        stack, which is the same wall `_band` documents below.           */
+    function _mintButton() private view returns (string memory) {
+        return string.concat(
+            "<button id=mint1>mint the next one \xc2\xb7 ",
+            Web.amount(HUB.price(), 18, 4),
+            " ETH</button>"
+            "<script>(function(){var b=document.getElementById('mint1');"
+            "if(b)b.addEventListener('click',function(){"
+            "if(window.TERM)window.TERM.run('mint');})})()</script>"
+        );
     }
 
     /*═══════════════════ the chains ═══════════════════*/
@@ -223,11 +244,21 @@ contract PageDoor {
             "assets and holds its own conversation. These buttons move your "
             "<i>wallet</i>; moving <i>value</i> between chains is a bridge's job, "
             "and this site will never quietly be one.</p>"
+            /*  All five chains of the edition, and the two rehearsal
+                chains — the previous list stopped at four and rendered the
+                fifth band's home as "another chain", which is a poor name
+                for a fifth of the collection.                            */
             "<p>"
             "<button class=ch2 data-id=\"0x1\" data-n=\"Ethereum\" "
             "data-r=\"https://ethereum-rpc.publicnode.com\" data-s=\"ETH\">Ethereum</button>"
             "<button class=ch2 data-id=\"0x2105\" data-n=\"Base\" "
             "data-r=\"https://mainnet.base.org\" data-s=\"ETH\">Base</button>"
+            "<button class=ch2 data-id=\"0x82\" data-n=\"Unichain\" "
+            "data-r=\"https://mainnet.unichain.org\" data-s=\"ETH\">Unichain</button>"
+            "<button class=ch2 data-id=\"0x38\" data-n=\"BNB\" "
+            "data-r=\"https://bsc-dataseed.bnbchain.org\" data-s=\"BNB\">BNB</button>"
+            "<button class=ch2 data-id=\"0x1237\" data-n=\"Robinhood\" "
+            "data-r=\"https://rpc.mainnet.chain.robinhood.com\" data-s=\"ETH\">Robinhood</button>"
             "<button class=ch2 data-id=\"0x14a34\" data-n=\"Base Sepolia\" "
             "data-r=\"https://sepolia.base.org\" data-s=\"ETH\">Base Sepolia</button>"
             "<button class=ch2 data-id=\"0xaa36a7\" data-n=\"Sepolia\" "

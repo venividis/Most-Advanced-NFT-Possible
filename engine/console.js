@@ -169,21 +169,80 @@
   /*  The crest says HELD with an address in it from the first paint, and
       this rewrites it to the single word "you" when the wallet answers. It
       is never blank and never wrong, and nobody is asked to compare
-      forty-two hex characters by eye.                                   */
+      forty-two hex characters by eye.
+
+      When nobody has answered, the same cell becomes the way to ask: it
+      reads "read only — connect" and takes a tap. For one version the only
+      connect affordance in the whole console was typing the word into the
+      command line, which is a door with the handle on the inside; the spec
+      always said the crest carries the wallet, so the crest carries the
+      control too.                                                        */
   function paintAccount(acct) {
     var led = $("#led"), who = $("#acct"), held = $("#held"), by = $("#heldby");
     if (!acct) {
       if (led) led.className = "led ro";
-      if (who) who.textContent = "read only";
+      if (who) {
+        if (window.ethereum) {
+          who.textContent = "read only — connect";
+          who.style.cursor = "pointer";
+        } else {
+          who.textContent = "read only";
+        }
+      }
       return;
     }
     if (led) led.className = "led live";
-    if (who) who.textContent = short(acct);
+    if (who) { who.textContent = short(acct); who.style.cursor = ""; }
     var mine = C.owner && acct.toLowerCase() === C.owner.toLowerCase();
     if (mine) {
       if (held) held.textContent = "you";
       if (by) by.textContent = "you";
     }
+  }
+
+  /*  The wrong chain, said where the wallet is named — §E.5. A wallet on
+      Base signing for a token that lives on Unichain is the sharpest trap
+      this page can set, and it used to be sprung at signature time. Now
+      the crest says so the moment the wallet answers, the cell offers the
+      one move that fixes it, and `propose` refuses to build a transaction
+      while it stands. A provider that cannot say which chain it is on —
+      some cannot — leaves `chainOk` unknown, and unknown does not refuse:
+      the wallet itself still guards its own chain.                      */
+  function paintChain(walletChain) {
+    var who = $("#acct"), led = $("#led");
+    if (C.chainOk === false) {
+      if (led) led.className = "led ro";
+      if (who) {
+        who.textContent = "wallet on chain " + walletChain + " — move it";
+        who.style.cursor = "pointer";
+      }
+    }
+  }
+
+  function checkChain() {
+    var eth = window.ethereum;
+    if (!eth || !C.chain) return Promise.resolve(undefined);
+    return eth.request({ method: "eth_chainId" }).then(function (h) {
+      var n = parseInt(h, 16);
+      C.chainOk = (n === Number(C.chain));
+      if (!C.chainOk) paintChain(n);
+      return C.chainOk;
+    }).catch(function () { C.chainOk = undefined; return undefined; });
+  }
+
+  function switchChain() {
+    var eth = window.ethereum;
+    if (!eth) return;
+    eth.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0x" + Number(C.chain).toString(16) }]
+    }).then(function () {
+      say("The wallet moved to chain " + C.chain + ".", "ok");
+      C.chainOk = true;
+      connect(false);
+    }).catch(function () {
+      say("The wallet does not know chain " + C.chain + ". Add it there, then return.", "err");
+    });
   }
 
   function connect(loud) {
@@ -198,7 +257,7 @@
         C.account = acct;
         paintAccount(acct);
         if (loud && acct) say("Connected as " + short(acct) + ".", "ok");
-        return acct;
+        return checkChain().then(function () { return acct; });
       })
       .catch(function (e) {
         if (loud) say(e && e.message ? e.message : "The wallet refused.", "err");
@@ -206,6 +265,26 @@
       });
   }
   C.connect = connect;
+
+  /*  The crest cell is the control: not connected, it connects; on the
+      wrong chain, it offers the move. Never both at once, and never a
+      second button anywhere.                                             */
+  var acctCell = $("#acct");
+  if (acctCell) acctCell.addEventListener("click", function () {
+    if (C.chainOk === false) return switchChain();
+    if (!C.account) connect(true);
+  });
+
+  /*  A wallet is a thing that changes under a page — accounts switch,
+      chains move — and a crest that keeps saying "you" to a stranger is
+      wrong in the worst way. Repaint on both events; no storage, no
+      polling.                                                            */
+  if (window.ethereum && window.ethereum.on) {
+    try {
+      window.ethereum.on("accountsChanged", function () { connect(false); });
+      window.ethereum.on("chainChanged", function () { connect(false); });
+    } catch (e) { /* a provider without .on is a provider we ask once */ }
+  }
 
   /*───────────────────────── the seven, and the words ─────────────────────*/
 

@@ -37,6 +37,7 @@ import {IHub, IPoolRead, ILeaseRead, IRendererDoc, IParley, IVenue, MarketView}
   every other thing here.
 ───────────────────────────────────────────────────────────────────────────*/
 contract PageManifest {
+    address public immutable DESK_TERM;
     using LibNum for uint256;
 
     IHub       public immutable HUB;
@@ -51,16 +52,21 @@ contract PageManifest {
     address    public immutable LOCKER;
     IVenue     public immutable VENUE;
 
-    string public constant SCHEMA = "ipseity.services/1";
+    /*  /2, because the shapes grew: invoke blocks for mint and speak, the
+        rented powers served beside the lease that sells them, the session
+        surface, and the desks' addresses. Every /1 key survives unchanged
+        — a reader of /1 reads /2 correctly and learns less.             */
+    string public constant SCHEMA = "ipseity.services/2";
 
     /// @dev Same window as the directory page, same reason.
     uint256 public constant PAGE = 24;
 
     constructor(IHub hub, IPoolRead pool, ILeaseRead lease, IParley parley,
-                address kiln, address locker, IVenue venue) {
+                address kiln, address locker, IVenue venue, address deskTerm) {
         KILN = kiln;
         LOCKER = locker;
         VENUE = venue;
+        DESK_TERM = deskTerm;
         HUB = hub;
         POOL = pool;
         LEASE = lease;
@@ -76,9 +82,13 @@ contract PageManifest {
             deployed — and an entry that returns "" while the next one
             begins with a comma is a document that is no longer JSON. The
             separator belongs to the list, not to the items.            */
-        string[5] memory parts = [_trade(id), _rent(id), _give(id), _draw(), _verify(id)];
+        string[6] memory parts =
+            [_trade(id), _rent(id), _give(id), _draw(), _verify(id), _session(id)];
         string memory body;
-        for (uint256 i; i < 5; ++i) {
+        /*  parts.length, never a literal: the bound was written "5" when
+            there were five, and the sixth service silently vanished from
+            every manifest while the suite counted what it was handed.   */
+        for (uint256 i; i < parts.length; ++i) {
             if (bytes(parts[i]).length == 0) continue;
             body = bytes(body).length == 0 ? parts[i] : string.concat(body, ",", parts[i]);
         }
@@ -178,7 +188,15 @@ contract PageManifest {
             ",\"firstArg\":", id.str(),
             ",\"value\":\"perDayWei * days, exactly\""
             ",\"grants\":\"ERC-4907 user: may commit orientations and set writable traits; "
-            "may never transfer, approve, lock or reach either vault\"}"
+            "may never transfer, approve, lock or reach either vault\""
+            /*  The powers the lease grants, served beside the lease that
+                sells them. The manifest used to describe what a renter
+                may do and serve no way to do it — an agent could rent
+                through this document and then need the repository to use
+                what it had paid for.                                     */
+            ",\"use\":{\"on\":\"", LibNum.hexAddr(address(HUB)),
+            "\",\"commit\":", _call("commit(uint256,uint256)", "send"),
+            ",\"setTrait\":", _call("setTrait(uint256,bytes32,bytes32)", "send"), "}}"
         );
     }
 
@@ -229,6 +247,34 @@ contract PageManifest {
             ",\"note\":\"validates only digests rebuildable under this account's own "
             "EIP-712 attestation domain; every other digest is refused, including one the "
             "holder signed correctly\"}"
+        );
+    }
+
+    /*  The delegated hand: how an agent is granted bounded authority and
+        how it exercises it. AGENT.md section 3 built this surface and the
+        manifest never mentioned it, which meant the one integration
+        designed FOR programs was the one a program could not discover.
+        The allowlists are not enumerable — they live in the grant
+        transaction's calldata — so the surface for a key holder is
+        `sessionAllows`, one door at a time, and the page for a human
+        holding one is /k/<id>/<key>.                                    */
+    function _session(uint256 id) private view returns (string memory) {
+        address reach = HUB.account(id);
+        return string.concat(
+            "{\"id\":\"session\",\"open\":", reach.code.length > 0 ? "true" : "false",
+            ",\"paidTo\":null,\"contract\":\"", LibNum.hexAddr(reach),
+            "\",\"grant\":", _call("grantSession(address,uint64,uint128,address[],bytes4[])", "send"),
+            ",\"act\":", _call("executeAsSession(address,uint256,bytes)", "send"),
+            ",\"check\":", _call("sessionAllows(address,address,bytes4)", "view"),
+            ",\"revoke\":", _call("revokeSession(address)", "send"),
+            /*  \u003c and \u003e, not the brackets themselves: the raw
+                bytes of a token's manifest carry no literal angle bracket
+                — a rule the hostile-symbol suite enforces because this
+                JSON is read inside documents where a bracket is a door.
+                A JSON reader decodes it back to /k/<id>/<key>.          */
+            ",\"door\":\"/k/", id.str(), "/\\u003ckey\\u003e\""
+            ",\"note\":\"grant and revoke are the holder's; act and check are the "
+            "key's. check before act: a refusal read from a view costs nothing\"}"
         );
     }
 
@@ -293,7 +339,12 @@ contract PageManifest {
                 than no lookup at all.                                  */
             ",\"edition\":", EDITION,
             ",\"mintPriceWei\":\"", HUB.price().str(),
-            "\",\"pool\":\"", LibNum.hexAddr(address(POOL)),
+            /*  The price without the call was a shop window with no door:
+                /1 told a program what minting costs and not how to mint. */
+            "\",\"mint\":{\"invoke\":", _call("mint()", "send"),
+            ",\"on\":\"", LibNum.hexAddr(address(HUB)),
+            "\",\"value\":\"mintPriceWei, exactly\"}"
+            ",\"pool\":\"", LibNum.hexAddr(address(POOL)),
             "\",\"lease\":\"", LibNum.hexAddr(address(LEASE)),
             /*  This used to end mid-value — the caller supplied the closing
                 quote of the lease address, which meant the two could not be
@@ -307,6 +358,13 @@ contract PageManifest {
                 pages that call them.                                     */
             ",\"kiln\":\"", LibNum.hexAddr(KILN),
             "\",\"locker\":\"", LibNum.hexAddr(LOCKER),
+            /*  The terminal desk, so an RPC-only agent can find the full
+                selector table: `config()` on this address is an eth_call
+                returning every command's selector as JSON, and
+                `TERM.commands()` in a browser is the same table. The
+                richest machine surface used to need a JS runtime to
+                discover; now its address is one read away.              */
+            "\",\"deskTerm\":\"", LibNum.hexAddr(DESK_TERM),
             "\",\"venue\":", _venue()
         );
     }
@@ -356,6 +414,10 @@ contract PageManifest {
         "{\"path\":\"/projector\",\"is\":\"the 4-D renderer, pure and public\"},"
         "{\"path\":\"/name\",\"is\":\"bind an ENS name to a token, ERC-6821 included\"},"
         "{\"path\":\"/keys\",\"is\":\"session keys: scoped, expiring permissions\"},"
+        "{\"path\":\"/k/<id>/<key>\",\"is\":\"a granted key's own door: the envelope, "
+        "one check, one act\"},"
+        "{\"path\":\"/c/<id>\",\"is\":\"the console: one control room per token, "
+        "seven verbs\"},"
         "{\"path\":\"/seal\",\"is\":\"the three seals: soulbind, account, kernel\"},"
         "{\"path\":\"/estate\",\"is\":\"succession \\u2014 a token that outlives its "
         "holder \\u2014 and consignment: escrow with a floor an agent cannot go under\"},"
@@ -380,7 +442,10 @@ contract PageManifest {
             ",\"groups\":", PARLEY.groups().str(),
             ",\"maxBody\":", PARLEY.MAX_BODY().str(),
             ",\"said\":\"", LibNum.hex32(said),
-            "\",\"walk\":\"stateOf(room).last is the block of the newest message; "
+            "\",\"invoke\":", _call("speak(uint256,uint256,uint8,bytes)", "send"),
+            ",\"asToken\":\"room, speaking token, kind, body; mayActAs(token,caller) "
+            "must hold \u2014 the holder or the token's own Reach\""
+            ",\"walk\":\"stateOf(room).last is the block of the newest message; "
             "each message carries the block of the one before it\"}"
         );
     }

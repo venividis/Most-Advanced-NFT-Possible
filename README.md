@@ -71,11 +71,26 @@ path has no access control, so once the DVNs have attested anyone can deliver.
 The paid executor is a convenience and never a dependency, which means no
 server is required for any of it.
 
-The verifier set is frozen in the constructor. LayerZero lets an OApp choose
-which DVNs must attest and lets a delegate change that later — a delegate is
-an admin key. The port calls `setDelegate(address(0))` at construction and
-carries no function that could set it again, so the attestation set is as
-immutable as the bytecode.
+Nobody can re-point the port's security, and what floats is named. LayerZero
+lets an OApp choose which DVNs must attest and lets a delegate change that
+later — a delegate is an admin key. The port calls `setDelegate(address(0))`
+at construction and carries no function that could set it, or any
+configuration, again. An earlier version of this paragraph claimed the
+verifier set was therefore as immutable as the bytecode, and that was wrong:
+an OApp that pins nothing runs on the endpoint's *default* libraries and DVN
+set, which LayerZero Labs can roll forward without asking. So the pin is a
+constructor argument now — lane libraries and raw config entries, written
+once by the OApp itself and never writable again — and a deployment that
+passes none floats on the defaults as a stated choice, admissible for speech
+in a way it would never be for custody. The port also speaks the protocol's
+actual ABI — `lzReceive` taking `Origin` as a static tuple, plus
+`allowInitializePath` and `nextNonce`, the two questions the endpoint and
+its executor ask before a lane will carry anything — which for one stretch
+it did not: the suite's mock had been written in the port's own invented
+dialect and vouched for it fluently. `tools/probe-port-abi.mjs` measured the
+three protocol selectors answering `revert 0x` at the deployed bytecode; the
+full story is in `OMNICHAIN.md`, and the mock now performs the real
+handshake.
 
 ## One edition, five chains, no bridge
 

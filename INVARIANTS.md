@@ -947,14 +947,23 @@ Federation is a separate payable call. A social layer that needs a message
 to arrive before anyone can talk has a single point of silence.
 → `tools/verify-port.mjs` · *"the local commons never needed any of this"*
 
-**138. The verifier set is frozen in the constructor.**
+**138. Nobody can re-point the port's security, and what floats is named.**
 LayerZero lets an OApp choose which DVNs must attest and lets a delegate
 change that later, which is an admin key. The port calls
 `setDelegate(address(0))` at construction and carries no function that
-could set it again, so the attestation set is as immutable as the
-bytecode.
+could set it — or `setConfig`, or either library — again. An earlier
+version of this entry claimed the verifier set itself was therefore
+frozen, and that was wrong: an OApp that pins nothing runs on the
+endpoint's DEFAULT libraries and DVN set, which LayerZero Labs can roll
+forward without the port's consent. So the pin is now a constructor
+argument — lane libraries and raw `SetConfigParam` entries, applied once
+by the OApp itself (the one caller the endpoint authorizes with no
+delegate) and never writable again — and a deployment that passes empty
+arrays floats on the defaults as a stated choice. Admissible for speech;
+the contract's header says why it would not be for custody.
 → `tools/verify-port.mjs` · *"the verifier set is frozen in the
-  constructor"*
+  constructor"*, *"the pin: config written once, from the constructor,
+  or never"*
 
 **139. A block number from another chain is not a block number here.**
 Parley's walk works because each message carries the block of the previous
@@ -971,6 +980,104 @@ parses to nothing and encodes an EMPTY argument. The contract then
 reverted for a reason unrelated to the test, and the test looked like it
 had found a bug. It throws now.
 → `tools/evm.mjs` · `enc`
+
+**141. The port speaks the protocol's ABI, not its mock's.**
+EndpointV2 delivers with `Origin calldata` — a static three-word tuple,
+and the tuple is part of the canonical signature, so
+`lzReceive((uint32,bytes32,uint64),bytes32,bytes,address,bytes)` is
+`0x13137d65` and nothing else dispatches. For one stretch the port
+declared `bytes calldata origin` instead: a signature invented by its own
+mock, matched by nothing on any chain. Every assertion stayed green
+because every assertion drove that mock — a suite that shares a dialect
+with its subject cannot hear the accent. The probe measured it at the
+deployed bytecode (three protocol selectors, three `revert 0x`, no
+dispatch), the port now carries the canonical signatures plus the two
+questions the protocol asks before the first packet on a lane —
+`allowInitializePath` answering the peer table, `nextNonce` answering
+zero — and the mock endpoint now performs the real handshake and builds
+its delivery with `abi.encodeCall`, so the selector is the compiler's,
+not the file's.
+→ `tools/verify-port.mjs` · *"the port speaks the protocol's ABI, not
+  its mock's"*, `tools/probe-port-abi.mjs`
+
+**142. Empty options mean the default, never nothing-at-all.**
+The real send library refuses options that name no lzReceive gas — an
+empty `bytes` fails at QUOTE time. So the port treats empty as "use the
+default": a 22-byte type-3 blob naming 200,000 gas, written out
+byte-for-byte in the source. The mock refuses empty options the way
+ULN302 does, so the suite's own quotes prove the default reached the
+wire. If a destination's gas schedule ever outgrows the constant,
+delivery is permissionless — anyone re-executes the verified message
+with more.
+→ `tools/verify-port.mjs` · *"empty options became the default, because
+  the wire refuses nothing-at-all"*
+
+**143. A lane refuses on both sides of the border.**
+The endpoint consults `allowInitializePath` before the first packet on a
+lane can be verified, and the port's `lzReceive` makes the identical peer
+check itself — for the endpoint that forgot to ask. A message whose body
+claims a different origin than its DVN-attested envelope is refused
+rather than believed on either count.
+→ `tools/verify-port.mjs` · *"a peer nobody named cannot be heard — on
+  either side of the border"*
+
+**144. The console refuses the wrong chain before the slab exists.**
+A wallet answering from another chain is named in the crest the moment it
+answers, offered the one move that fixes it, and refused a confirm slab —
+a slab built for the wrong chain is a trap with a countdown. A provider
+that cannot say its chain leaves the wallet's own guard in charge:
+unknown is not wrong.
+→ `tools/verify-console.mjs` · *"a control on the wrong chain raises no
+  slab"*, *"the crest names the wrong chain and offers the move"*
+
+**145. The mint sends the price it read, or refuses to guess.**
+The slab used to claim the wallet would read the price — a thing no
+injected wallet does — and sent zero value at a payable function. The
+lane reads `price()` through a selector the contract derived, states it
+before the button, attaches it to the send, and a price that does not
+answer renders "not reported" and refuses the propose outright.
+→ `tools/verify-console.mjs` · *"the mint will not propose a payable
+  value it could not read"*
+
+**146. The slab names the destination, and follows the hash.**
+Every slab carries To, Value and Function beside the lane's sentences,
+and after the press the ticker reads the receipt back one hash at a
+time: mined in block N, reverted in block N, still not mined, not mined
+after three minutes. "Sent · 0x…" is a beginning now, not the whole
+story.
+→ `tools/verify-console.mjs` · *"the slab names where the transaction
+  goes and what it calls"*
+
+**147. The door map has one rendering, and the data is derived from it.**
+Three hand-written copies of the door list had already drifted — the
+tesseract, the nav, the terminal's `go` table. The tesseract is deleted
+(the ruling CONSOLE.md had already made), the list is server-rendered
+once, and `window.DOORS` is derived from those anchors in the document:
+the copy a program enumerates cannot drift from the copy a person read,
+because neither is a copy.
+→ `tools/verify-site.mjs` · *"the doors exist as data derived from the
+  page itself"*, *"the tesseract is gone, and nothing else answers to
+  its name"*
+
+**148. The manifest teaches the powers the lease grants.**
+`ipseity.services/1` sold the rent and described the renter's powers in
+prose while serving no way to use them. /2 carries `rent.use` — `commit`
+and `setTrait`, selectors derived on chain, addressed to the hub — so an
+agent that rents through the manifest can act through it too. Every /1
+key survives; a /1 reader reads /2 and learns less.
+→ `tools/verify-site.mjs` · *"rent teaches the powers it grants —
+  commit and setTrait, on the hub"*
+
+**149. The session surface is discoverable, and the key has its own door.**
+The one integration designed for programs — grant, act, check, revoke —
+is a service in every token's manifest, and `/k/<id>/<key>` serves the
+granted key's envelope with the rule stated in place: check before act,
+because a refusal read from a view costs nothing. The allowlists are
+stated as non-enumerable rather than pretended at; the id is in the path
+because a bare key cannot find its granting account without an indexer.
+→ `tools/verify-site.mjs` · *"the session surface is discoverable:
+  grant, act, check, revoke, and its door"*, *"/k — the one surface
+  where the actor is not the holder"*
 
 ## Found by adversarial review, and fixed
 

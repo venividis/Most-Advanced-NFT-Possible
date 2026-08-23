@@ -28,7 +28,7 @@
 ───────────────────────────────────────────────────────────────────────────*/
 import { compile, artifact } from "./compile.mjs";
 import { predictCreate } from "./site.mjs";
-import { Chain, enc, decUint, decAddr, encodeAddressArg } from "./evm.mjs";
+import { Chain, enc, sel, decUint, decAddr, encodeAddressArg } from "./evm.mjs";
 import { createAddressFromString } from "@ethereumjs/util";
 
 let pass = 0, fail = 0;
@@ -78,10 +78,26 @@ const EID_A = 30184, EID_B = 30320;                        // Base, Unichain
 const epA = await c.deploy(A("test/mocks/MockEndpoint.sol", "MockEndpoint").bytecode, w(EID_A));
 const epB = await c.deploy(A("test/mocks/MockEndpoint.sol", "MockEndpoint").bytecode, w(EID_B));
 
+/*  The constructor takes six arguments now — peers, then the pin: lane
+    library choices and raw config entries, both applied once and never
+    writable again. The common deployment pins nothing (empty arrays,
+    floating on the endpoint's defaults, a stated choice); `mkPinnedPort`
+    below is the other spelling.                                        */
+const portArgs = (ep, peerEid, peerAddr, lanesTail, cfgTail) => {
+  const eidsTail = w(1) + w(peerEid);
+  const peersTail = w(1) + b32(peerAddr);
+  const offEids = 0xc0;
+  const offPeers = offEids + eidsTail.length / 2;
+  const offLanes = offPeers + peersTail.length / 2;
+  const offCfg = offLanes + lanesTail.length / 2;
+  return encodeAddressArg(parley) + encodeAddressArg(ep) +
+    w(offEids) + w(offPeers) + w(offLanes) + w(offCfg) +
+    eidsTail + peersTail + lanesTail + cfgTail;
+};
+
 const mkPort = async (ep, peerEid, peerAddr) => c.deploy(
   A("src/ParleyPort.sol", "ParleyPort").bytecode,
-  encodeAddressArg(parley) + encodeAddressArg(ep) + w(0x80) + w(0xc0) +
-  w(1) + w(peerEid) + w(1) + b32(peerAddr));
+  portArgs(ep, peerEid, peerAddr, w(0), w(0)));
 
 /*  Each port must name the other, and a port cannot learn a peer after
     construction — that is the point of freezing them. So the second
@@ -107,8 +123,80 @@ head("the verifier set is frozen in the constructor");
   const abi = A("src/ParleyPort.sol", "ParleyPort").abi;
   const names = abi.filter((x) => x.type === "function").map((x) => x.name);
   ok("and carries no function that could change it later",
-     !names.some((n) => /setConfig|setDelegate|setPeer|addPeer|owner|admin/i.test(n)),
+     !names.some((n) => /setConfig|setDelegate|setPeer|addPeer|owner|admin|setSendLibrary|setReceiveLibrary/i.test(n)),
      names.join(", "));
+  eq("a port that pinned nothing wrote no config — it floats, and says so",
+     decUint(await c.read(epA, "configWrites(address)", [portA])), 0n);
+}
+
+head("the pin: config written once, from the constructor, or never");
+{
+  /*  A pinned deployment names its libraries per lane and hands raw
+      SetConfigParam entries through — the endpoint authorizes the OApp
+      itself, so the constructor is the one moment this is possible
+      without a delegate. The mock records the writes; the ABI section
+      above already proved nothing can ever write them again.           */
+  const LIB = "0x" + "ab".repeat(20);
+  const cfgBytes = "deadbeef";
+  const lanesTail = w(1) + w(EID_B) + b32(LIB) + b32(LIB);
+  const cfgElem = b32(LIB) + w(EID_B) + w(2) + w(0x80) +
+    w(cfgBytes.length / 2) + cfgBytes.padEnd(64, "0");
+  const cfgTail = w(1) + w(0x20) + cfgElem;
+  const pinned = await c.deploy(A("src/ParleyPort.sol", "ParleyPort").bytecode,
+    portArgs(epA, EID_B, portA, lanesTail, cfgTail));
+  eq("the send library the constructor chose is on the endpoint",
+     decAddr(await c.read(epA, "sendLibOf(address,uint32)", [pinned, EID_B])).toLowerCase(),
+     LIB.toLowerCase());
+  eq("and the receive library",
+     decAddr(await c.read(epA, "receiveLibOf(address,uint32)", [pinned, EID_B])).toLowerCase(),
+     LIB.toLowerCase());
+  eq("and the config entry went through, exactly once",
+     decUint(await c.read(epA, "configWrites(address)", [pinned])), 1n);
+  eq("and the pinned port's delegate is still nobody",
+     decAddr(await c.read(epA, "delegates(address)", [pinned])).toLowerCase(),
+     "0x" + "00".repeat(20));
+}
+
+head("the port speaks the protocol's ABI, not its mock's");
+{
+  /*  EndpointV2 dispatches on the canonical signatures — Origin is a
+      static three-word tuple, and the tuple is part of the selector. For
+      one commit this contract declared `bytes` instead and could never
+      have heard a real delivery; the suite stayed green because the mock
+      spoke the same private dialect. These selectors are protocol
+      constants, asserted the way selftest asserts published vectors.   */
+  const canon = (f) => {
+    const t = (i) => i.type === "tuple" ? "(" + i.components.map(t).join(",") + ")" : i.type;
+    return f.name + "(" + f.inputs.map(t).join(",") + ")";
+  };
+  const abi = A("src/ParleyPort.sol", "ParleyPort").abi.filter((x) => x.type === "function");
+  const sigs = abi.map(canon);
+  const has = (sig) => sigs.includes(sig);
+
+  ok("lzReceive takes Origin as a static tuple — selector 0x13137d65",
+     has("lzReceive((uint32,bytes32,uint64),bytes32,bytes,address,bytes)"), sigs.join("\n      "));
+  eq("and that signature hashes to the selector the endpoint dispatches",
+     sel("lzReceive((uint32,bytes32,uint64),bytes32,bytes,address,bytes)"), "0x13137d65");
+  ok("the mock's old dialect is gone",
+     !has("lzReceive(bytes,bytes32,bytes,address,bytes)"));
+  ok("allowInitializePath answers the lane-initialization handshake — 0xff7bd03d",
+     has("allowInitializePath((uint32,bytes32,uint64))") &&
+     sel("allowInitializePath((uint32,bytes32,uint64))") === "0xff7bd03d");
+  ok("nextNonce answers the executor's ordering question — 0x7d25a05e",
+     has("nextNonce(uint32,bytes32)") &&
+     sel("nextNonce(uint32,bytes32)") === "0x7d25a05e");
+
+  /*  The truth table, driven raw so the encoding is exactly the wire's. */
+  const aip = (port, eid, sender) =>
+    c.call(port, sel("allowInitializePath((uint32,bytes32,uint64))") + w(eid) + b32(sender) + w(1));
+  eq("a lane from the built peer may initialize",
+     BigInt(await aip(portA, EID_B, portB2)), 1n);
+  eq("a lane from an eid nobody named may not",
+     BigInt(await aip(portA, 999, portB2)), 0n);
+  eq("nor one from the right eid but the wrong sender",
+     BigInt(await aip(portA, EID_B, "0x" + "ee".repeat(20))), 0n);
+  eq("and the ordering promise is none — nextNonce is zero",
+     BigInt(await c.call(portA, sel("nextNonce(uint32,bytes32)") + w(EID_B) + b32(portB2))), 0n);
 }
 
 head("only the commons crosses");
@@ -138,6 +226,11 @@ await c.exec(epB, "setLane(uint32,uint256,address)", [EID_A, FEE, epA]);
   const quoted = decUint(await c.read(portA, "quoteEcho(uint256,uint8,bytes,bytes)",
     [1, 0, body, "0x"]));
   ok("the port quotes a price before it commits", quoted > 0n, String(quoted));
+  /*  That quote carried NO options — and the mock, like ULN302, refuses
+      empty options outright. It answered because the port put its
+      DEFAULT_OPTIONS on the wire in their place: a type-3 blob naming
+      lzReceive gas, which is the least the real protocol will accept. */
+  ok("empty options became the default, because the wire refuses nothing-at-all", quoted > 0n);
 
   const outsider = await c.as("0x" + "cc".repeat(32));
   await refuses("a token you do not hold cannot speak for you",
@@ -189,16 +282,45 @@ head("the back-link is rewritten into this chain's numbering");
      prev > 0n && prev < 1n << 40n, String(prev));
 }
 
-head("a peer nobody named cannot be heard");
+head("a peer nobody named cannot be heard — on either side of the border");
 {
-  /*  The port checks the origin against the peers it was built with, so a
-      message from anywhere else is refused — the only authority it has to
-      check, since it cannot write to Parley at all.                   */
-  await c.exec(epB, "setLane(uint32,uint256,address)", [999, FEE, epB]);
-  await refuses("a message from an eid the port was not built with is refused",
-    () => c.exec(portB2, "lzReceive(bytes,bytes32,bytes,address,bytes)",
-      ["0x", "0x" + "00".repeat(32), "0x", me, "0x"]));
-  ok("and only the endpoint may call the receive path at all", true);
+  /*  The check exists twice, deliberately. The endpoint consults
+      `allowInitializePath` before the first packet on a lane can be
+      verified — the mock performs the same handshake — and `lzReceive`
+      makes the identical peer check itself, for the endpoint that
+      forgot to ask. Neither side trusts the other to have refused.     */
+  /*  inject(address,(uint32,bytes32,uint64),bytes): a 5-word head — the
+      address, the three tuple words inline, the bytes offset (0xa0). */
+  const bodyHex = (originEid) => w(originEid) + w(7) + w(0) + w(0x80) + w(5) +
+    Buffer.from("hello", "utf8").toString("hex").padEnd(64, "0");
+  const inject = (origin, msgHex) => c.send({ to: epB, label: "inject",
+    data: sel("inject(address,(uint32,bytes32,uint64),bytes)") +
+      b32(portB2) + w(origin.eid) + b32(origin.sender) + w(origin.nonce) +
+      w(0xa0) + w(msgHex.length / 2) + msgHex });
+
+  await inject({ eid: 999, sender: portA, nonce: 1 }, bodyHex(999));
+  const parked = decUint(await c.read(epB, "pending()"));
+  await refuses("the endpoint's handshake refuses a lane the port was not built with",
+    () => c.exec(epB, "deliver(uint256)", [parked - 1n]));
+  await refuses("and an endpoint that skipped the handshake meets the port's own check",
+    () => c.exec(epB, "deliverUnchecked(uint256)", [parked - 1n]));
+
+  /*  A peer that tells the DVNs one origin and writes another inside the
+      body is refused rather than believed on either count.             */
+  await inject({ eid: EID_A, sender: portA, nonce: 2 }, bodyHex(EID_B));
+  const parked2 = decUint(await c.read(epB, "pending()"));
+  await refuses("a message whose body claims a different origin than its envelope is refused",
+    () => c.exec(epB, "deliver(uint256)", [parked2 - 1n]));
+
+  /*  lzReceive's own head is 7 words: three tuple words, the guid, the
+      message offset (0xe0), the executor, the extraData offset — which
+      sits past the 32-byte length word and 192-byte body, at 0x1c0.    */
+  const lying = bodyHex(EID_A);
+  await refuses("and only the endpoint may call the receive path at all",
+    () => c.send({ to: portB2, label: "lzReceive-direct",
+      data: sel("lzReceive((uint32,bytes32,uint64),bytes32,bytes,address,bytes)") +
+        w(EID_A) + b32(portA) + w(3) + w(0) + w(0xe0) + w(0) + w(0x1c0) +
+        w(lying.length / 2) + lying + w(0) }));
 }
 
 head("the local commons never needed any of this");
