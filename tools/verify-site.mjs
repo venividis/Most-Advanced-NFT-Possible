@@ -343,7 +343,9 @@ const routes = [
   [["token", "1", "raw"], "text/plain", "/token/1/raw"],
   [["token", "1", "live"], "text/html", "/token/1/live"],
   [["token", "1", "face", "1"], "text/plain", "/token/1/face/1"],
-  [["token", "1", "sigil.svg"], "image/svg+xml", "/token/1/sigil.svg"]
+  [["token", "1", "sigil.svg"], "image/svg+xml", "/token/1/sigil.svg"],
+  [["c", "1"], "text/html", "/c/1"],
+  [["k", "1", "0x00000000000000000000000000000000000000cd"], "text/html", "/k/1/<key>"]
 ];
 for (const [path, type, label] of routes) {
   const r = await GET(path);
@@ -470,6 +472,9 @@ head("and it describes the collection-wide surface too");
     const seg = r.path === "/room/<n>" ? ["room", "1"]
               : r.path === "/dm/<id>" ? ["dm", "1"]
               : r.path === "/hook/<address>" ? ["hook", weth.toLowerCase()]
+              : r.path === "/c/<id>" ? ["c", "1"]
+              : r.path === "/k/<id>/<key>"
+                  ? ["k", "1", "0x00000000000000000000000000000000000000cd"]
               : r.path.split("/").filter(Boolean);
     const got = await GET(seg);
     ok(`  and ${r.path} actually answers`, got.status === 200, `status ${got.status}`);
@@ -506,20 +511,28 @@ head("and it describes the collection-wide surface too");
 
 head("the manifest tells a program how to call, not just what exists");
 const m1 = JSON.parse((await GET(["token", "1", "services.json"])).body);
-eq("it declares its schema", m1.schema, "ipseity.services/1");
+eq("it declares its schema", m1.schema, "ipseity.services/2");
 ok("it names the chain", typeof m1.chainId === "number");
-ok("it lists five services",
-   m1.services.length === 5, `got ${m1.services.map((s) => s.id).join(",")}`);
+ok("it lists six services — the session surface joined in /2",
+   m1.services.length === 6, `got ${m1.services.map((s) => s.id).join(",")}`);
 
 const sel4 = (sig) =>
   "0x" + Buffer.from(keccak256(Buffer.from(sig, "utf8"))).toString("hex").slice(0, 8);
 let selOk = 0, selBad = [];
 for (const s of m1.services) {
-  for (const k of ["read", "quote", "invoke", "also"]) {
+  for (const k of ["read", "quote", "invoke", "also", "grant", "act", "check", "revoke"]) {
     const call = s[k];
     if (!call || !call.sig) continue;
     if (sel4(call.sig) === call.selector) selOk++;
     else selBad.push(`${s.id}.${k}: ${call.sig} -> ${call.selector} (want ${sel4(call.sig)})`);
+  }
+  /*  The rented powers ride inside rent.use — /2's sharpest addition:
+      the manifest that sells the lease now teaches its use.            */
+  for (const k of Object.keys(s.use || {})) {
+    const call = s.use[k];
+    if (!call || !call.sig) continue;
+    if (sel4(call.sig) === call.selector) selOk++;
+    else selBad.push(`${s.id}.use.${k}: ${call.sig} -> ${call.selector}`);
   }
 }
 ok(`every selector matches keccak of its signature (${selOk} checked)`,
@@ -532,6 +545,55 @@ ok("rent says who is paid",
    m1.services.find((s) => s.id === "rent").paidTo === "token");
 ok("draw says nobody is paid",
    m1.services.find((s) => s.id === "draw").paidTo === null);
+
+const rentSvc = m1.services.find((s) => s.id === "rent");
+ok("rent teaches the powers it grants — commit and setTrait, on the hub",
+   rentSvc.use && rentSvc.use.commit && rentSvc.use.setTrait &&
+   rentSvc.use.commit.sig === "commit(uint256,uint256)",
+   JSON.stringify(rentSvc.use || null));
+const sessSvc = m1.services.find((s) => s.id === "session");
+ok("the session surface is discoverable: grant, act, check, revoke, and its door",
+   sessSvc && sessSvc.grant && sessSvc.act && sessSvc.check && sessSvc.revoke &&
+   /^\/k\/1\//.test(sessSvc.door),
+   JSON.stringify(sessSvc || null));
+
+const mIdx = JSON.parse((await GET(["services.json"])).body);
+ok("the index sells the mint with its door, not only its price",
+   mIdx.mint && sel4(mIdx.mint.invoke.sig) === mIdx.mint.invoke.selector &&
+   /exactly/.test(mIdx.mint.value), JSON.stringify(mIdx.mint || null));
+ok("the terminal desk is one read away for an RPC-only agent",
+   /^0x[0-9a-f]{40}$/.test(mIdx.deskTerm || ""), String(mIdx.deskTerm));
+ok("parley teaches speak, not only the walk",
+   mIdx.parley.invoke && sel4(mIdx.parley.invoke.sig) === mIdx.parley.invoke.selector,
+   JSON.stringify(mIdx.parley.invoke || null));
+ok("the routes name the console and the key's door",
+   mIdx.routes.some((r) => r.path === "/c/<id>") &&
+   mIdx.routes.some((r) => r.path === "/k/<id>/<key>"));
+
+/*════════════ /k — the granted key's own door ════════════*/
+head("/k — the one surface where the actor is not the holder");
+{
+  const KEY = "0x00000000000000000000000000000000000000cd";
+  const page = await GET(["k", "1", KEY]);
+  ok("it serves, and says whose door it is",
+     page.status === 200 && /a key to #1/.test(page.body),
+     `status ${page.status}`);
+  ok("an unembodied account is a stated fact, never a zero",
+     /not yet embodied/.test(page.body));
+  const mixed = await GET(["k", "1", "0x00000000000000000000000000000000000000CD"]);
+  ok("a checksummed spelling is sent to the one URL", mixed.status === 301,
+     `status ${mixed.status}`);
+  const bad = await GET(["k", "999999", KEY]);
+  ok("a token that does not exist has no keys to show", bad.status === 404,
+     `status ${bad.status}`);
+  const kCfg = /<script type="application\/json" id="KEY">([\s\S]*?)<\/script>/.exec(page.body);
+  const kc = JSON.parse(kCfg[1]);
+  ok("its selectors are computed on chain, and they are the account's",
+     sel4("executeAsSession(address,uint256,bytes)") === kc.sel.exec &&
+     sel4("sessionAllows(address,address,bytes4)") === kc.sel.allows &&
+     sel4("revokeSession(address)") === kc.sel.revoke,
+     JSON.stringify(kc.sel));
+}
 
 /*════════════ 5 · the calldata, and where the browser gets it ════════════*/
 head("the app is handed selectors a contract computed");
@@ -863,6 +925,11 @@ const mkEl = (tag, attrs) => {
   }
   const v = (attrs || "").match(/\bvalue=["']?([^"'\s>]*)["']?/);
   if (v) el.value = v[1];
+  /*  href, because the door's map derives window.DOORS from its own
+      anchors — the one-source cure for three drifted door lists — and a
+      shim that drops the attribute would report the cure as the disease. */
+  const hr = (attrs || "").match(/\bhref=["']?([^"'\s>]*)["']?/);
+  if (hr) el.href = hr[1];
   const cl = (attrs || "").match(/\bclass=["']?([^"'>]*)["']?/);
   if (cl) el.className = cl[1].trim();
   return el;
@@ -1213,11 +1280,16 @@ head("the front page is the instrument");
      && flat.body.includes("/lock") && flat.body.includes("/gallery"));
 }
 
-head("the door is the solid itself");
+head("the door is the map, in a person's words");
 {
   const page = await GET(["door"]);
-  ok("the 4-polytope is on the door", page.body.includes("<canvas id=tess")
-     && page.body.includes("class=tess4"));
+  /*  The tesseract was the symptom and it is gone; what fronts the door
+      now is the task map, server-rendered, one row per way in — and the
+      mint, priced in its own label, running the terminal's own word.  */
+  ok("the ways in are on the door, rendered by the contract",
+     page.body.includes("id=ways") && page.body.includes("OPEN A CONSOLE"));
+  ok("and the mint stands at the gate with its price in the label",
+     /id=mint1>mint the next one/.test(page.body));
   ok("and the terminal speaks from the door itself",
      page.body.includes("id=tin") && page.body.includes("id=tout"));
   ok("and the lore folds itself behind stars, script willing",
@@ -1229,11 +1301,20 @@ head("the door is the solid itself");
   runScripts(page.body);
   await nap(120);
 
-  ok("the doors exist as data, not only as pixels",
-     !!globalThis.TESS && globalThis.TESS.doors.length === 8,
-     globalThis.TESS ? globalThis.TESS.doors.join(",") : "no TESS");
-  eq("a node entered is a surface opened", globalThis.TESS.go(1), "/swap");
-  eq("and the page actually went there", globalThis.location.href, "/swap");
+  /*  The tesseract is gone — the console's specification called it the
+      symptom and this suite now holds the door to that ruling. What
+      replaced it is one server-rendered map whose anchors ARE the data:
+      window.DOORS is derived from the DOM, so the list a program walks
+      cannot drift from the list a person read.                          */
+  ok("the tesseract is gone, and nothing else answers to its name", !globalThis.TESS);
+  ok("the doors exist as data derived from the page itself",
+     Array.isArray(globalThis.DOORS) && globalThis.DOORS.length >= 8,
+     globalThis.DOORS ? String(globalThis.DOORS.length) : "no DOORS");
+  ok("every door names a route, and the routes are the site's",
+     globalThis.DOORS.every((d) => /^\//.test(d.path)) &&
+     globalThis.DOORS.some((d) => d.path === "/swap") &&
+     globalThis.DOORS.some((d) => d.path === "/keys"),
+     JSON.stringify(globalThis.DOORS));
 
   ok("the terminal came up on the door", !!globalThis.TERM);
   globalThis.location.href = "/";

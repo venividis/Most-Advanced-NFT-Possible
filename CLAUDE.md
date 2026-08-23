@@ -284,6 +284,7 @@ deployments/          machine-checked deployment records (the authoritative ones
 | What is this project / commands / measured numbers | `README.md` (esp. "Building it", "Layout", "What was and was not run here") |
 | Will this change break a stated guarantee | `INVARIANTS.md` — invariant → exact test that enforces it |
 | Console behavior, verbs, layout, refusals | `CONSOLE.md` |
+| The human/agent interaction redesign: what shipped, /k, services/2 | `INTERFACE.md` |
 | Holding/running other tokens' code, shader splice roadmap | `COMPOSABILITY.md` |
 | LayerZero/ONFT research, the port's protocol ABI, federation runbook | `OMNICHAIN.md` |
 | Etch/inscription system (unbuilt spec) | `INSCRIPTION.md` |

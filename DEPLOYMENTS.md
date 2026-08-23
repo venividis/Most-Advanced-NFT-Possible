@@ -625,5 +625,5 @@ same-address-everywhere wiring closes with no admin; the default options
 satisfy a real send library; and an unfunded stranger can read the whole
 foreign conversation with no indexer. Costs, measured: ~0.00267 ETH on
 Ethereum Sepolia for deploy + mint + echo; ~0.0000096 ETH on Base Sepolia
-for its deploy. The records are `dist/port-84532.json` and
-`dist/port-11155111.json`; the runbook is `OMNICHAIN.md` §5.
+for its deploy. The records are `deployments/port-84532.json` and
+`deployments/port-11155111.json`; the runbook is `OMNICHAIN.md` §5.

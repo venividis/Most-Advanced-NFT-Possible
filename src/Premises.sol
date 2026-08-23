@@ -44,6 +44,7 @@ interface IPageSeal     { function sealPage() external view returns (string memo
 interface IPageKeys     { function keys() external view returns (string memory); }
 interface IPageName     { function namePage() external view returns (string memory); }
 interface IPageEstate   { function estatePage() external view returns (string memory); }
+interface IPageKey      { function keyPage(uint256 id, address k) external view returns (string memory); }
 
 /*  The console. One route where nineteen were, so this is the only page
     interface here that takes a verb: `/c/<id>/hand` is a real address you
@@ -113,6 +114,7 @@ interface IPageManifest {
       /projector                 the 4-D renderer, free for anyone
       /seal                      the three seals: soulbind, account, kernel
       /keys                      session keys: scoped, expiring permissions
+      /k/<id>/<key>              a granted key's own door: envelope + one act
       /name                      an ENS name, bound to a token
       /chat                      the commons: one room, every token in it
       /rooms                     the groups this token has entered
@@ -168,6 +170,7 @@ contract Premises {
     IPageName     public immutable P_NAME;
     IPageEstate   public immutable P_ESTATE;
     IConsole      public immutable P_CONSOLE;
+    IPageKey      public immutable P_KEY;
 
     struct KeyValue { string key; string value; }
 
@@ -188,6 +191,10 @@ contract Premises {
         IPageHook hook; IPageCast cast; IPageSeal seal; IPageKeys keys;
         IPageName name; IPageEstate estate;
         IConsole console;
+        /*  Named keyDoor, not key: `keys` above is the holder's granting
+            page, and this is the granted key's own door — two surfaces,
+            two names, or somebody wires one where the other goes.       */
+        IPageKey keyDoor;
     }
 
     /// @dev Seventeen flat addresses is past what even viaIR keeps on a
@@ -215,6 +222,7 @@ contract Premises {
         P_NAME = p.name;
         P_ESTATE = p.estate;
         P_CONSOLE = p.console;
+        P_KEY = p.keyDoor;
     }
 
     /*═══════════════════ ERC-6860 ═══════════════════*/
@@ -404,6 +412,24 @@ contract Premises {
                 which is what a person who mistyped one word wanted, and
                 strictly better than being told the token does not exist. */
             return (200, P_CONSOLE.doc(cid, P_CONSOLE.verbOf(resource[2])), _headers(HTML));
+        }
+
+        if (_eq(resource[0], "k")) {
+            /*  /k/<id>/<key> — the session key's own front door, the one
+                surface where the actor is not the holder. The id is in the
+                path because a bare key cannot find the account that
+                granted it without an indexer; whoever hands out a key
+                hands out this address with it. Exactly three segments —
+                the pair IS the page.                                     */
+            if (n != 3) return _notFound();
+            (bool okI, uint256 kid) = _toUint(resource[1]);
+            if (!okI || !_exists(kid)) return _notFound();
+            (bool okK, address kAddr, bool kCanon) = _toAddr(resource[2]);
+            if (!okK) return _notFound();
+            if (!kCanon) {
+                return _moved(string.concat("/k/", resource[1], "/", LibNum.hexAddr(kAddr)));
+            }
+            return (200, P_KEY.keyPage(kid, kAddr), _headers(HTML));
         }
 
         if (_eq(resource[0], "hook")) {

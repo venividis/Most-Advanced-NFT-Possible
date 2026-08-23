@@ -555,7 +555,7 @@ Two modes, one lane: **a token**, or **an address**.
 | 77 · seed a new pool with liquidity | v4 `modifyLiquidities(bytes,uint256)` needs an ABI coder this client does not carry. `LAUNCH A COIN` step 4 names the step it stopped at, in `--warn`, and does not pretend otherwise |
 | 82 · pool price history (`Venue.history`) | A chart. The console shows `Venue.best` — pool, fee, liquidity — as three `kv` rows, and no chart at all. §I |
 | — · `setApprovalForAll` | It grants over the whole collection, and this console acts on one token. A holder who wants it has a marketplace. Refusing it is the safer default and the honest one |
-| — · `executeAsSession` | The key holder is not the holder and does not arrive from an instrument. §I names it as the first thing to add |
+| — · `executeAsSession` | The key holder is not the holder and does not arrive from an instrument. §I names it as the first thing to add. *Built, 2026-08-23: `/k/<id>/<key>`, its own front door and not a lane — see §I* |
 | 70 · `claimParentByName` | Project-level, once ever, curator-shaped. It is not a holder's act |
 
 **Refused, and not stated, because they are correctly absent today and a button would be worse than the gap:**
@@ -631,6 +631,12 @@ with the standing line, once:
 
 ### E.5 · The wallet is on the wrong chain
 
+*Shipped, 2026-08-23: the crest cell names the mismatch and offers the
+move; `propose` refuses to build a slab while it stands; a provider that
+cannot say its chain leaves the wallet's own guard in charge. Driven by
+`verify-console`: on the wrong chain a control raises no slab and
+nothing is sent.*
+
 The five-chain partition — Ethereum 1..1024, Base 1025..2048, Unichain 2049..3072, BNB 3073..3584, Robinhood 3585..4096, **no bridge, by design** — is stated to a person for the first time here.
 
 The crest shows both chains. Every write button in every lane carries its reason **in its own label**, never in a tooltip: `Unichain only`. The standing line takes over:
@@ -689,6 +695,13 @@ Progressive capability, announced, each with its own LED class and its own sente
 - **Inside a marketplace frame** — bare LED: *"No wallet reaches inside a marketplace frame. Reading the chain directly — open this token in its own tab to sign."*
 
 ### E.9 · Transactions
+
+*Shipped, 2026-08-23: the slab names To, Value and Function beside the
+lane's sentences, and the ticker follows the hash after the press —
+mined in block N, reverted in block N, still not mined, not mined after
+three minutes. The mint reads `price()` and attaches it, refusing to
+guess when the read does not answer; the TURN slab states plane deltas
+in degrees instead of two raw words.*
 
 Verbatim from the engine, and not re-invented:
 
@@ -1183,6 +1196,16 @@ Each of these is refused now, with its reason, and none of them is a gap the con
 | **`localStorage` of anything** | Nothing in the console is per-viewer state. The crumb stack is the history and it dies with the tab |
 
 ### The first thing to add
+
+*Built, 2026-08-23, with one correction the build forced: the route is
+`/k/<id>/<key>`, not `/k/<key>` — a bare key cannot find the account
+that granted it without an indexer, so the pair is the address, and
+whoever hands out a key hands out the URL with it. The envelope renders;
+the allowlists are stated as non-enumerable (they exist only in the
+grant transaction's calldata) and checked one door at a time through
+`sessionAllows`; the one act is checked before proposed and proposed
+before sent. `INTERFACE.md` records the build; `verify-site` holds the
+route.*
 
 **A key holder's front door: `/k/<key>`.** A session key granted in `HAND IT ON → FOR AN AFTERNOON` is a bounded capability handed to a bot, a keeper or a model, and today nothing anywhere shows the holder of that key what it may do or how to use it. The page is small: read `sessionCurrent(key)`, `sessionTarget`, `sessionSelector`, `sessionAllows`, render *what this key may call, on what, up to how much, until when* — and one control that builds `executeAsSession`. It is the only place in the whole system where the person acting is not the person holding, and it is the one surface this console cannot be.
 

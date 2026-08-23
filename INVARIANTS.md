@@ -1021,6 +1021,64 @@ rather than believed on either count.
 → `tools/verify-port.mjs` · *"a peer nobody named cannot be heard — on
   either side of the border"*
 
+**144. The console refuses the wrong chain before the slab exists.**
+A wallet answering from another chain is named in the crest the moment it
+answers, offered the one move that fixes it, and refused a confirm slab —
+a slab built for the wrong chain is a trap with a countdown. A provider
+that cannot say its chain leaves the wallet's own guard in charge:
+unknown is not wrong.
+→ `tools/verify-console.mjs` · *"a control on the wrong chain raises no
+  slab"*, *"the crest names the wrong chain and offers the move"*
+
+**145. The mint sends the price it read, or refuses to guess.**
+The slab used to claim the wallet would read the price — a thing no
+injected wallet does — and sent zero value at a payable function. The
+lane reads `price()` through a selector the contract derived, states it
+before the button, attaches it to the send, and a price that does not
+answer renders "not reported" and refuses the propose outright.
+→ `tools/verify-console.mjs` · *"the mint will not propose a payable
+  value it could not read"*
+
+**146. The slab names the destination, and follows the hash.**
+Every slab carries To, Value and Function beside the lane's sentences,
+and after the press the ticker reads the receipt back one hash at a
+time: mined in block N, reverted in block N, still not mined, not mined
+after three minutes. "Sent · 0x…" is a beginning now, not the whole
+story.
+→ `tools/verify-console.mjs` · *"the slab names where the transaction
+  goes and what it calls"*
+
+**147. The door map has one rendering, and the data is derived from it.**
+Three hand-written copies of the door list had already drifted — the
+tesseract, the nav, the terminal's `go` table. The tesseract is deleted
+(the ruling CONSOLE.md had already made), the list is server-rendered
+once, and `window.DOORS` is derived from those anchors in the document:
+the copy a program enumerates cannot drift from the copy a person read,
+because neither is a copy.
+→ `tools/verify-site.mjs` · *"the doors exist as data derived from the
+  page itself"*, *"the tesseract is gone, and nothing else answers to
+  its name"*
+
+**148. The manifest teaches the powers the lease grants.**
+`ipseity.services/1` sold the rent and described the renter's powers in
+prose while serving no way to use them. /2 carries `rent.use` — `commit`
+and `setTrait`, selectors derived on chain, addressed to the hub — so an
+agent that rents through the manifest can act through it too. Every /1
+key survives; a /1 reader reads /2 and learns less.
+→ `tools/verify-site.mjs` · *"rent teaches the powers it grants —
+  commit and setTrait, on the hub"*
+
+**149. The session surface is discoverable, and the key has its own door.**
+The one integration designed for programs — grant, act, check, revoke —
+is a service in every token's manifest, and `/k/<id>/<key>` serves the
+granted key's envelope with the rule stated in place: check before act,
+because a refusal read from a view costs nothing. The allowlists are
+stated as non-enumerable rather than pretended at; the id is in the path
+because a bare key cannot find its granting account without an indexer.
+→ `tools/verify-site.mjs` · *"the session surface is discoverable:
+  grant, act, check, revoke, and its door"*, *"/k — the one surface
+  where the actor is not the holder"*
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

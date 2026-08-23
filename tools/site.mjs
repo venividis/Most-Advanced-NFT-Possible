@@ -414,7 +414,7 @@ export const PAGES = {
   pLock: "P_LOCK()",         pHook: "P_HOOK()",       pCast: "P_CAST()",
   pSeal: "P_SEAL()",         pKeys: "P_KEYS()",       pName: "P_NAME()",
   pEstate: "P_ESTATE()",
-  pConsole: "P_CONSOLE()"
+  pConsole: "P_CONSOLE()",  pKey: "P_KEY()"
 };
 
 /*  The desks and the machinery behind them, each read from a contract that
@@ -483,7 +483,7 @@ export const EXPECTED = [
   "pManifest", "pTalk", "pRooms", "pTerminal", "pGallery", "pLaunch", "pLock",
   "pHook", "pCast", "pSeal", "pKeys", "pName", "succession", "consign",
   "deskEstate", "deskWill", "pEstate",
-  "consoleSkin", "consoleCore", "consoleRead", "pConsole", "premises"
+  "consoleSkin", "consoleCore", "consoleRead", "pConsole", "pKey", "premises"
 ];
 
 /*──────────────── the deployment ────────────────*/
@@ -593,12 +593,6 @@ export async function deploySite(c, A,
     encodeAddressArg(hub) + encodeAddressArg(chrome) +
     encodeAddressArg(lease) + encodeAddressArg(desk), "PageServices");
 
-  const pManifest = await c.deploy(
-    A("src/PageManifest.sol", "PageManifest").bytecode,
-    encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
-    encodeAddressArg(parley) + encodeAddressArg(kiln) +
-    encodeAddressArg(locker) + encodeAddressArg(venue),
-    "PageManifest");
 
   const deskTerm = await c.deploy(
     A("src/DeskTerm.sol", "DeskTerm").bytecode,
@@ -606,6 +600,17 @@ export async function deploySite(c, A,
     encodeAddressArg(parley) + encodeAddressArg(kiln) + encodeAddressArg(locker) +
     encodeAddressArg(roster),
     "DeskTerm");
+
+  /*  After DeskTerm, deliberately: the manifest now names the terminal
+      desk so an RPC-only agent can find `config()` — the full selector
+      table — without executing a page's script. A page cannot name a
+      contract deployed after it.                                        */
+  const pManifest = await c.deploy(
+    A("src/PageManifest.sol", "PageManifest").bytecode,
+    encodeAddressArg(hub) + encodeAddressArg(pool) + encodeAddressArg(lease) +
+    encodeAddressArg(parley) + encodeAddressArg(kiln) +
+    encodeAddressArg(locker) + encodeAddressArg(venue) + encodeAddressArg(deskTerm),
+    "PageManifest");
 
   const deskRooms = await c.deploy(
     A("src/DeskRooms.sol", "DeskRooms").bytecode, "", "DeskRooms");
@@ -756,6 +761,14 @@ export async function deploySite(c, A,
     encodeAddressArg(consoleCore),
     "PageConsole");
 
+  /*  The granted key's own door — /k/<id>/<key>. Fixed-length deploy, so
+      it may sit here, after the variable-length console loads and before
+      the nonce prediction below.                                        */
+  const pKey = await c.deploy(
+    A("src/PageKey.sol", "PageKey").bytecode,
+    encodeAddressArg(hub) + encodeAddressArg(chrome),
+    "PageKey");
+
   /*  Three contracts, one cycle: the name page must know the resolver, the
       resolver must know the premises, and the premises must know the name
       page. Somebody has to be told where a contract will be before it is
@@ -781,7 +794,7 @@ export async function deploySite(c, A,
     encodeAddressArg(pLaunch) + encodeAddressArg(pLock) + encodeAddressArg(pHook) +
     encodeAddressArg(pCast) + encodeAddressArg(pSeal) +
     encodeAddressArg(pKeys) + encodeAddressArg(pName) + encodeAddressArg(pEstate) +
-    encodeAddressArg(pConsole),
+    encodeAddressArg(pConsole) + encodeAddressArg(pKey),
     "Premises");
 
   /*  The resolver deploys on every chain so the address matches
@@ -802,6 +815,6 @@ export async function deploySite(c, A,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
     pTerminal, pGallery, pLaunch, pLock, pHook, pCast,
     pSeal, pKeys, pName, succession, consign, deskEstate, deskWill, pEstate,
-    consoleSkin, consoleCore, consoleRead, pConsole, premises
+    consoleSkin, consoleCore, consoleRead, pConsole, pKey, premises
   };
 }

@@ -431,6 +431,10 @@ contract PageConsole {
             "\",embodyGrip:\"", _sel("embodyGrip(uint256)"),
             "\",xfer:\"", _sel("transferFrom(address,address,uint256)"),
             "\",mint:\"", _sel("mint()"),
+            /*  So the mint lane can read the price and ATTACH it: a payable
+                mint proposed at zero value reverts, and "the wallet reads
+                the price" is not a thing any injected wallet does.       */
+            "\",price:\"", _sel("price()"),
             "\"}"
         );
     }

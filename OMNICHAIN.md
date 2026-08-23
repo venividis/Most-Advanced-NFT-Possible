@@ -296,7 +296,7 @@ seconds (`lzReceive(Origin,…)` dispatched, `Echoed` emitted in Base
 Sepolia block 45,828,666), and `port.mjs walk` read the message back off
 the far chain's own `eth_getLogs` in one single-block query. Every
 transaction hash is in `DEPLOYMENTS.md`; the machine records are
-`dist/port-84532.json` and `dist/port-11155111.json`. The first
+`deployments/port-84532.json` and `deployments/port-11155111.json`. The first
 cross-chain message in the collection's history was composed, verified,
 delivered and re-read by infrastructure this repository does not run —
 which was the entire claim under test.
