@@ -10,16 +10,16 @@ rewrites its own past cannot be used to tell when something broke.
 ### Base Sepolia · chain 84532
 
 ```
-Premises     0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1
+Premises     0xd4e64108b923f2eb845c05e65610a9520e6b26ee   (the redesign, 2026-08-23)
 Ipseity      0x36c49f58c6437ee994766ce80f6654c4d797b8db
 Pool         0x8b699b46edb8e8bd156347d73c8eaa2a0abe80f4
 Engine       0x3f3e39a630376301575afbf90b3af2a3eb003636   (frozen)
 ```
 
 ```
-https://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1.basesep.w3link.io/
-https://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1.basesep.w3link.io/token/2/live
-web3://0x01de7b5d7233f9ecfc11a8a07d347654f95b07b1:84532/
+https://0xd4e64108b923f2eb845c05e65610a9520e6b26ee.basesep.w3link.io/
+https://0xd4e64108b923f2eb845c05e65610a9520e6b26ee.basesep.w3link.io/token/2/live
+web3://0xd4e64108b923f2eb845c05e65610a9520e6b26ee:84532/
 ```
 
 ### Ethereum Sepolia · chain 11155111
