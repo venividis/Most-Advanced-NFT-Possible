@@ -10,16 +10,16 @@ rewrites its own past cannot be used to tell when something broke.
 ### Base Sepolia · chain 84532
 
 ```
-Premises     0xc64dff66cb3eb2a6afb6ff72a207f43addd33b95   (the lanes filled, 2026-08-24)
+Premises     0xa2519f12b1bcd262ffa8ef76533e0dc58ec85350   (the console hears other chains, 2026-08-24)
 Ipseity      0x36c49f58c6437ee994766ce80f6654c4d797b8db
 Pool         0x8b699b46edb8e8bd156347d73c8eaa2a0abe80f4
 Engine       0x3f3e39a630376301575afbf90b3af2a3eb003636   (frozen)
 ```
 
 ```
-https://0xc64dff66cb3eb2a6afb6ff72a207f43addd33b95.basesep.w3link.io/
-https://0xc64dff66cb3eb2a6afb6ff72a207f43addd33b95.basesep.w3link.io/token/2/live
-web3://0xc64dff66cb3eb2a6afb6ff72a207f43addd33b95:84532/
+https://0xa2519f12b1bcd262ffa8ef76533e0dc58ec85350.basesep.w3link.io/
+https://0xa2519f12b1bcd262ffa8ef76533e0dc58ec85350.basesep.w3link.io/token/2/live
+web3://0xa2519f12b1bcd262ffa8ef76533e0dc58ec85350:84532/
 ```
 
 ### Ethereum Sepolia · chain 11155111
@@ -698,3 +698,34 @@ port.mjs walk` reads that one.
 
 Ethereum Sepolia still waits on gas, unchanged: the funding watch checks
 hourly and ships this same code the moment the key holds enough.
+
+### The console hears the other chains — 2026-08-24
+
+The SPEAK lane's federated walk shipped the same day it was built,
+riding a site redeploy exactly as OMNICHAIN.md §6 prescribed: the port's
+address handed to the page as an immutable constructor argument, read by
+`redeploy-site` from `deployments/port-84532.json`. The full battery ran
+green first; recover-record read all 52 addresses back with zero
+disagreements after.
+
+```
+Premises     0xa2519f12b1bcd262ffa8ef76533e0dc58ec85350   (live, 11 routes probed 200)
+Parley       0xaa8b3ff644638a29333953328fb877e8dd23e0f2   (unchanged)
+port         0x65d1e9d08488a68ef6bf48e057ab69496333c7ae   (unchanged, now in the seed)
+```
+
+Then the point of the whole exercise, verified live: `/c/3/speak` from
+the new Premises seeds the port, the `Echoed` topic and the eid-name
+map; the port's `lastEcho()` answers block 45,828,666; and the lane's
+exact walk — one single-block `eth_getLogs` along the `prev` pointers —
+renders the real cross-chain message the DVNs delivered on 2026-08-22:
+
+```
+block 45828666 · #3 · Ethereum Sepolia · "the commons, heard on another chain"
+```
+
+One hop, and it reached the first arrival ever. A message that left one
+chain, was verified by infrastructure this repository does not run, and
+now renders in the console of another chain, labeled by where it came
+from and standing apart from the local column — which is the boundary
+the design demanded.
