@@ -181,4 +181,80 @@ contract ConsoleRead {
     {
         return (BIT_HUB, BIT_POOL, BIT_LEASE, BIT_OWNER, BIT_USER);
     }
+
+    /*═══════════════════ the selector table ═══════════════════*/
+
+    /// @notice Every four-byte selector the console's client sends, as the
+    ///         literal `,sel:{…}` fragment of its seed. Solidity has keccak;
+    ///         a browser does not, and shipping two kilobytes of it so the
+    ///         client can recompute what a contract already knows is a
+    ///         client that can be wrong about something it never had to
+    ///         decide.
+    /// @dev    This lives HERE and not in PageConsole because the lanes'
+    ///         second tranche grew the table to twenty-seven entries and
+    ///         pushed that contract to 98% of EIP-170 — the exact squeeze
+    ///         CONSOLE.md §H.2 planned satellites for. The read side of the
+    ///         console had five sixths of its ceiling free, and a selector
+    ///         derived on chain is a read.
+    ///
+    ///         Name, then signature, as DATA driven by one loop rather than
+    ///         as twenty-seven concat sites, because every call site pays
+    ///         its own codegen and one loop pays once. `price()` exists so
+    ///         the mint lane can read the cost and ATTACH it — a payable
+    ///         mint proposed at zero value reverts. `approve`/`allowance`
+    ///         act on a market's own ERC-20s, never on the hub; they exist
+    ///         for the approve-as-current-step button. `speak`/`stateOf`
+    ///         act on Parley; the walk itself needs no selector because it
+    ///         is logs, not calls.
+    function sels() external pure returns (string memory out) {
+        string[54] memory t = [
+            string("commit"), "commit(uint256,uint256)",
+            "embody",     "embody(uint256)",
+            "embodyGrip", "embodyGrip(uint256)",
+            "xfer",       "transferFrom(address,address,uint256)",
+            "mint",       "mint()",
+            "price",      "price()",
+            "open",       "openMarket(uint256,address,address,uint16)",
+            "close",      "closeMarket(uint256)",
+            "setFee",     "setFee(uint256,uint16)",
+            "bond",       "bond(uint256,uint64)",
+            "deposit",    "deposit(uint256,uint256,uint256)",
+            "withdraw",   "withdraw(uint256,uint256,uint256,address)",
+            "quote",      "quote(uint256,bool,uint256)",
+            "swap",       "swap(uint256,bool,uint256,uint256,address,uint256)",
+            "sync",       "syncCurve(uint256)",
+            "drift",      "pendingCurve(uint256)",
+            "approve",    "approve(address,uint256)",
+            "allowance",  "allowance(address,address)",
+            "setUser",    "setUser(uint256,address,uint64)",
+            "lock",       "lock(uint256)",
+            "unlock",     "unlock(uint256)",
+            "locked",     "locked(uint256)",
+            "speak",      "speak(uint256,uint256,uint8,bytes)",
+            "state",      "stateOf(uint256)",
+            "balance",    "balanceOf(address)",
+            "decimals",   "decimals()",
+            "symbol",     "symbol()"
+        ];
+        out = ",sel:{";
+        for (uint256 i; i < 54; i += 2) {
+            out = string.concat(out, i == 0 ? "" : ",", t[i], ":\"", _sel(t[i + 1]), "\"");
+        }
+        out = string.concat(out, "}");
+    }
+
+    /*  The four bytes a client sends, and nothing about how they were
+        arrived at. A signature spelled in two places is a signature that
+        will differ in one of them.                                      */
+    function _sel(string memory sig) private pure returns (string memory) {
+        bytes4 s = bytes4(keccak256(bytes(sig)));
+        bytes memory hexd = "0123456789abcdef";
+        bytes memory o = new bytes(10);
+        o[0] = "0"; o[1] = "x";
+        for (uint256 k; k < 4; ++k) {
+            o[2 + k * 2] = hexd[uint8(s[k]) >> 4];
+            o[3 + k * 2] = hexd[uint8(s[k]) & 0x0f];
+        }
+        return string(o);
+    }
 }

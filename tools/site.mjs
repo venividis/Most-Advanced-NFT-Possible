@@ -758,7 +758,7 @@ export async function deploySite(c, A,
   const pConsole = await c.deploy(
     A("src/PageConsole.sol", "PageConsole").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(consoleRead) + encodeAddressArg(consoleSkin) +
-    encodeAddressArg(consoleCore),
+    encodeAddressArg(consoleCore) + encodeAddressArg(parley),
     "PageConsole");
 
   /*  The granted key's own door — /k/<id>/<key>. Fixed-length deploy, so

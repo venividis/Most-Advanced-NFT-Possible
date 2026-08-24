@@ -428,6 +428,19 @@ Sections: `IN THIS WALLET` · `THE TWO HANDS` · `MOVE SOMETHING OUT` · `UNDER 
 
 Sections: `ITS OWN EXCHANGE` · `INVENTORY` · `THE FEE` · `THE BOND` · `THE CURVE` · `ANYONE'S POOL`
 
+*Shipped, 2026-08-23, second tranche: #23–#31 are all live in the lane.
+The approve (#24) is driven by `verify-console` exactly as this table
+demands — one button whose current step it is, exact amount, never
+unlimited; the swap (#28) quotes at review time and carries its floor
+and deadline into the slab; the bond (#29) states the ratchet beside
+the button; the sync (#30) shows the drift first, via `pendingCurve`.
+Amounts refuse when a coin's `decimals()` does not answer, because an
+amount scaled by a guessed exponent is the one mistake no slab can
+catch. One amendment: `ANYONE'S POOL` (#80, #81) does not open here —
+the lane links `/swap` instead, because the two trading surfaces stay
+two (who is paid the fee must stay loud), and folding the router into
+this lane would blur exactly that. #90 remains with LOOK.*
+
 | # | action | where |
 |---|---|---|
 | 23 | `openMarket(id, base, quote, feeBps)` | ITS OWN EXCHANGE — pairs from the blessed list only |
@@ -446,6 +459,20 @@ Sections: `ITS OWN EXCHANGE` · `INVENTORY` · `THE FEE` · `THE BOND` · `THE C
 ### D.4 · HAND IT ON — `LaneHand` + `LaneHandLater`
 
 Sections, **sorted by ascending finality — that ordering is the warning**: `FOR AN AFTERNOON` · `FOR A SEASON` · `FOR A PRICE` · `FOR GOOD`
+
+*Shipped, 2026-08-23, second tranche: the sections now run in this
+order and `verify-console` asserts the ordering. `setUser` is built —
+the hole is filled — with a take-it-back button while a loan stands;
+the transfer moved under the last heading as its first control; the
+bolt (#5, #6) is built where this table put it. One amendment to #18
+and #19: granting and revoking stay at `/keys`, which this lane links,
+rather than being rebuilt in the lane. The reason is this console's own
+rule: "human-readable signatures, never raw bytes4" can only be
+honored by the page that serves the signature table beside the form,
+and `/keys` is that page — it already derives `grantSession`'s whole
+shape on chain. A second grant surface would be a second copy of that
+derivation, which is the two-tables failure, wearing a convenience.
+The lease, consignment and succession families remain honest notes.*
 
 | # | action | where |
 |---|---|---|
@@ -479,6 +506,18 @@ Sections, **sorted by ascending finality — that ordering is the warning**: `FO
 ### D.5 · SPEAK AS IT — `LaneSpeak` + `LaneSpeakRooms`
 
 Sections: `THE COMMONS` · `WHISPERS` · `ROOMS` · `WHAT IT SIGNS`
+
+*Shipped, 2026-08-23, second tranche: #39, both halves. The composer
+speaks PLAIN into the commons and refuses past 1024 bytes counted as
+bytes, not characters — an emoji is four. The walk is built as this
+table specifies: `stateOf(0)` for the newest block, then one
+single-block `eth_getLogs` per hop along the `prev` pointers, twelve
+hops and then the count of what lies deeper; a sealed message renders
+as sealed, bytes that are not UTF-8 render as not text, and a commons
+that did not answer is never an empty commons. The `Said` topic and
+Parley's address arrive in the seed — the topic asked of `topics()`
+at render time, never spelled twice. Whispers, rooms and signatures
+remain honest notes.*
 
 | # | action | where |
 |---|---|---|
@@ -1045,6 +1084,16 @@ Old links keep working and land somewhere true. This is strictly better than a 4
 | `LaneLook.sol` | §D.7 | 0.4 KB + ptr | yes | yes |
 
 Every contract is comfortably under 24,576 bytes because none of them holds its own text; they hold SSTORE2 pointers. The satellite pattern (`LaneHandLater`, `LaneSpeakRooms`, `LaneMakeName`) is `DeskTerm` → `DeskRooms`, proven and invisible: *a reader cannot tell from the console which rows came from which contract, which is the point.*
+
+*2026-08-23: the first squeeze arrived from the other side. The lane
+JavaScript costs nothing — it rides in ConsoleCore's SSTORE2 store,
+which has no ceiling — but the second tranche grew the SEED: a
+twenty-seven-entry selector table pushed `PageConsole` to 98% of
+EIP-170. The answer was this table's own pattern pointed at the read
+side: the selector table moved into `ConsoleRead.sels()`, which had
+five sixths of its ceiling free, and `PageConsole` came back to 81%.
+The `Lane*.sol` rows above remain the map for when server-rendered
+lane STATE grows the same way.*
 
 **Source bytes are not runtime bytes.** `Desk.sol` is 28,764 source bytes today and fits, because roughly forty percent of it is comment. Size all of these with the CI gate in §H.7, never by reading the file.
 

@@ -213,6 +213,80 @@ const GET = getter(c, site.premises);
     broken when the fixture was.                                        */
 for (let i = 0; i < 3; i++) await c.exec(nft, "mint()", [], { value: 10n ** 16n });
 
+/*═══════════════ the trade lane's seed, closed and open ═══════════════*/
+/*  Read before and after the market opens, because the seed's shape IS the
+    client's degradation logic: an absent `mkt` key must mean "the pool did
+    not answer" and a present one must carry the market as it stands.    */
+
+head("the seed tells the trade lane the truth about the market");
+{
+  const closed = (await GET(["c", "1", "trade"])).body;
+  ok("before a market opens, the seed says so",
+     closed.includes(",mkt:{open:0"), "no closed-market seed");
+  ok("and the pool's address rides in the seed",
+     closed.includes(`,pool:"${pool.toLowerCase()}"`), "no pool address in the seed");
+
+  /*  Two coins and an open market for #1, the way verify-pool builds them:
+      constructor(string,string,uint8,uint256,bool), strings by hand.    */
+  const mock = A("test/mocks/MockERC20.sol", "MockERC20").bytecode;
+  const encStr = (s) => {
+    const b = Buffer.from(s, "utf8");
+    return b.length.toString(16).padStart(64, "0") + b.toString("hex").padEnd(64, "0");
+  };
+  const mkToken = async (name, sym) => {
+    const nameEnc = encStr(name);
+    const symOff = 0xa0 + nameEnc.length / 2;
+    return c.deploy(mock,
+      (0xa0).toString(16).padStart(64, "0") +
+      BigInt(symOff).toString(16).padStart(64, "0") +
+      w(18) + w(0) + w(0) +
+      nameEnc + encStr(sym));
+  };
+  const BASE = await mkToken("Wrapped Ether", "WETH");
+  const QUOTE = await mkToken("USD Coin", "USDC");
+  await c.exec(pool, "openMarket(uint256,address,address,uint16)", [1n, BASE, QUOTE, 30n]);
+
+  const open = (await GET(["c", "1", "trade"])).body;
+  ok("once it opens, the seed carries the market",
+     open.includes(",mkt:{open:1,fee:30"), "no open-market seed");
+  ok("with both coins, by address",
+     open.includes(`base:"${BASE.toLowerCase()}"`) &&
+     open.includes(`quote:"${QUOTE.toLowerCase()}"`),
+     "the seed's coins are not the market's");
+}
+
+head("every selector in the seed is the keccak of its signature");
+{
+  /*  The seed's whole argument is that the browser ships no keccak because
+      a contract derived the four bytes. So the four bytes are re-derived
+      HERE, by this tool's own keccak, and compared — for the ones the new
+      lanes ride on. A selector that drifts from its signature is a control
+      that calls the wrong function while naming the right one.          */
+  const doc = (await GET(["c", "1"])).body;
+  const pairs = [
+    ["swap",    "swap(uint256,bool,uint256,uint256,address,uint256)"],
+    ["quote",   "quote(uint256,bool,uint256)"],
+    ["approve", "approve(address,uint256)"],
+    ["setUser", "setUser(uint256,address,uint64)"],
+    ["lock",    "lock(uint256)"],
+    ["speak",   "speak(uint256,uint256,uint8,bytes)"],
+    ["state",   "stateOf(uint256)"]
+  ];
+  for (const [k, sig] of pairs) {
+    ok(`sel.${k} is keccak("${sig}")[:4]`,
+       doc.includes(`${k}:"${evm.sel(sig)}"`), `missing or wrong in the seed`);
+  }
+
+  /*  The Said topic is asked of Parley, not spelled again — so ask Parley
+      ourselves and compare the whole word.                              */
+  const topics = await c.read(site.parley, "topics()");
+  const said = "0x" + topics.replace(/^0x/, "").slice(0, 64);
+  ok("the seed's Said topic is Parley's own answer",
+     doc.includes(`said:"${said}"`), "the topic in the seed is not topics()'s");
+  ok("and Parley's address rides beside it",
+     doc.includes(`parley:"${site.parley.toLowerCase()}"`), "no parley address");
+}
+
 head("the console answers at one route, in three shapes");
 {
   const bare = await GET(["c"]);
@@ -525,6 +599,139 @@ head("the console runs");
     const crumbs = await page.$$eval("#walk .cr", (b) => b.map((x) => x.textContent));
     ok("and the crest names both", crumbs.length === 2, JSON.stringify(crumbs));
   }
+
+  /*  The hand lane lends. Filling the two fields and pressing the button
+      must raise a slab that names setUser — and nothing may be sent.    */
+  await page.goto(base + "/c/1/hand", { waitUntil: "networkidle" });
+  await page.waitForTimeout(900);
+  const handText = await page.textContent("#lane");
+  ok("the hand lane runs shallow to deep, and the loan is first",
+     handText.indexOf("FOR AN AFTERNOON") >= 0 &&
+     handText.indexOf("FOR AN AFTERNOON") < handText.indexOf("FOR GOOD"),
+     "the sections are not in ascending finality");
+  ok("the bolt's unanswered state is not reported, never open or shut",
+     /The bolt/.test(handText) && /not reported/.test(handText),
+     "an unanswered locked() rendered as a state");
+  {
+    const inputs = await page.$$("#lane input[type=text]");
+    await inputs[0].fill("0x" + "11".repeat(20));
+    await inputs[1].fill("3");
+    const before = await page.evaluate(() => window.__sent.length);
+    for (const b of await page.$$("#lane button.b")) {
+      if (/Review the loan/.test(await b.textContent())) { await b.click(); break; }
+    }
+    await page.waitForTimeout(250);
+    const slab = await page.textContent("#cslab");
+    ok("the loan raises a slab that names setUser and its self-ending",
+       /LEND IT, FREE/.test(slab) && /setUser/.test(slab) && /by itself/.test(slab),
+       slab.slice(0, 140));
+    const sent = await page.evaluate(() => window.__sent.length);
+    ok("and lends nothing on a click", sent === before, "a loan went out unsigned");
+    await page.click("#cslab [data-no]");
+  }
+
+  /*  The speak lane. The stub answers every read with empty bytes, so the
+      commons DID NOT ANSWER — which must never render as an empty
+      commons, because "zero" and "no answer" are different facts even
+      about silence.                                                     */
+  await page.goto(base + "/c/1/speak", { waitUntil: "networkidle" });
+  await page.waitForTimeout(900);
+  const speakText = await page.textContent("#lane");
+  ok("the speak lane opens with the sentence that justifies its past",
+     /every message points at the block of the one before it/.test(speakText),
+     "the walk's justification is missing");
+  ok("a commons that did not answer is never an empty commons",
+     /did not answer/.test(speakText) && !/Nothing has ever been said/.test(speakText),
+     speakText.slice(0, 160));
+  {
+    const inputs = await page.$$("#lane input[type=text]");
+    await inputs[0].fill("the first word");
+    for (const b of await page.$$("#lane button.b")) {
+      if (/Review the message/.test(await b.textContent())) { await b.click(); break; }
+    }
+    await page.waitForTimeout(250);
+    const slab = await page.textContent("#cslab");
+    ok("the message raises a slab that names the commons and speak",
+       /the commons/.test(slab) && /speak/.test(slab) && /forever/.test(slab),
+       slab.slice(0, 140));
+    await page.click("#cslab [data-no]");
+  }
+
+  /*  The trade lane, §D.3 #24 driven: the approval is the button's CURRENT
+      STEP. One button, pressed with no allowance, proposes an exact-amount
+      approve; the same button, pressed with the allowance standing,
+      proposes the swap with its floor and its deadline. The wallet stub
+      answers reads by selector, which is exactly what the seed is for.  */
+  const ctx3 = await browser.newContext({ viewport: { width: 420, height: 900 } });
+  await ctx3.addInitScript(() => {
+    window.__sent = [];
+    window.__allow = false;
+    window.ethereum = {
+      request: async ({ method, params }) => {
+        if (method === "eth_accounts" || method === "eth_requestAccounts")
+          return [window.CON.owner];
+        if (method === "eth_call") {
+          const d = String((params[0] || {}).data || "").toLowerCase();
+          const sel = window.CON.sel;
+          if (d.indexOf(sel.allowance) === 0)
+            return window.__allow ? "0x" + "f".repeat(64) : "0x" + "0".repeat(64);
+          if (d.indexOf(sel.decimals) === 0) return "0x" + "12".padStart(64, "0");
+          if (d.indexOf(sel.quote) === 0)
+            return "0x" + (2n * 10n ** 18n).toString(16).padStart(64, "0");
+          return "0x";
+        }
+        if (method === "eth_sendTransaction") {
+          window.__sent.push(params[0]);
+          return "0x" + "ab".repeat(32);
+        }
+        throw new Error("stub: " + method);
+      }
+    };
+  });
+  const page3 = await ctx3.newPage();
+  const errs3 = [];
+  page3.on("pageerror", (e) => errs3.push(String(e).slice(0, 160)));
+  await page3.goto(base + "/c/1/trade", { waitUntil: "networkidle" });
+  await page3.waitForTimeout(1100);
+  ok("the trade lane runs without throwing", errs3.length === 0, errs3.join(" | "));
+  const tradeText = await page3.textContent("#lane");
+  ok("an open market shows the maker's whole bench",
+     /INVENTORY/.test(tradeText) && /THE BOND/.test(tradeText) && /THE CURVE/.test(tradeText),
+     tradeText.slice(0, 160));
+  ok("the bond states the ratchet where the button is",
+     /only ever lengthens/.test(tradeText) && /survives sale/.test(tradeText),
+     "no ratchet sentence");
+  {
+    const clickSwap = async () => {
+      for (const b of await page3.$$("#lane button.b")) {
+        if (/Review the swap/.test(await b.textContent())) { await b.click(); return; }
+      }
+    };
+    await page3.fill("#lane input[type=text]", "1");
+    await clickSwap();
+    await page3.waitForTimeout(350);
+    let slab = await page3.textContent("#cslab");
+    ok("with no allowance, the button's current step is an exact approve",
+       /APPROVE/.test(slab) && /exactly 1/.test(slab) && /approve/.test(slab),
+       slab.slice(0, 160));
+    ok("and never an unlimited one", /Never.*unlimited/s.test(slab), slab.slice(0, 160));
+    await page3.click("#cslab [data-no]");
+
+    await page3.evaluate(() => { window.__allow = true; });
+    await clickSwap();
+    await page3.waitForTimeout(350);
+    slab = await page3.textContent("#cslab");
+    ok("with the allowance standing, the same button proposes the swap",
+       /SWAP THROUGH ITS MARKET/.test(slab) && /swap\(uint256,bool/.test(slab),
+       slab.slice(0, 160));
+    ok("with a floor under it, or nothing moves",
+       /No less than/.test(slab) && /or nothing moves/.test(slab), slab.slice(0, 160));
+    ok("and a deadline", /fifteen minutes/.test(slab), slab.slice(0, 160));
+    const sent = await page3.evaluate(() => window.__sent.length);
+    ok("and through both presses nothing was sent unsigned", sent === 0,
+       `${sent} transaction(s)`);
+  }
+  await ctx3.close();
 
   await browser.close();
   srv.close();

@@ -118,11 +118,17 @@ remain different facts, including on the new key page.
 
 ## What remains, stated so nobody mistakes it for done
 
-- **The lanes are still thin.** TRADE and SPEAK remain honest notes;
-  HAND carries only the irreversible transfer. CONSOLE.md §D maps all
-  101 actions and §H.2 sketches the satellite-lane stores that keep
-  PageConsole under the ceiling while the lanes fill. That is the next
-  tranche, and the spec's strings are already written.
+- ~~**The lanes are still thin.**~~ *Filled, 2026-08-23, second
+  tranche.* TRADE carries the whole maker's bench (§D.3 #23–#31, with
+  the approve as the button's current step, driven) and the swap for
+  anyone; SPEAK carries the commons — composer and the back-pointer
+  walk (§D.5 #39); HAND runs its sections in ascending finality with
+  the loan (`setUser`, the hole), the bolt, and the transfer under the
+  last heading. The growth squeezed `PageConsole` to 98% of EIP-170
+  and the selector table moved to `ConsoleRead.sels()` — the satellite
+  pattern §H.2 planned, pointed at the read side. Still thin, honestly:
+  the lease/consignment/succession families in HAND, whispers and rooms
+  and signatures in SPEAK, the launch and the name in MAKE.
 - **The instrument's own frictions** — the unpriced plate, the
   illegible sealed nodes, the read-only visitor who cannot leave for
   the console — ship on the Engine/Renderer path, not the site path,
@@ -138,7 +144,10 @@ remain different facts, including on the new key page.
 ## Where the tests hold it
 
 `verify-console` drives the connect crest, the wrong-chain refusal, the
-slab's one-transaction rule and the walk (55 assertions);
+slab's one-transaction rule, the walk, and — since the second tranche —
+the approve-as-current-step, the swap's floor and deadline, the loan,
+the commons' two spellings of silence, and the seed's selectors against
+a real keccak (87 assertions at last run);
 `verify-site` holds the door map's one-source property, the /2 schema
 (every selector against keccak, the rented powers, the session block,
 the mint door, `deskTerm`), and the `/k` route's envelope, canonical

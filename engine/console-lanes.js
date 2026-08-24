@@ -66,6 +66,43 @@
     return w.toString() + (f ? "." + f : "");
   };
 
+  /*  The same two moves for a token that is not ether. `dec` comes from the
+      coin's own `decimals()` — and when that read does not answer, these
+      are never called: an amount scaled by a guessed exponent is wrong by
+      factors of ten, which is the one mistake no slab can catch.        */
+  var units = function (s, dec) {
+    var m = /^(\d*)(?:\.(\d*))?$/.exec(String(s).trim());
+    if (!m || (!m[1] && !m[2])) return null;
+    var frac = (m[2] || "").slice(0, dec).padEnd(dec, "0");
+    return BigInt(m[1] || "0") * 10n ** BigInt(dec) + BigInt(frac || "0");
+  };
+  var amt = function (v, dec) {
+    v = BigInt(v);
+    var b = 10n ** BigInt(dec);
+    var w = v / b;
+    var f = dec > 0 ? (v % b).toString().padStart(dec, "0").slice(0, 6).replace(/0+$/, "") : "";
+    if (v > 0n && w === 0n && f === "") return "<0.000001";
+    return w.toString() + (f ? "." + f : "");
+  };
+
+  /*  Text to calldata bytes and back, without TextEncoder — the console is
+      deliberately old-fashioned, and the escape/encodeURIComponent pair is
+      the UTF-8 codec every browser has carried since before it had one. */
+  var utf8hex = function (s) {
+    var raw = unescape(encodeURIComponent(s)), out = "";
+    for (var i = 0; i < raw.length; i++) out += ("0" + raw.charCodeAt(i).toString(16)).slice(-2);
+    return out;
+  };
+  var deHex = function (hex) {
+    if (!hex || hex.length % 2) return null;
+    try {
+      return decodeURIComponent(hex.replace(/../g, function (b) { return "%" + b; }));
+    } catch (e) {
+      /*  Not UTF-8. That is a fact about the bytes, not an error to hide. */
+      return null;
+    }
+  };
+
   function provider() { return window.ethereum || null; }
 
   function call(to, data) {
@@ -367,24 +404,394 @@
   /* 3 · TRADE THROUGH IT */
   LANE[3] = function (h) {
     /*  The contract already rendered the market's state above; what is
-        missing is the acts. Bit 1 is the pool, and a clear bit means the
+        added is the acts. Bit 1 is the pool, and a clear bit means the
         pool did not answer rather than that there is no market.        */
-    if (!(C.reported & 2)) {
+    if (!(C.reported & 2) || !C.pool || !C.mkt) {
       note(h, "No market contract answered on this chain. That is not the same as this " +
               "token having no market, and the console will not print one as the other.");
       return;
     }
-    unbuilt(h, "Opening a market, setting its fee, bonding its inventory and syncing " +
-               "the curve are not built into the console yet. The state above is read " +
-               "from the chain this block.");
+    var m = C.mkt;
+
+    /*── the two coins, resolved once each ──*/
+    /*  `dec: null` means the coin's own decimals() did not answer, and it
+        stays null: every amount for that coin then refuses rather than
+        guesses, because an amount scaled by an assumed exponent is wrong
+        by factors of ten. The symbol is cosmetic and may fall back to the
+        short address; the exponent is custody and may not.             */
+    var COINS = {};
+    function coinOf(a) {
+      if (COINS[a]) return COINS[a];
+      var c = { addr: a, sym: short(a), dec: null };
+      COINS[a] = c;
+      call(a, C.sel.symbol).then(function (r) {
+        var s = decodeSym(r);
+        if (s) c.sym = s;
+      }).catch(function () {});
+      call(a, C.sel.decimals).then(function (r) {
+        if (r && r !== "0x") c.dec = Number(BigInt(r));
+      }).catch(function () {});
+      return c;
+    }
+    function decodeSym(r) {
+      if (!r || r === "0x") return null;
+      var d = r.slice(2), hx;
+      if (d.length === 64) {
+        hx = d.replace(/(00)+$/, "");           // bytes32, the old dialect
+      } else if (d.length >= 192) {
+        var len = parseInt(d.substr(64, 64), 16);
+        if (!len || len > 32) return null;
+        hx = d.substr(128, len * 2);
+      } else return null;
+      var s = deHex(hx);
+      /*  Printable ASCII, twelve characters, or the address stands in. A
+          chain string reaches this DOM through textContent only, and a
+          symbol longer than a word is somebody being clever.           */
+      return s && /^[\x20-\x7e]{1,12}$/.test(s) ? s : null;
+    }
+    function parseAmt(c, v, label) {
+      if (!String(v).trim()) return 0n;
+      if (c.dec == null) {
+        say("The decimals of " + c.sym + " did not answer, and the console will not " +
+            "guess where the point goes.", "err");
+        return null;
+      }
+      var a = units(v, c.dec);
+      if (a == null) { say(label + " is not a number.", "err"); return null; }
+      return a;
+    }
+
+    /*  §D.3 #24: the approval is the button's CURRENT STEP, never a
+        separate control — press once, sign the approval; press the same
+        button again, sign the act. And always the exact amount, never
+        unlimited: an allowance that outlives its swap is a standing order
+        nobody remembers signing.                                       */
+    function stepThenPropose(steps, fin) {
+      var i = 0;
+      var next = function () {
+        while (i < steps.length && steps[i].need === 0n) i++;
+        if (i >= steps.length) return fin();
+        var s = steps[i];
+        call(s.coin.addr, C.sel.allowance + enc.addr(C.account) + enc.addr(C.pool))
+          .then(function (r) {
+            var have = r && r !== "0x" ? BigInt(r) : 0n;
+            if (have >= s.need) { i++; return next(); }
+            propose("APPROVE — THE CURRENT STEP", [
+              ["Lets", "the market pull exactly " + amt(s.need, s.coin.dec) + " " + s.coin.sym],
+              ["Never", "unlimited"],
+              ["Then", "press the same button again"]
+            ], { to: s.coin.addr, data: C.sel.approve + enc.addr(C.pool) + enc.uint(s.need) },
+              "approve(address,uint256)");
+          })
+          .catch(function () { say("The allowance did not answer.", "err"); });
+      };
+      next();
+    }
+
+    /*── closed: the exchange does not exist yet ──*/
+    if (!m.open) {
+      h.appendChild(el("div", "k", "ITS OWN EXCHANGE"));
+      note(h, "This token has no market open. Its holder can open one: the pool prices " +
+              "it from the artwork's own orientation, and the fee is paid to whoever " +
+              "holds the token.");
+      if (!onlyHolder(h)) return;
+      var oB = field(h, "BASE COIN", "0x…");
+      var oQ = field(h, "QUOTE COIN", "0x…");
+      var oF = field(h, "FEE, IN BPS", "30");
+      button(h, "Review the opening", false, function () {
+        var b = String(oB.value).trim(), q = String(oQ.value).trim();
+        if (!/^0x[0-9a-fA-F]{40}$/.test(b) || !/^0x[0-9a-fA-F]{40}$/.test(q))
+          return say("Two coin addresses.", "err");
+        if (b.toLowerCase() === q.toLowerCase()) return say("Two DIFFERENT coins.", "err");
+        var f = Number(oF.value);
+        if (!(f >= 0) || f !== Math.floor(f)) return say("The fee, in whole bps.", "err");
+        propose("OPEN ITS MARKET", [
+          ["Token", "#" + C.id],
+          ["Base", short(b)],
+          ["Quote", short(q)],
+          ["Fee", f + " bps, paid to whoever holds the token"],
+          ["Priced by", "the artwork's own orientation"]
+        ], { to: C.pool, data: C.sel.open + enc.uint(C.id) + enc.addr(b) + enc.addr(q) + enc.uint(f) },
+          "openMarket(uint256,address,address,uint16)");
+      });
+      note(h, "Where the collection keeps a blessed pair list, the chain refuses a pair " +
+              "off it — the control is shown and the chain decides, which is this " +
+              "console's rule for every control.");
+      return;
+    }
+
+    /*── open: the swap, for anyone with a wallet ──*/
+    var B = coinOf(m.base), Q = coinOf(m.quote);
+    h.appendChild(el("div", "k", "ITS OWN EXCHANGE"));
+    note(h, "Swapping needs no permission from the holder — the fee above is what " +
+            "they earn from you. The price is quoted first and the swap refuses to " +
+            "settle below what the slab states.");
+    if (!C.account) {
+      note(h, "Connect a wallet to trade.");
+    } else {
+      var baseIn = false;
+      var dirRow = el("div", "kv");
+      dirRow.appendChild(el("span", "k", "DIRECTION"));
+      var buyB = el("button", "chip", "buy"), sellB = el("button", "chip", "sell");
+      buyB.type = sellB.type = "button";
+      var paintDir = function () {
+        buyB.style.opacity = baseIn ? ".5" : "1";
+        sellB.style.opacity = baseIn ? "1" : ".5";
+        buyB.textContent = "buy " + B.sym;
+        sellB.textContent = "sell " + B.sym;
+      };
+      buyB.addEventListener("click", function () { baseIn = false; paintDir(); });
+      sellB.addEventListener("click", function () { baseIn = true; paintDir(); });
+      dirRow.appendChild(buyB); dirRow.appendChild(sellB);
+      h.appendChild(dirRow);
+      setTimeout(paintDir, 800);   // after the symbols have had a chance to answer
+      paintDir();
+
+      var sAmt = field(h, "AMOUNT IN", "0.0");
+      button(h, "Review the swap", false, function () {
+        var IN = baseIn ? B : Q, OUT = baseIn ? Q : B;
+        var a = parseAmt(IN, sAmt.value, "The amount");
+        if (a == null) return;
+        if (a === 0n) return say("An amount of " + IN.sym + ".", "err");
+        stepThenPropose([{ coin: IN, need: a }], function () {
+          /*  Quoted at review time, every time — a price read when the lane
+              opened is a price from another block.                       */
+          call(C.pool, C.sel.quote + enc.uint(C.id) + enc.uint(baseIn ? 1 : 0) + enc.uint(a))
+            .then(function (r) {
+              if (!r || r === "0x") return say("The market would not price it.", "err");
+              var out = BigInt(r);
+              if (out === 0n) return say("That amount prices at zero — nothing to swap.", "err");
+              /*  Half a percent below the quote, stated in the slab, and the
+                  contract refuses beneath it. Fifteen minutes and the intent
+                  dies: both are front-running defenses, not conveniences. */
+              var minOut = out - out * 50n / 10000n;
+              var dl = BigInt(Math.floor(Date.now() / 1000) + 900);
+              var outWords = OUT.dec == null ? out.toString() + " units" : amt(out, OUT.dec) + " " + OUT.sym;
+              var minWords = OUT.dec == null ? minOut.toString() + " units" : amt(minOut, OUT.dec) + " " + OUT.sym;
+              propose("SWAP THROUGH ITS MARKET", [
+                ["Token", "#" + C.id],
+                ["In", amt(a, IN.dec) + " " + IN.sym],
+                ["Out", "about " + outWords],
+                ["No less than", minWords + " — or nothing moves"],
+                ["Dies", "in fifteen minutes"]
+              ], { to: C.pool, data: C.sel.swap + enc.uint(C.id) + enc.uint(baseIn ? 1 : 0) +
+                   enc.uint(a) + enc.uint(minOut) + enc.addr(C.account) + enc.uint(dl) },
+                "swap(uint256,bool,uint256,uint256,address,uint256)");
+            })
+            .catch(function () { say("The market would not price it.", "err"); });
+        });
+      });
+    }
+
+    /*── the holder's half ──*/
+    if (mine()) {
+      h.appendChild(el("hr"));
+      h.appendChild(el("div", "k", "INVENTORY"));
+      note(h, "You are the only maker this market will ever have. What you deposit is " +
+              "what it trades; what you withdraw is yours again — unless the bond " +
+              "below says otherwise.");
+      var dB = field(h, "DEPOSIT " + (B.sym || "BASE"), "0.0");
+      var dQ = field(h, "AND " + (Q.sym || "QUOTE"), "0.0");
+      button(h, "Review the deposit", false, function () {
+        var ab = parseAmt(B, dB.value, "The base amount");
+        if (ab == null) return;
+        var aq = parseAmt(Q, dQ.value, "The quote amount");
+        if (aq == null) return;
+        if (ab === 0n && aq === 0n) return say("An amount of either coin.", "err");
+        stepThenPropose([{ coin: B, need: ab }, { coin: Q, need: aq }], function () {
+          propose("DEPOSIT INVENTORY", [
+            ["Token", "#" + C.id],
+            [B.sym, amt(ab, B.dec == null ? 0 : B.dec)],
+            [Q.sym, amt(aq, Q.dec == null ? 0 : Q.dec)],
+            ["Counted as", "what actually arrives, not what was sent"]
+          ], { to: C.pool, data: C.sel.deposit + enc.uint(C.id) + enc.uint(ab) + enc.uint(aq) },
+            "deposit(uint256,uint256,uint256)");
+        });
+      });
+
+      var wB = field(h, "WITHDRAW " + (B.sym || "BASE"), "0.0");
+      var wQ = field(h, "AND " + (Q.sym || "QUOTE"), "0.0");
+      button(h, "Review the withdrawal", true, function () {
+        var ab = parseAmt(B, wB.value, "The base amount");
+        if (ab == null) return;
+        var aq = parseAmt(Q, wQ.value, "The quote amount");
+        if (aq == null) return;
+        if (ab === 0n && aq === 0n) return say("An amount of either coin.", "err");
+        propose("WITHDRAW INVENTORY", [
+          ["Token", "#" + C.id],
+          [B.sym, amt(ab, B.dec == null ? 0 : B.dec)],
+          [Q.sym, amt(aq, Q.dec == null ? 0 : Q.dec)],
+          ["To", short(C.account)],
+          ["Refused while", "the bond below stands"]
+        ], { to: C.pool, data: C.sel.withdraw + enc.uint(C.id) + enc.uint(ab) + enc.uint(aq) +
+             enc.addr(C.account) },
+          "withdraw(uint256,uint256,uint256,address)");
+      });
+
+      h.appendChild(el("hr"));
+      h.appendChild(el("div", "k", "THE FEE"));
+      kv(h, "Now", m.fee + " bps, to whoever holds the token");
+      var fIn = field(h, "SET IT TO, IN BPS", String(m.fee));
+      button(h, "Review the fee", true, function () {
+        var f = Number(fIn.value);
+        if (!(f >= 0) || f !== Math.floor(f)) return say("Whole bps.", "err");
+        propose("SET THE FEE", [
+          ["Token", "#" + C.id],
+          ["From", m.fee + " bps"], ["To", f + " bps"],
+          ["Refused while", "the bond stands — a bonded market's terms are promised"]
+        ], { to: C.pool, data: C.sel.setFee + enc.uint(C.id) + enc.uint(f) },
+          "setFee(uint256,uint16)");
+      });
+
+      h.appendChild(el("hr"));
+      h.appendChild(el("div", "k", "THE BOND"));
+      note(h, "A bond promises the inventory stays: no withdrawal, no fee change, no " +
+              "re-anchoring until it lapses. It only ever lengthens, and it survives " +
+              "sale — a promise you could shorten would not be one.");
+      var bDays = field(h, "BOND FOR HOW MANY DAYS", "7");
+      button(h, "Review the bond", true, function () {
+        var d = Number(bDays.value);
+        if (!d || d < 0 || d !== Math.floor(d)) return say("Days, as a whole number.", "err");
+        var untilTs = Math.floor(Date.now() / 1000) + d * 86400;
+        propose("BOND THE INVENTORY", [
+          ["Token", "#" + C.id],
+          ["For", d + (d === 1 ? " day" : " days")],
+          ["Reversible", "no — a bond only lengthens, and it survives sale"]
+        ], { to: C.pool, data: C.sel.bond + enc.uint(C.id) + enc.uint(untilTs) },
+          "bond(uint256,uint64)");
+      });
+
+      h.appendChild(el("hr"));
+      h.appendChild(el("div", "k", "THE CURVE"));
+      /*  The one place the artwork feeds the economics. The anchors move
+          here and at deposit/withdraw/open — never in a swap — so
+          turning the word and then syncing is the holder repricing on
+          purpose, in a transaction with their name on it.               */
+      var dr = kv(h, "Against the artwork", "reading…");
+      call(C.pool, C.sel.drift + enc.uint(C.id)).then(function (r) {
+        if (!r || r.length < 194) { dr.lastChild.textContent = "not reported"; return; }
+        var drifted = BigInt("0x" + r.slice(2, 66)) !== 0n;
+        var nowB = BigInt("0x" + r.slice(66, 130));
+        var would = BigInt("0x" + r.slice(130, 194));
+        dr.lastChild.textContent = drifted
+          ? "the artwork has turned — anchored at " + nowB + " bps, it implies " + would + " bps"
+          : "in agreement";
+      }).catch(function () { dr.lastChild.textContent = "not reported"; });
+      button(h, "Re-anchor to the artwork", true, function () {
+        propose("SYNC THE CURVE", [
+          ["Token", "#" + C.id],
+          ["Reads", "the orientation word, this block"],
+          ["This is", "the only place the artwork moves the price"]
+        ], { to: C.pool, data: C.sel.sync + enc.uint(C.id) }, "syncCurve(uint256)");
+      });
+
+      h.appendChild(el("hr"));
+      h.appendChild(el("div", "k", "CLOSE IT"));
+      button(h, "Review the closing", true, function () {
+        propose("CLOSE ITS MARKET", [
+          ["Token", "#" + C.id],
+          ["Refused unless", "the inventory is empty and the bond has lapsed"]
+        ], { to: C.pool, data: C.sel.close + enc.uint(C.id) }, "closeMarket(uint256)");
+      });
+    }
+
+    /*  The OTHER trading surface, pointed at rather than absorbed: who is
+        paid the fee must stay loud, and on /swap it is a public pool's
+        LPs, not this token's holder.                                    */
+    var sw = el("p", "s");
+    var swA = el("a", "g", "trading on public pools is its own surface — /swap");
+    swA.href = "/swap";
+    sw.appendChild(swA);
+    h.appendChild(sw);
   };
 
-  /* 4 · HAND IT ON */
+  /* 4 · HAND IT ON — the sections run shallow to deep, and that ordering
+     is the warning: everything above the last heading ends by itself or
+     can be taken back, and nothing below it can.                        */
   LANE[4] = function (h) {
-    if (!onlyHolder(h)) return;
+    var can = mine();
+
+    /*── FOR AN AFTERNOON ──*/
+    h.appendChild(el("div", "k", "FOR AN AFTERNOON"));
+    var nowS = Math.floor(Date.now() / 1000);
+    var lent = !!(C.user && !/^0x0{40}$/i.test(C.user) && Number(C.userX || 0) > nowS);
+    if (!(C.reported & 16)) {
+      /*  The bit, not the address: a hub that did not answer userOf is not
+          a token nobody borrows.                                        */
+      note(h, "Whether it is lent out was not reported.");
+    } else if (lent) {
+      var ld = Math.floor((Number(C.userX) - nowS) / 86400);
+      kv(h, "Lent to", short(C.user) + (ld < 1 ? ", until today"
+        : ld === 1 ? ", for one more day" : ", for " + ld + " more days"));
+    } else {
+      note(h, "Nobody borrows it right now. Lending is free and ends by itself: the " +
+              "borrower runs the instrument, and cannot move the token, spend from " +
+              "its hands, or speak as it.");
+    }
+    if (can) {
+      var uAddr = field(h, "LEND IT TO", "0x…");
+      var uDays = field(h, "FOR HOW MANY DAYS", "1");
+      button(h, "Review the loan", false, function () {
+        var a = String(uAddr.value).trim();
+        if (!/^0x[0-9a-fA-F]{40}$/.test(a)) return say("That is not an address.", "err");
+        var d = Number(uDays.value);
+        if (!d || d < 0 || d !== Math.floor(d)) return say("Days, as a whole number.", "err");
+        var x = Math.floor(Date.now() / 1000) + d * 86400;
+        propose("LEND IT, FREE", [
+          ["Token", "#" + C.id],
+          ["To", short(a)],
+          ["For", d + (d === 1 ? " day" : " days")],
+          ["Ends", "by itself — nothing to take back"]
+        ], { to: C.hub, data: C.sel.setUser + enc.uint(C.id) + enc.addr(a) + enc.uint(x) },
+          "setUser(uint256,address,uint64)");
+      });
+      if (lent) button(h, "Take it back now", true, function () {
+        propose("END THE LOAN NOW", [
+          ["Token", "#" + C.id],
+          ["Was lent to", short(C.user)]
+        ], { to: C.hub, data: C.sel.setUser + enc.uint(C.id) +
+             enc.addr("0x0000000000000000000000000000000000000000") + enc.uint(0) },
+          "setUser(uint256,address,uint64)");
+      });
+    }
+
+    /*  A session key is the lend built for a program: bounded in time,
+        spend and doors. Granting stays at /keys and the key's own door is
+        /k — a key's holder is not the token's holder, so their surface is
+        their own.                                                       */
+    var links = el("p", "s");
+    var a1 = el("a", "g", "grant a bounded key at /keys");
+    a1.href = "/keys";
+    var a2 = el("a", "g", "a granted key's own door is /k/" + C.id + "/‹key›");
+    a2.href = "/k/" + C.id + "/" + (C.account || "0x0000000000000000000000000000000000000000");
+    links.appendChild(a1);
+    links.appendChild(document.createTextNode(" · "));
+    links.appendChild(a2);
+    h.appendChild(links);
+
+    /*── FOR A SEASON · FOR A PRICE ──*/
+    h.appendChild(el("hr"));
+    h.appendChild(el("div", "k", "FOR A SEASON"));
+    unbuilt(h, "The lease — listing, renting, collecting, settling — is not built into " +
+               "the console yet. Its state above was read from the chain this block.");
+    h.appendChild(el("div", "k", "FOR A PRICE"));
+    unbuilt(h, "Consignment and inheritance are not built into the console yet.");
+
+    /*── FOR GOOD ──*/
+    h.appendChild(el("hr"));
     h.appendChild(el("div", "k", "FOR GOOD"));
-    note(h, "A transfer ends everything the token was doing under you — a lease, a " +
-            "session key, a consignment. It is the only one of the four that cannot be undone.");
+    /*  The bolt's state is readable by anyone; only the acts are gated. */
+    var bolt = kv(h, "The bolt", "reading…");
+    call(C.hub, C.sel.locked + enc.uint(C.id)).then(function (r) {
+      if (!r || r === "0x") { bolt.lastChild.textContent = "not reported"; return; }
+      bolt.lastChild.textContent = BigInt(r) === 0n
+        ? "open — it can move" : "shut — nothing can move it";
+    }).catch(function () { bolt.lastChild.textContent = "not reported"; });
+
+    if (!onlyHolder(h)) return;
+    note(h, "A transfer ends everything the token was doing under you — a loan, a " +
+            "lease, a session key, a consignment. It is the only act in this lane " +
+            "that cannot be undone.");
     var to = field(h, "SEND IT TO", "0x…");
     button(h, "Review the transfer", false, function () {
       var a = String(to.value).trim();
@@ -395,32 +802,169 @@
         ["From", short(C.owner)],
         ["To", short(a)],
         ["Reversible", "no"]
-      ], { to: C.hub, data: C.sel.xfer + enc.addr(C.owner) + enc.addr(a) + enc.uint(C.id) });
+      ], { to: C.hub, data: C.sel.xfer + enc.addr(C.owner) + enc.addr(a) + enc.uint(C.id) },
+        "transferFrom(address,address,uint256)");
     });
-    unbuilt(h, "For an afternoon, for a season and for a price — session keys, the " +
-               "lease and consignment — are not built into the console yet.");
 
-    /*  The one the console will never build, pointed at instead: a session
-        key's holder is not the token's holder and does not arrive from an
-        instrument, so their door is their own — /k/<id>/<key> shows what a
-        granted key may do and builds its one act. Granting still happens
-        at /keys, as the holder.                                          */
-    var links = el("p", "s");
-    var a1 = el("a", "g", "grant a bounded key at /keys");
-    a1.href = "/keys";
-    var a2 = el("a", "g", "a granted key's own door is /k/" + C.id + "/‹key›");
-    a2.href = "/k/" + C.id + "/" + (C.account || "0x0000000000000000000000000000000000000000");
-    links.appendChild(a1);
-    links.appendChild(document.createTextNode(" · "));
-    links.appendChild(a2);
-    h.appendChild(links);
+    /*  §D.4 #5: the bolt lives under FOR GOOD because it is the refusal to
+        hand on — while it is shut nothing, not a sale, not a market, not a
+        mistake in another tab, can move the token. The holder can always
+        unbolt; the wrong button is refused by the chain, not hidden.    */
+    h.appendChild(el("div", "k", "BOLT IT SHUT"));
+    button(h, "Bolt it shut", true, function () {
+      propose("BOLT IT SHUT", [
+        ["Token", "#" + C.id],
+        ["While shut", "nothing can move it, including you"],
+        ["Undone by", "you, at any time"]
+      ], { to: C.hub, data: C.sel.lock + enc.uint(C.id) }, "lock(uint256)");
+    });
+    button(h, "Unbolt it", true, function () {
+      propose("UNBOLT IT", [["Token", "#" + C.id]],
+        { to: C.hub, data: C.sel.unlock + enc.uint(C.id) }, "unlock(uint256)");
+    });
   };
 
   /* 5 · SPEAK AS IT */
   LANE[5] = function (h) {
-    unbuilt(h, "The commons, whispers, rooms and signatures are not built into the " +
-               "console yet. They are live at the collection's own contracts and the " +
-               "console does not pretend otherwise.");
+    if (!C.parley || !C.said) {
+      note(h, "No Parley contract answered on this chain. That is not the same as this " +
+              "token having nothing to say, and the console will not print one as the other.");
+      return;
+    }
+
+    /*  The sentence CONSOLE.md §D.5 requires this lane to open with,
+        because this is the one lane with a past and the past needs its
+        justification stated where it is shown.                          */
+    note(h, "Everything said in the commons is here, exactly and completely, because " +
+            "every message points at the block of the one before it. Nothing else in " +
+            "this console shows a past, because nothing else can prove one.");
+
+    h.appendChild(el("div", "k", "THE COMMONS"));
+    var feed = el("div");
+    feed.style.marginTop = "8px";
+    h.appendChild(feed);
+    var status = note(h, "reading…");
+
+    /*  The walk. One `stateOf` for the newest block, then one SINGLE-BLOCK
+        eth_getLogs per message-bearing block, each hop taken from the
+        oldest message's `prev` pointer. No ranges, no indexer, no cache:
+        the archive's own back-links are the pagination. Twelve blocks of
+        talk, then the count of what lies deeper.                        */
+    function row(from, text, muted) {
+      var d = el("div", "kv");
+      d.appendChild(el("span", "k", "#" + from));
+      var v = el("span", "v", text);
+      if (muted) v.style.opacity = ".55";
+      d.appendChild(v);
+      feed.appendChild(d);
+    }
+    function said(log) {
+      var d = log.data.slice(2);
+      var prev = BigInt("0x" + d.substr(0, 64));
+      var kind = parseInt(d.substr(64 * 3, 64), 16);
+      var off = parseInt(d.substr(64 * 4, 64), 16) * 2;
+      var len = parseInt(d.substr(off, 64), 16);
+      var from = BigInt(log.topics[2]).toString();
+      var text;
+      if (kind === 1) {
+        text = "— a sealed message —";
+      } else {
+        text = deHex(d.substr(off + 64, len * 2));
+        if (text == null) text = "— not text —";
+      }
+      return { prev: prev, from: from, text: text, muted: kind === 1 || text.charAt(0) === "—" };
+    }
+    function walk() {
+      var p = provider();
+      call(C.parley, C.sel.state + enc.uint(0)).then(function (r) {
+        if (!r || r.length < 130) { status.textContent = "The commons did not answer."; return; }
+        var last = BigInt("0x" + r.slice(2, 66));
+        var count = BigInt("0x" + r.slice(66, 130));
+        if (last === 0n) {
+          status.textContent = "Nothing has ever been said in the commons on this chain.";
+          return;
+        }
+        var shown = 0, hops = 0;
+        var step = function (blk) {
+          if (blk === 0n) {
+            status.textContent = "All " + count + (count === 1n ? " message." : " messages.");
+            return;
+          }
+          if (hops >= 12) {
+            status.textContent = "…and older messages, back past block " + blk + ". " +
+                                 count + " ever said here.";
+            return;
+          }
+          hops += 1;
+          p.request({ method: "eth_getLogs", params: [{
+            address: C.parley,
+            fromBlock: "0x" + blk.toString(16),
+            toBlock: "0x" + blk.toString(16),
+            topics: [C.said, "0x" + "0".repeat(64)]
+          }] }).then(function (logs) {
+            if (!logs || !logs.length) {
+              status.textContent = "The chain would not answer for block " + blk.toString() + ".";
+              return;
+            }
+            /*  Newest first on screen, so a block's logs render in reverse;
+                the pointer onward is the OLDEST message's prev — messages
+                that share a block point within it, and only the first one
+                points out of it.                                        */
+            for (var i = logs.length - 1; i >= 0; i--) {
+              var s = said(logs[i]);
+              row(s.from, s.text, s.muted);
+              shown += 1;
+            }
+            step(said(logs[0]).prev);
+          }).catch(function () {
+            status.textContent = "The wallet's node refused eth_getLogs — the walk cannot start.";
+          });
+        };
+        step(last);
+      }).catch(function () { status.textContent = "The commons did not answer."; });
+    }
+    if (!provider()) {
+      status.textContent = "Reading the commons needs a wallet's node — connect one and " +
+                           "the walk starts from the newest block.";
+    } else {
+      walk();
+    }
+
+    /*── the composer ──*/
+    if (mine()) {
+      h.appendChild(el("hr"));
+      h.appendChild(el("div", "k", "SAY SOMETHING"));
+      var msg = field(h, "AS #" + C.id, "a log, forever, readable by anyone");
+      button(h, "Review the message", false, function () {
+        var s = String(msg.value);
+        if (!s.trim()) return say("Something to say.", "err");
+        var hx = utf8hex(s);
+        var bytes = hx.length / 2;
+        if (bytes > 1024) {
+          return say("The commons takes 1024 bytes and that is " + bytes +
+                     ". Say it in two.", "err");
+        }
+        var padded = hx + "0".repeat((64 - (hx.length % 64)) % 64);
+        propose("SPEAK AS IT", [
+          ["Room", "the commons — every token reads it, forever"],
+          ["Token", "#" + C.id],
+          ["Says", s.length > 70 ? s.slice(0, 70) + "…" : s]
+        ], { to: C.parley, data: C.sel.speak + enc.uint(0) + enc.uint(C.id) + enc.uint(0) +
+             enc.uint(128) + enc.uint(bytes) + padded },
+          "speak(uint256,uint256,uint8,bytes)");
+      });
+      note(h, "Deleting is not offered because it is not possible: a message is a log, " +
+              "and the chain keeps those.");
+    } else {
+      note(h, C.account
+        ? "Only the holder — or the token's own Reach — may speak as it. A renter " +
+          "buys the instrument's use, not its name."
+        : "Connect the holding wallet to speak as it.");
+    }
+
+    unbuilt(h, "Whispers, rooms and what it signs are not built into the console yet. " +
+               "They are live at the collection's own contracts and the console does " +
+               "not pretend otherwise.");
   };
 
   /* 6 · MAKE SOMETHING WITH IT */
