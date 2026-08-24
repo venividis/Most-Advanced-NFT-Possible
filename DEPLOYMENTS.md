@@ -10,16 +10,16 @@ rewrites its own past cannot be used to tell when something broke.
 ### Base Sepolia · chain 84532
 
 ```
-Premises     0xd4e64108b923f2eb845c05e65610a9520e6b26ee   (the redesign, 2026-08-23)
+Premises     0xc64dff66cb3eb2a6afb6ff72a207f43addd33b95   (the lanes filled, 2026-08-24)
 Ipseity      0x36c49f58c6437ee994766ce80f6654c4d797b8db
 Pool         0x8b699b46edb8e8bd156347d73c8eaa2a0abe80f4
 Engine       0x3f3e39a630376301575afbf90b3af2a3eb003636   (frozen)
 ```
 
 ```
-https://0xd4e64108b923f2eb845c05e65610a9520e6b26ee.basesep.w3link.io/
-https://0xd4e64108b923f2eb845c05e65610a9520e6b26ee.basesep.w3link.io/token/2/live
-web3://0xd4e64108b923f2eb845c05e65610a9520e6b26ee:84532/
+https://0xc64dff66cb3eb2a6afb6ff72a207f43addd33b95.basesep.w3link.io/
+https://0xc64dff66cb3eb2a6afb6ff72a207f43addd33b95.basesep.w3link.io/token/2/live
+web3://0xc64dff66cb3eb2a6afb6ff72a207f43addd33b95:84532/
 ```
 
 ### Ethereum Sepolia · chain 11155111
@@ -664,3 +664,37 @@ serving its first actor.
 Ethereum Sepolia's redeploy waits on gas: at 0.96 gwei the run needs
 roughly 0.10–0.14 ETH and the deploy key holds 0.017. It ships the same
 way the moment the key is topped up.
+
+### The lanes fill, and the console is redeployed full — 2026-08-24
+
+The second console tranche — TRADE's maker bench and quote-first swap,
+HAND's ascending-finality sections with the free loan and the bolt,
+SPEAK's commons composer and back-pointer walk — shipped to Base Sepolia
+the same way: `tools/redeploy-site.mjs`, keeping the Parley and every
+message in it. The run cost about 0.0012 ETH.
+
+```
+Premises     0xc64dff66cb3eb2a6afb6ff72a207f43addd33b95   (live, 11 routes probed 200)
+Parley       0xaa8b3ff644638a29333953328fb877e8dd23e0f2   (unchanged, three messages deep)
+```
+
+Before the deploy, the full 26-step battery: forge 135/0, verify-site
+580/0, verify-console 87/0 (29 new assertions, the lanes driven in
+Chromium), every other suite green, agents.mjs holding all monitors for
+220 ticks. After it, verified live off the public RPC rather than
+assumed: `/c/3/speak` serves 84,944 bytes carrying the Parley address,
+the `Said` topic asked of `topics()`, and the selector table now served
+from `ConsoleRead.sels()`; and the SPEAK lane's exact query pattern —
+`stateOf(0)`, then one single-block `eth_getLogs` per `prev` hop —
+walked the live commons three hops to the first word ever said on the
+chain.
+
+One boundary, stated rather than blurred: the lane walks the LOCAL
+commons. Messages federated in from another chain arrive as the port's
+own `Echoed` logs — the port deliberately cannot write into Parley,
+because nothing may impersonate a local token — so foreign voices are a
+separate, walkable archive the console does not merge yet. `tools/
+port.mjs walk` reads that one.
+
+Ethereum Sepolia still waits on gas, unchanged: the funding watch checks
+hourly and ships this same code the moment the key holds enough.
