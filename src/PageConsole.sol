@@ -89,14 +89,19 @@ contract PageConsole {
         render time; it asks `topics()` once per document so the client can
         filter logs without shipping a hash function.                    */
     IParleyTopics public immutable PARLEY;
+    /*  The commons' LayerZero port — the second, federated archive. Zero on
+        a chain that does not federate, and that absence is a fact about
+        the chain, not a failure.                                        */
+    address public immutable PORT;
 
     constructor(IHub hub, ConsoleRead read_, ConsoleSkin skin, ConsoleSkin core,
-                IParleyTopics parley) {
+                IParleyTopics parley, address port) {
         HUB = hub;
         READ = read_;
         SKIN = skin;
         CORE = core;
         PARLEY = parley;
+        PORT = port;
     }
 
     /*═══════════════════ the seven ═══════════════════*/
@@ -431,6 +436,7 @@ contract PageConsole {
             ",verb:", uint256(verb).str(),
             _seedTrade(c),
             _seedTalk(),
+            _seedPort(),
             _sels()
         );
     }
@@ -496,6 +502,34 @@ contract PageConsole {
         keccak.                                                          */
     function _sels() private view returns (string memory) {
         return READ.sels();
+    }
+
+    /*  The federated half of the archive. The port cannot be asked for its
+        topic the way Parley is asked `topics()`: it is sealed at its
+        nonce-0 CREATE address on every chain — redeploying it to add a
+        view would break same-address-everywhere — so the event signature
+        is spelled HERE, once, and `verify-console` holds this string equal
+        to the `Echoed` event the compiled port actually declares. The eid
+        names ride along because the client labels every foreign voice
+        with the chain it came from, and a bare number is a label only an
+        engineer can read; the map is held in lockstep with `LAYERZERO` /
+        `LAYERZERO_TESTNETS` in tools/site.mjs by the same verifier.     */
+    function _seedPort() private view returns (string memory) {
+        address p = PORT;
+        if (p == address(0) || p.code.length == 0) return "";
+        return string.concat(
+            ",port:\"", LibNum.hexAddr(p),
+            "\",echoed:\"",
+            _hex32(keccak256("Echoed(uint32,uint256,uint64,uint64,uint8,bytes)")),
+            "\",eids:", _eidNames()
+        );
+    }
+
+    function _eidNames() private pure returns (string memory) {
+        return "{\"30101\":\"Ethereum\",\"30111\":\"Optimism\",\"30102\":\"BNB\","
+               "\"30320\":\"Unichain\",\"30416\":\"Robinhood\",\"30184\":\"Base\","
+               "\"30110\":\"Arbitrum\",\"40161\":\"Ethereum Sepolia\","
+               "\"40245\":\"Base Sepolia\",\"40451\":\"Robinhood Testnet\"}";
     }
 
     /*  A full word, for the one thing in the seed that is 32 bytes: the

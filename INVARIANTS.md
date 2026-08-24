@@ -1130,6 +1130,21 @@ or shut.
   and its self-ending"*, *"the bolt's unanswered state is not
   reported, never open or shut"*
 
+**156. Foreign voices are labeled and never mixed.** The SPEAK lane
+walks the port's `Echoed` archive under its own heading, each message
+named by its origin chain, and no federated message ever renders in
+the local column — the port cannot impersonate a local token on chain,
+and the console preserves that boundary in the rendering. The seed's
+`Echoed` topic is held equal to the event the compiled port declares
+(the port's address is sealed, so it cannot be asked the way Parley
+is), and the eid-name map is held in lockstep with the deployment
+tool's own chain tables.
+→ `tools/verify-console.mjs` · *"a foreign voice is labeled by the
+  chain it came from"*, *"and the foreign voice never leaked into the
+  local column"*, *"the seed's Echoed topic is the hash of the event
+  the port declares"*, *"every chain the tools name is named the same
+  in the seed's eid map"*
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue

@@ -930,6 +930,94 @@
       walk();
     }
 
+    /*── heard from other chains ──*/
+    /*  The second archive, kept visibly second. The port deliberately
+        cannot write into Parley — nothing may impersonate a local token —
+        so a foreign voice arrives as the port's own `Echoed` log, walked
+        here by the same single-block step, labeled by the chain it came
+        from, and never mixed into the local column above.               */
+    h.appendChild(el("hr"));
+    h.appendChild(el("div", "k", "HEARD FROM OTHER CHAINS"));
+    if (!C.port || !C.echoed) {
+      note(h, "No port is wired on this chain, so other chains' commons do not " +
+              "arrive here. The local commons above is the whole of what this " +
+              "chain can hear.");
+    } else {
+      var ffeed = el("div");
+      ffeed.style.marginTop = "8px";
+      h.appendChild(ffeed);
+      var fstatus = note(h, "reading…");
+      var eidName = function (n) {
+        return (C.eids && C.eids[String(n)]) ? C.eids[String(n)] : "eid " + n;
+      };
+      var frow = function (from, origin, text, muted) {
+        var d = el("div", "kv");
+        d.appendChild(el("span", "k", "#" + from + " · " + origin));
+        var v = el("span", "v", text);
+        if (muted) v.style.opacity = ".55";
+        d.appendChild(v);
+        ffeed.appendChild(d);
+      };
+      var fwalk = function () {
+        call(C.port, C.sel.echoLast).then(function (r) {
+          if (!r || r === "0x") { fstatus.textContent = "The port did not answer."; return; }
+          var last = BigInt(r);
+          if (last === 0n) {
+            /*  A genuine zero from a live getter: the port stands and has
+                heard nothing. Different fact from the line above it.    */
+            fstatus.textContent = "Nothing has arrived from another chain yet.";
+            return;
+          }
+          var hops = 0;
+          var step = function (blk) {
+            if (blk === 0n) {
+              fstatus.textContent = "That is every foreign voice ever heard here.";
+              return;
+            }
+            if (hops >= 8) {
+              fstatus.textContent = "…and older arrivals, back past block " + blk + ".";
+              return;
+            }
+            hops += 1;
+            provider().request({ method: "eth_getLogs", params: [{
+              address: C.port,
+              fromBlock: "0x" + blk.toString(16),
+              toBlock: "0x" + blk.toString(16),
+              topics: [C.echoed]
+            }] }).then(function (logs) {
+              if (!logs || !logs.length) {
+                fstatus.textContent = "The chain would not answer for block " + blk.toString() + ".";
+                return;
+              }
+              /*  Echoed's head is one word shorter than Said's — no
+                  prevFrom, the origin rides in a topic — so kind sits at
+                  word 2 and the body offset at word 3.                  */
+              for (var i = logs.length - 1; i >= 0; i--) {
+                var d = logs[i].data.slice(2);
+                var kind = parseInt(d.substr(64 * 2, 64), 16);
+                var o = parseInt(d.substr(64 * 3, 64), 16) * 2;
+                var len = parseInt(d.substr(o, 64), 16);
+                var text = kind === 1 ? "— a sealed message —"
+                  : (deHex(d.substr(o + 64, len * 2)) || "— not text —");
+                frow(BigInt(logs[i].topics[2]).toString(),
+                     eidName(Number(BigInt(logs[i].topics[1]))),
+                     text, kind === 1 || text.charAt(0) === "—");
+              }
+              step(BigInt("0x" + logs[0].data.slice(2, 66)));
+            }).catch(function () {
+              fstatus.textContent = "The wallet's node refused eth_getLogs — the walk cannot start.";
+            });
+          };
+          step(last);
+        }).catch(function () { fstatus.textContent = "The port did not answer."; });
+      };
+      if (!provider()) {
+        fstatus.textContent = "Reading needs a wallet's node.";
+      } else {
+        fwalk();
+      }
+    }
+
     /*── the composer ──*/
     if (mine()) {
       h.appendChild(el("hr"));

@@ -519,6 +519,18 @@ Parley's address arrive in the seed — the topic asked of `topics()`
 at render time, never spelled twice. Whispers, rooms and signatures
 remain honest notes.*
 
+*And on 2026-08-24 the lane grew its second archive: HEARD FROM OTHER
+CHAINS walks the LayerZero port's `Echoed` logs by the same
+single-block step, each voice labeled by its origin chain's name and
+never mixed into the local column — the port deliberately cannot
+impersonate a local token, and the rendering preserves that boundary.
+The port cannot serve its topic the way Parley serves `topics()` (it
+is sealed at its nonce-0 address on every chain), so `PageConsole`
+spells the event signature once and `verify-console` holds it equal to
+the event the compiled port declares. A chain without a port says so;
+a port that has heard nothing says that instead; a port that did not
+answer says neither — three different facts, three sentences.*
+
 | # | action | where |
 |---|---|---|
 | 39 | `speak(0, from, kind, body)` | THE COMMONS — the log walked by `Parley`'s back-pointers, one single-block query per message |

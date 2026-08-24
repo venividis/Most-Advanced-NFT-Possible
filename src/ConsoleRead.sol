@@ -207,7 +207,7 @@ contract ConsoleRead {
     ///         act on Parley; the walk itself needs no selector because it
     ///         is logs, not calls.
     function sels() external pure returns (string memory out) {
-        string[54] memory t = [
+        string[58] memory t = [
             string("commit"), "commit(uint256,uint256)",
             "embody",     "embody(uint256)",
             "embodyGrip", "embodyGrip(uint256)",
@@ -234,10 +234,16 @@ contract ConsoleRead {
             "state",      "stateOf(uint256)",
             "balance",    "balanceOf(address)",
             "decimals",   "decimals()",
-            "symbol",     "symbol()"
+            "symbol",     "symbol()",
+            /*  The federated archive's two start-pointers, on ParleyPort:
+                the block of the newest foreign voice, and how many ever
+                arrived. The walk over `Echoed` needs no selector — it is
+                logs, not calls — but it has to start somewhere.         */
+            "echoLast",   "lastEcho()",
+            "echoes",     "echoCount()"
         ];
         out = ",sel:{";
-        for (uint256 i; i < 54; i += 2) {
+        for (uint256 i; i < 58; i += 2) {
             out = string.concat(out, i == 0 ? "" : ",", t[i], ":\"", _sel(t[i + 1]), "\"");
         }
         out = string.concat(out, "}");

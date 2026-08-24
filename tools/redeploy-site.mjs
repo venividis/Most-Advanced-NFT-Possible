@@ -34,12 +34,24 @@ const uni = UNISWAP[c.chainId];
 console.log(uni
   ? `  Uniswap v3 wiring for ${uni.name}: router ${uni.router}`
   : "  no Uniswap wiring known for this chain — the swap tab will say so");
+/*  The chain's LayerZero port, when one was deployed — its record lives
+    beside the site's, per chain. The console seeds it so the SPEAK lane
+    can walk the federated archive; a chain without a record simply does
+    not federate, and the console says so.                              */
+let port;
+try {
+  port = JSON.parse(fs.readFileSync(
+    path.join(ROOT, `deployments/port-${c.chainId}.json`), "utf8")).port;
+  console.log(`  the commons federates through port ${port}`);
+} catch { /* no port on this chain */ }
+
 const site = await deploySite(c, A, {
   hub: rec.contracts.ipseity,
   pool: rec.contracts.pool,
   lease: rec.contracts.lease,
   sigil: rec.contracts.sigil,
   parley: rec.contracts.parley,
+  ...(port ? { port } : {}),
   ...(uni ? { uniswap: uni } : {})
 });
 

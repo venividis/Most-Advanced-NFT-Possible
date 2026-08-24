@@ -498,7 +498,11 @@ export const EXPECTED = [
  * that keeps the routes serving the artwork off the mutable path.
  */
 export async function deploySite(c, A,
-    { hub, pool, lease, sigil, parley: existingParley, uniswap = NO_VENUE }) {
+    { hub, pool, lease, sigil, parley: existingParley, uniswap = NO_VENUE,
+      /*  The commons' LayerZero port, when this chain has one — the console
+          seeds it so the SPEAK lane can walk the federated archive. Zero
+          means the chain does not federate, which is a fact, not a gap. */
+      port = "0x" + "00".repeat(20) }) {
   const chrome = await c.deploy(A("src/Chrome.sol", "Chrome").bytecode, "", "Chrome");
 
   /*  Parley is the protocol, not a page: the rooms, the back-links that
@@ -758,7 +762,7 @@ export async function deploySite(c, A,
   const pConsole = await c.deploy(
     A("src/PageConsole.sol", "PageConsole").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(consoleRead) + encodeAddressArg(consoleSkin) +
-    encodeAddressArg(consoleCore) + encodeAddressArg(parley),
+    encodeAddressArg(consoleCore) + encodeAddressArg(parley) + encodeAddressArg(port),
     "PageConsole");
 
   /*  The granted key's own door — /k/<id>/<key>. Fixed-length deploy, so

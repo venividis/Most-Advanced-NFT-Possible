@@ -307,13 +307,17 @@ which was the entire claim under test.
   Sepolias carry a working federation as of 2026-08-22. No mainnet
   port exists, and the mainnet deployment decision — including whether
   to pin DVNs per lane — remains open, per below.
-- **The clients do not yet show echoes.** `Echoed` logs are walkable —
-  `port.mjs walk` does it — but `DeskTalk` and the console render only
-  the local archive. Showing foreign speech means handing the pages the
-  port's address, and pages are immutable constructor arguments: that
-  is a new `PageTalk` and a new `Premises`, the documented price of
-  changing the site. It should ride along with the next site redeploy
-  rather than force one.
+- **The clients do not yet show echoes** — *half closed, 2026-08-24,
+  riding a site redeploy exactly as prescribed below.* The console's
+  SPEAK lane now walks the `Echoed` archive: `PageConsole` takes the
+  port as a constructor argument, seeds its address, the event's topic
+  and an eid-name map, and the lane renders foreign voices under their
+  own heading, labeled by origin chain, never mixed into the local
+  column — the port cannot impersonate a local token and the console
+  does not pretend otherwise. `verify-console` pins the seeded topic to
+  the event the compiled port declares and drives the walk in Chromium.
+  `DeskTalk` (the /chat page) still renders only the local archive;
+  that remains.
 - **Pinning wants real DVN addresses.** The pin mechanism is built and
   tested; choosing the DVN set for each mainnet lane (and whether to
   pin at all, against the brick-risk of a pinned operator retiring) is

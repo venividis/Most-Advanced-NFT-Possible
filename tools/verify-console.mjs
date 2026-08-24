@@ -204,7 +204,28 @@ await c.exec(nft, "setPool(address)", [pool]);
 const lease = await c.deploy(A("src/Lease.sol", "Lease").bytecode,
   encodeAddressArg(nft), "Lease");
 
-const site = await deploySite(c, A, { hub: nft, pool, lease, sigil });
+/*  The parley first and by hand, because the port must be built against it
+    and the site must then reuse it — the same order a real chain sees. The
+    port rides a mock endpoint and one imaginary peer; what the console
+    needs from it is only that it stands, answers `lastEcho`, and declares
+    the `Echoed` event the seed's topic must match.                      */
+const parley = await c.deploy(A("src/Parley.sol", "Parley").bytecode,
+  encodeAddressArg(nft), "Parley");
+const ep = await c.deploy(A("test/mocks/MockEndpoint.sol", "MockEndpoint").bytecode, w(30184));
+const b32 = (a) => a.replace(/^0x/, "").toLowerCase().padStart(64, "0");
+const port = await c.deploy(A("src/ParleyPort.sol", "ParleyPort").bytecode, (() => {
+  const eidsTail = w(1) + w(30320);
+  const peersTail = w(1) + b32("0x" + "77".repeat(20));
+  const offEids = 0xc0;
+  const offPeers = offEids + eidsTail.length / 2;
+  const offLanes = offPeers + peersTail.length / 2;
+  const offCfg = offLanes + 32;
+  return encodeAddressArg(parley) + encodeAddressArg(ep) +
+    w(offEids) + w(offPeers) + w(offLanes) + w(offCfg) +
+    eidsTail + peersTail + w(0) + w(0);
+})(), "ParleyPort");
+
+const site = await deploySite(c, A, { hub: nft, pool, lease, sigil, parley, port });
 const GET = getter(c, site.premises);
 
 /*  Three more, because the walk is the point and a walk needs somewhere to
@@ -285,6 +306,31 @@ head("every selector in the seed is the keccak of its signature");
      doc.includes(`said:"${said}"`), "the topic in the seed is not topics()'s");
   ok("and Parley's address rides beside it",
      doc.includes(`parley:"${site.parley.toLowerCase()}"`), "no parley address");
+
+  /*  The federated half. The port cannot serve its topic — it is sealed at
+      its nonce-0 address on every chain — so PageConsole spells the event
+      signature once, and THIS is the check that pins it: the signature is
+      rebuilt from the compiled port's own ABI, hashed with this tool's own
+      keccak, and compared with the seed. A drift between the spelled
+      string and the declared event fails here, not in a wallet.         */
+  const { keccak256 } = await import("ethereum-cryptography/keccak.js");
+  const echoedAbi = A("src/ParleyPort.sol", "ParleyPort").abi
+    .find((e) => e.type === "event" && e.name === "Echoed");
+  const sig = `Echoed(${echoedAbi.inputs.map((i) => i.type).join(",")})`;
+  const topic = "0x" + Buffer.from(keccak256(Buffer.from(sig, "utf8"))).toString("hex");
+  ok("the seed's Echoed topic is the hash of the event the port declares",
+     doc.includes(`echoed:"${topic}"`),
+     `want ${sig} → ${topic}`);
+  ok("and the port's address rides beside it",
+     doc.includes(`port:"${port.toLowerCase()}"`), "no port address");
+
+  /*  The eid names, in lockstep with the deployment tool's own tables —
+      the BANDS discipline, applied to LayerZero's numbering.            */
+  const { LAYERZERO, LAYERZERO_TESTNETS } = await import("./site.mjs");
+  const rows = [...Object.values(LAYERZERO), ...Object.values(LAYERZERO_TESTNETS)]
+    .filter((e) => !doc.includes(`"${e.eid}":"${e.name}"`));
+  ok("every chain the tools name is named the same in the seed's eid map",
+     rows.length === 0, rows.map((e) => `${e.eid} ${e.name}`).join(", "));
 }
 
 head("the console answers at one route, in three shapes");
@@ -732,6 +778,64 @@ head("the console runs");
        `${sent} transaction(s)`);
   }
   await ctx3.close();
+
+  /*  The federated walk, driven. The stub plays a chain where the LOCAL
+      commons does not answer but the port stands: one foreign voice from
+      eid 40161, fabricated to the Echoed layout the compiled port
+      declares. The lane must render it under its own heading, labeled by
+      origin, and never mix it into the local column.                    */
+  const ctx4 = await browser.newContext({ viewport: { width: 420, height: 900 } });
+  await ctx4.addInitScript(() => {
+    window.__sent = [];
+    window.ethereum = {
+      request: async ({ method, params }) => {
+        if (method === "eth_accounts" || method === "eth_requestAccounts")
+          return [window.CON.owner];
+        if (method === "eth_call") {
+          const d = String((params[0] || {}).data || "").toLowerCase();
+          if (d.indexOf(window.CON.sel.echoLast) === 0)
+            return "0x" + (16).toString(16).padStart(64, "0");
+          return "0x";
+        }
+        if (method === "eth_getLogs") {
+          const t = (params[0] || {}).topics || [];
+          if (t[0] !== window.CON.echoed) return [];
+          const w64 = (n) => BigInt(n).toString(16).padStart(64, "0");
+          const bodyHex = Array.from("a voice from over the water")
+            .map((ch) => ch.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+          return [{
+            address: window.CON.port,
+            topics: [window.CON.echoed, "0x" + w64(40161), "0x" + w64(7)],
+            data: "0x" + w64(0) + w64(1) + w64(0) + w64(0x80) +
+                  w64(bodyHex.length / 2) + bodyHex.padEnd(64, "0")
+          }];
+        }
+        if (method === "eth_sendTransaction") { window.__sent.push(1); return "0x" + "ab".repeat(32); }
+        throw new Error("stub: " + method);
+      }
+    };
+  });
+  const page4 = await ctx4.newPage();
+  const errs4 = [];
+  page4.on("pageerror", (e) => errs4.push(String(e).slice(0, 160)));
+  await page4.goto(base + "/c/1/speak", { waitUntil: "networkidle" });
+  await page4.waitForTimeout(1100);
+  ok("the federated walk runs without throwing", errs4.length === 0, errs4.join(" | "));
+  const lane4 = await page4.textContent("#lane");
+  ok("foreign voices stand under their own heading",
+     /HEARD FROM OTHER CHAINS/.test(lane4), "no federated section");
+  ok("a foreign voice is labeled by the chain it came from",
+     /#7 · Ethereum Sepolia/.test(lane4) && /a voice from over the water/.test(lane4),
+     lane4.slice(lane4.indexOf("HEARD"), lane4.indexOf("HEARD") + 220));
+  ok("and the walk states it reached the first arrival",
+     /every foreign voice ever heard here/.test(lane4), "the walk did not close");
+  ok("while the local commons, unanswered, still says so",
+     /did not answer/.test(lane4.slice(0, lane4.indexOf("HEARD"))),
+     "the local column lost its honesty");
+  ok("and the foreign voice never leaked into the local column",
+     !lane4.slice(0, lane4.indexOf("HEARD")).includes("over the water"),
+     "a foreign message rendered as local");
+  await ctx4.close();
 
   await browser.close();
   srv.close();
