@@ -1,0 +1,31 @@
+name: IDFBI isolated compile
+
+on:
+  push:
+    branches: [idfbi-isolated-ci-20260904]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct isolated project
+        run: |
+          cat .idfbi-ci/payload.* | base64 -d > /tmp/idfbi.tar.gz
+          echo "3c3be7eaec1cd67ad6fb17b96693ff5b88230bb757517cc7c468c61babf8312b  /tmp/idfbi.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/idfbi
+          tar -xzf /tmp/idfbi.tar.gz -C /tmp/idfbi
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Build and enforce EIP-170 sizes
+        working-directory: /tmp/idfbi
+        run: forge build --sizes
+      - name: Test
+        working-directory: /tmp/idfbi
+        run: forge test -vvv
