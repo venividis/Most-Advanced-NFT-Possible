@@ -1079,6 +1079,14 @@ because a bare key cannot find its granting account without an indexer.
   grant, act, check, revoke, and its door"*, *"/k — the one surface
   where the actor is not the holder"*
 
+**150. The first knock fixes the inheritance deadline.**
+Once a summons starts the notice, another caller cannot replace its timestamp.
+Otherwise anybody could knock again just before the heir claims, restart the
+entire notice, and keep an unavailable owner's token from ever passing. Only
+the owner can cancel the pending summons by saying they are still here.
+→ `tools/verify-estate.mjs` · *"a stranger cannot displace a claim that is
+  ready"*, `src/Succession.sol` · `summon`
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue
