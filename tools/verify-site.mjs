@@ -667,6 +667,7 @@ for (const [what, needle] of [
   ["formats them back the same way", "const fmt=(v,d,p)=>"],
   ["refuses a value that will not fit a word", "does not fit in a word"],
   ["checks the chain before it sends", "your wallet is on chain "],
+  ["chooses that same wallet before a transaction-building read", "const call=async(to,data,gas)=>{const p=await IW.choose()"],
   ["quotes live, debounced", "setTimeout(refresh,220)"],
   ["knows whether it is approving or swapping", "al<amt?('Approve "],
   ["computes the floor from a slippage tolerance", "BigInt(10000-slip)/10000n"]

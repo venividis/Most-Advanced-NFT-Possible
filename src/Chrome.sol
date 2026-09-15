@@ -266,11 +266,13 @@ contract Chrome {
     ///         which one speaks for them; taking the first announcement
     ///         defeats the standard — Phantom and Keplr race to announce,
     ///         and MetaMask loses the sprint on every page load. Every
-    ///         announcer is kept, keyed by rdns; reads may use any of them,
-    ///         because a read is just RPC; the signing identity is chosen —
-    ///         by the stored choice, by being the only wallet, or by the
-    ///         person, from a picker. Clicking your own address clears the
-    ///         choice and asks again.
+    ///         announcer is kept, keyed by rdns. A passive read may use any
+    ///         provider, but Desk chooses one before a read can determine a
+    ///         transaction: otherwise one wallet could supply the terms and
+    ///         another could be asked to sign them. The signing identity is
+    ///         chosen by the stored choice, by being the only wallet, or by
+    ///         the person, from a picker. Clicking your own address clears
+    ///         the choice and asks again.
     function wallet() external pure returns (string memory) {
         return string.concat("<script>", WALLET_JS, "</script>");
     }
