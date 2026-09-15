@@ -329,12 +329,12 @@ contract DeskUni {
         "const slot0=async p=>{const r=await I.tryCall(p,S.slot0);if(!r)return null;"
         "return{sqrt:I.word(r,0),tick:Number(I.SW(I.word(r,1))),card:Number(I.word(r,3))}};"
         // a <select> of the offered assets plus a paste box, wired together
-        "const picker=(sel,box,onPick)=>{const e=I.$(sel),b=I.$(box);if(!e)return;"
-        "const fire=async()=>{try{"
+        "const picker=(sel,box,onPick)=>{const e=I.$(sel),b=I.$(box);if(!e)return;let gen=0;"
+        "const fire=async()=>{const mine=++gen;try{"
         "const v=e.value==='?'?String(b&&b.value||''):e.value;"
         "if(b)b.hidden=e.value!=='?';"
         "if(e.value==='?'&&!v)return onPick(null);"
-        "onPick(await meta(v))}catch(x){I.say(String(x&&x.message||x),'no');onPick(null)}};"
+        "const t=await meta(v);if(mine===gen)onPick(t)}catch(x){if(mine===gen){I.say(String(x&&x.message||x),'no');onPick(null)}}};"
         "e.addEventListener('change',fire);if(b)b.addEventListener('change',fire);"
         "return fire};"
         // EIP-3326, and EIP-3085 when the wallet has never heard of the chain
