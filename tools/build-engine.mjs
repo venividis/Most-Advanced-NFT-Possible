@@ -118,6 +118,8 @@ if (/window\.IPSE\s*=/.test(source.slice(0, source.indexOf("</head>"))))
   throw new Error("state must be injected by the contract, not baked into the head");
 if (!/window\.IPSE/.test(source))
   throw new Error("the engine never reads window.IPSE");
+if (!/<iframe id="nestframe"[^>]*\bsandbox="allow-scripts"/s.test(source))
+  throw new Error("the nest must execute in an opaque-origin sandbox");
 
 /* A shader is a string until a GPU touches it, so nothing else in this
    pipeline can tell a working one from a broken one. Check before building:
