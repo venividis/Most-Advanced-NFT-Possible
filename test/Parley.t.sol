@@ -368,6 +368,28 @@ contract ParleyTest is Test {
         assertEq(uint256(y), 2);
     }
 
+    function test_transferInvalidatesTheFormerHoldersSealingKey() public {
+        parley.announce(1, bytes32(uint256(1)), bytes32(uint256(2)));
+        token.transferFrom(holder, other, 1);
+
+        (bytes32 x, bytes32 y) = parley.keyOf(1);
+        assertEq(uint256(x), 0, "former holder's X coordinate remained active");
+        assertEq(uint256(y), 0, "former holder's Y coordinate remained active");
+        assertEq(uint256(parley.sealX(1)), 0, "public X getter exposed a stale key");
+        assertEq(uint256(parley.sealY(1)), 0, "public Y getter exposed a stale key");
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = 1;
+        (bytes32[] memory xs, bytes32[] memory ys) = parley.keysOf(ids);
+        assertEq(uint256(xs[0]), 0, "batch getter exposed a stale X coordinate");
+        assertEq(uint256(ys[0]), 0, "batch getter exposed a stale Y coordinate");
+
+        vm.prank(other);
+        parley.announce(1, bytes32(uint256(3)), bytes32(uint256(4)));
+        (x, y) = parley.keyOf(1);
+        assertEq(uint256(x), 3, "current holder could not rotate X");
+        assertEq(uint256(y), 4, "current holder could not rotate Y");
+    }
+
     /*═══════════════ the topics a browser cannot compute ═══════════════*/
 
     /// @dev The client ships no keccak, so it asks for these. If they were
