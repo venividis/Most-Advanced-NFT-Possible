@@ -1388,6 +1388,17 @@ the only two places membership changes. The suite opens a market on a token
 far past the first window and asserts it appears on page one.
 → `src/Pool.sol` · `openCount` / `openIds` · `tools/verify-site.mjs`
 
+**79. The provider that supplies transaction terms is the provider that
+signs them.**
+With several EIP-6963 announcers, taking the first one for `eth_call` and only
+then asking the person which wallet should send let two providers describe
+different chains and different transactions. Every shared client call now
+chooses the wallet first and refuses its wrong chain; the later send resolves
+the remembered choice, so an unchosen provider cannot substitute a recipient,
+price, quote, or limit for a transaction another wallet signs.
+→ `tools/verify-site.mjs` · *"chooses that same wallet before a
+transaction-building read"*
+
 ---
 
 ## Known and not fixed
