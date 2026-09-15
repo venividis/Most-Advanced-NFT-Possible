@@ -102,12 +102,21 @@ contract PageMarket {
         if (total == 0) return "";
         uint256[] memory ids = POOL.openIds(0, PICK);
         string memory opts;
+        bool currentListed;
         for (uint256 i; i < ids.length; ++i) {
             (address b, address q,,,,,,,,,,) = POOL.market(ids[i]);
+            if (ids[i] == id) currentListed = true;
             opts = string.concat(
                 opts, "<option value=\"", ids[i].str(), "\"",
                 ids[i] == id ? " selected" : "", ">#", ids[i].str(), " \xc2\xb7 ",
                 Web.symbolOf(b), " / ", Web.symbolOf(q), "</option>"
+            );
+        }
+        if (!currentListed) {
+            (address b, address q, , , , bool open, , , , , , ) = POOL.market(id);
+            if (open) opts = string.concat(
+                opts, "<option value=\"", id.str(), "\" selected>#", id.str(),
+                " \xc2\xb7 ", Web.symbolOf(b), " / ", Web.symbolOf(q), "</option>"
             );
         }
         return string.concat(
@@ -117,7 +126,8 @@ contract PageMarket {
             "<select id=mkt>", opts, "</select>",
             total > PICK
                 ? string.concat("<p class=e style=\"margin:.5rem 0 0\">Showing ",
-                    PICK.str(), " of ", total.str(),
+                    "the first ", PICK.str(), " of ", total.str(),
+                    currentListed ? "" : ", plus this market",
                     ". <a href=\"/open\">The directory has all of them</a> &mdash; and "
                     "unlike a hosted token list, everything in it can actually be "
                     "traded, because it was read from the pool that would execute "
