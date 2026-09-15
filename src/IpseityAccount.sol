@@ -643,6 +643,13 @@ contract IpseityAccount {
             if (data.length < 68) revert SpenderNotAllowed(address(0));
             (address operator, bool okFlag) = abi.decode(data[4:], (address, bool));
             if (okFlag && !sessionTarget(msg.sender, operator)) revert SpenderNotAllowed(operator);
+        } else if (sel == 0x87517c45) {
+            // Permit2 approve(address token,address spender,uint160,uint48).
+            // The authority is granted to the second address, not the
+            // allowlisted Permit2 target and not the first ABI argument.
+            if (data.length < 132) revert SpenderNotAllowed(address(0));
+            (, address spender,,) = abi.decode(data[4:], (address, address, uint160, uint48));
+            if (!sessionTarget(msg.sender, spender)) revert SpenderNotAllowed(spender);
         }
 
         if (value != 0) {

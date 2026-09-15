@@ -8,7 +8,7 @@ import {IDataVerifier} from "../../src/interfaces/Standards.sol";
 ///      one just unpacks three words so the token's own logic can be tested
 ///      without pretending to have attested anything.
 contract MockVerifier is IDataVerifier {
-    function verifyTransfer(bytes calldata proof)
+    function verifyTransfer(uint256, address, bytes calldata proof)
         external pure
         returns (bool ok, bytes32[] memory oldHashes, bytes32[] memory newHashes, bytes32 to_)
     {

@@ -7,6 +7,7 @@ import {
     IERC721MultiMetadata, IERC7496, IERC6551Registry, IERC173, ISealedKernel, IDataVerifier
 } from "./interfaces/Standards.sol";
 import {Section, TokenView} from "./lib/Types.sol";
+import {Mul} from "./lib/Mul.sol";
 
 interface IRenderer {
     function facetCount() external view returns (uint256);
@@ -205,7 +206,9 @@ contract Ipseity is
     }
     mapping(uint256 => Kernel)    internal _kernel;
     mapping(uint256 => bytes32[]) internal _dataHashes;
-    mapping(uint256 => mapping(address => bool)) public usageAuthorised;
+    mapping(uint256 => mapping(address => bool)) internal _usageAuthorised;
+    mapping(uint256 => mapping(address => uint256)) internal _usageMark;
+    mapping(uint256 => uint256) internal _ownerEpoch;
     /// @notice Which token a cloned token was drawn from. Zero if it was minted.
     mapping(uint256 => uint256) public parentOf;
     IDataVerifier public verifier;
@@ -781,7 +784,7 @@ contract Ipseity is
             transferFrom(msg.sender, to, id);
             return;
         }
-        (bytes32[] memory newHashes, bytes32 to_) = _check(id, proof);
+        (bytes32[] memory newHashes, bytes32 to_) = _check(id, to, proof);
         _dataHashes[id] = newHashes;
         k.sealedTo = to_;
         k.sealedOwner = to;
@@ -815,7 +818,7 @@ contract Ipseity is
         if (msg.value < price) revert Underpaid();
         Kernel storage k = _kernel[id];
         if (!k.active) revert KernelInactive();
-        (bytes32[] memory newHashes, bytes32 to_) = _check(id, proof);
+        (bytes32[] memory newHashes, bytes32 to_) = _check(id, to, proof);
 
         child = _issue(to);
         _dataHashes[child] = newHashes;
@@ -831,13 +834,16 @@ contract Ipseity is
         emit Cloned(id, child, to);
     }
 
-    function _check(uint256 id, bytes calldata proof)
+    function _check(uint256 id, address recipient, bytes calldata proof)
         internal view returns (bytes32[] memory newHashes, bytes32 to_)
     {
         if (address(verifier) == address(0)) revert NoVerifier();
         bool ok;
         bytes32[] memory oldHashes;
-        (ok, oldHashes, newHashes, to_) = verifier.verifyTransfer(proof);
+        // The verifier receives trusted call context. Recovering these only
+        // from `proof` would let a caller pair a proof made for one token or
+        // recipient with a different transfer argument.
+        (ok, oldHashes, newHashes, to_) = verifier.verifyTransfer(id, recipient, proof);
         if (!ok) revert ProofRejected();
 
         // the proof has to be about *this* token's payload, not some other
@@ -849,9 +855,21 @@ contract Ipseity is
         if (newHashes.length == 0) revert ProofRejected();
     }
 
-    function authorizeUsage(uint256 id, address user) external onlyHolder(id) {
-        usageAuthorised[id][user] = true;
+    function authorizeUsage(uint256 id, address user) external {
+        address o = _ownerOf[id];
+        if (o == address(0)) revert Nonexistent();
+        // Usage can outlive a token approval, so an approved operator must
+        // not be able to create it. This is an act of ownership.
+        if (msg.sender != o) revert NotHolder();
+        _usageAuthorised[id][user] = true;
+        _usageMark[id][user] = _ownerEpoch[id];
         emit UsageAuthorised(id, user);
+    }
+
+    /// @notice Usage grants belong to the holder who made them and expire
+    ///         automatically when the token changes hands.
+    function usageAuthorised(uint256 id, address user) public view returns (bool) {
+        return _usageAuthorised[id][user] && _usageMark[id][user] == _ownerEpoch[id];
     }
 
     function dataHashesOf(uint256 id) external view returns (bytes32[] memory) {
@@ -912,7 +930,7 @@ contract Ipseity is
     function royaltyInfo(uint256, uint256 salePrice)
         external view returns (address, uint256)
     {
-        return (royaltyReceiver, (salePrice * royaltyBps) / 10_000);
+        return (royaltyReceiver, Mul.mulDiv(salePrice, royaltyBps, 10_000));
     }
 
     /*═══════════════════════ ERC-721 ═══════════════════════*/
@@ -974,6 +992,10 @@ contract Ipseity is
 
         Stats storage s = _stats[id];
         unchecked { if (s.xfers < type(uint32).max) s.xfers += 1; }
+        // Unlike the display-sized transfer statistic, authorization epochs
+        // do not saturate: even a fantastically old token still invalidates
+        // the seller's grants when it moves.
+        unchecked { _ownerEpoch[id] += 1; }
 
         emit Transfer(from, to, id);
         emit MetadataUpdate(id);

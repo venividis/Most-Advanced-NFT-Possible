@@ -28,7 +28,9 @@ installer, GitHub, or crates.io). Everything runs through Node:
   optimizer 800, cancun — mirroring `foundry.toml`), honours
   `remappings.txt`, and **fails any contract over the EIP-170 24,576-byte
   ceiling** (default CLI invocation only — `--quiet` and library use skip
-  the size gate). Writes `out/solc.json`.
+  the size gate). Writes `out/solc.json`. Library calls share a content-
+  addressed cache under `out/compile-cache/`; set
+  `IPSEITY_NO_COMPILE_CACHE=1` only when a cold compile is the measurement.
 - `tools/evm.mjs` — an in-process EVM harness on `@ethereumjs/vm`: deploy,
   call, read, account for gas. All `verify-*` tools run on it.
 - `tools/forge.mjs` — **runs the Foundry test suite without Foundry**: a

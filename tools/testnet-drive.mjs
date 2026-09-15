@@ -39,14 +39,40 @@ const head = (s) => console.log(`\n  \x1b[1m${s}\x1b[0m`);
 const c = await RpcChain.open(record.rpc, DEV_KEYS[0]);
 fs.mkdirSync(SHOTS, { recursive: true });
 
+/*  The CORS bridge is deliberately a page-read surface, not a public node
+    control plane. Exercise that boundary over HTTP before trusting it for
+    the browser journey below.                                           */
+head("the gateway exposes reads, not a node control plane");
+const gatewayRpc = async (method, params = []) => {
+  const r = await fetch(GATEWAY + "/__rpc", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 91, method, params })
+  });
+  return { status: r.status, json: await r.json() };
+};
+{
+  const read = await gatewayRpc("eth_chainId");
+  ok("a page can read the configured chain", read.status === 200 && read.json.result === "0x7a69");
+  const send = await gatewayRpc("eth_sendRawTransaction", ["0x00"]);
+  ok("but cannot submit a raw transaction through /__rpc",
+     send.status === 200 && send.json.error && send.json.error.code === -32601);
+  const admin = await gatewayRpc("hardhat_setBalance", [c.from.toString(), "0x0"]);
+  ok("and cannot invoke node administration through /__rpc",
+     admin.status === 200 && admin.json.error && admin.json.error.code === -32601);
+}
+
 const CHROME = (() => {
   const base = process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
+  // CI images keep browsers in /opt; a normal Playwright install uses its
+  // own per-user cache. Let Playwright resolve that default when /opt is not
+  // present instead of failing before the browser journey begins.
+  if (!fs.existsSync(base)) return undefined;
   return fs.readdirSync(base).filter((d) => d.startsWith("chromium-"))
     .map((d) => path.join(base, d, "chrome-linux/chrome"))
     .find((f) => fs.existsSync(f));
 })();
 const browser = await chromium.launch({
-  executablePath: CHROME,
+  ...(CHROME ? { executablePath: CHROME } : {}),
   args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader", "--enable-webgl"]
 });
 
@@ -169,11 +195,14 @@ head("the other holder answers from another browser");
 /*──────────────── the door ────────────────*/
 head("the door hands over what this wallet holds");
 {
-  const { page } = await withWallet(holder1);
-  await page.goto(GATEWAY + "/");
-  await page.waitForSelector("#yours .room", { timeout: 45000 });
+  const { page, errors } = await withWallet(holder1);
+  // Once a token exists `/` is deliberately its live instrument. The flat
+  // holder dashboard lives at `/door`.
+  await page.goto(GATEWAY + "/door");
+  await page.waitForSelector("#yours .room", { timeout: 45000 }).catch(() => {});
   const rows = await page.locator("#yours .room").count();
-  ok(`the door lists this wallet's tokens (${rows})`, rows >= 1);
+  ok(`the door lists this wallet's tokens (${rows})`, rows >= 1,
+     errors.join(" | ") || await page.locator("#yours").innerText().catch(() => "#yours is absent"));
   await page.screenshot({ path: path.join(SHOTS, "testnet-door.png") });
   await page.close();
 }
@@ -183,16 +212,17 @@ head("the instrument, served by the chain, on a real origin");
 {
   const { page, errors } = await withWallet(holder1);
   await page.goto(GATEWAY + "/token/1/live");
+  // Ask this before the raymarcher owns the software renderer's main thread;
+  // under SwiftShader a later evaluate can starve behind continuous frames.
+  ok("it is not sandboxed here — storage works, wallets can inject",
+     await page.evaluate(() => { try { localStorage.setItem("t", "1"); return true; }
+                                 catch (e) { return false; } }));
   const drew = await page.waitForFunction(() => {
     const c = document.getElementById("field");
     return !!c && !!c.getContext("webgl2") && document.body.classList.contains("up");
   }, null, { timeout: 60000 }).then(() => true).catch(() => false);
   await page.waitForTimeout(2500);
   ok("it draws", drew, errors.slice(0, 2).join(" | "));
-  ok("and it is not sandboxed here — storage works, wallets can inject",
-     await page.evaluate(() => { try { localStorage.setItem("t", "1"); return true; }
-                                 catch (e) { return false; } }));
-  await page.screenshot({ path: path.join(SHOTS, "testnet-live.png") });
   await page.close();
 }
 

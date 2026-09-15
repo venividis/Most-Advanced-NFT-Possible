@@ -572,6 +572,9 @@ shipped), and what crosses the chain is AES-GCM ciphertext that renders as
 
 ## Security
 
+Suspected vulnerabilities should be reported privately through the process in
+[SECURITY.md](SECURITY.md), never through a public issue or pull request.
+
 Approached the way the Dave Held core approaches it: write down what must be
 true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and thirty-nine such
 statements and names the test for each, plus thirteen known limitations that are
@@ -1164,7 +1167,7 @@ somebody asks for it.
 ## Building it
 
 ```bash
-npm install
+npm ci                         # install the exact dependency graph in package-lock.json
 
 node tools/selftest.mjs         # the engine's own keccak, ABI coder, EIP-712, CREATE2
 node tools/build-engine.mjs     # minify, gzip, shard  → dist/shards.json
@@ -1176,6 +1179,11 @@ npm run gallery                 # mint eight solids, pull every facet back off t
 npm run shots                   # open those documents in a real browser and
                                 # require them to draw  → dist/gallery/shots/
 ```
+
+`npm run check` runs the complete verification battery used by continuous
+integration. Pull requests and changes to `main` install the locked dependency
+graph, audit production dependencies, install Chromium, and run that battery
+before they are accepted.
 
 `selftest.mjs` lifts the chain half of the engine straight out of
 `engine/ipseity.html` — the same bytes that go on chain, not a copy — and holds it

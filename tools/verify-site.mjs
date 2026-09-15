@@ -2145,6 +2145,8 @@ head("driving the nameplate page");
 
   const body = decString(await c.read(pName2, "namePage()"));
   ok("with a registry, the page offers to bind", /bind/i.test(body));
+  ok("resolver text is escaped before it reaches the name page DOM",
+     /const ESC=/.test(body) && /ESC\(s\)/.test(body) && /&lt;/.test(body));
 
   const dnsOf = (nm) => "0x" + nm.split(".").map(
     (l) => l.length.toString(16).padStart(2, "0") +

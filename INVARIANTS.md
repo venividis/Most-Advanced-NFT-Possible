@@ -212,7 +212,10 @@ no data at all is accepted.
 → `test_feeOnTransferTokenIsCreditedOnlyWhatArrived`, `test_silentTokenIsAccepted`
 
 **26. A trade honours its floor and its deadline.**
-→ `test_slippageFloorIsHonoured`, `test_deadlineIsHonoured`
+For a taxed output token, the floor applies to the balance the recipient
+actually gains, not the larger amount debited from the pool.
+→ `test_slippageFloorIsHonoured`, `test_deadlineIsHonoured`,
+  `test_feeOnTransferOutputCannotDefeatSlippageFloor`
 
 ---
 
@@ -323,10 +326,12 @@ decorative.
 → `tools/verify-vault.mjs` · *"calling the account itself, to grant itself more"*
 
 **43. A session cannot approve a spender that was not named.**
-For `approve`, `increaseAllowance` and `setApprovalForAll`, the *spender
-argument* must itself be on the target allowlist. Allowlisting the token
-contract says who is being called, never who is being trusted.
-→ `tools/verify-vault.mjs` · *"approving a spender nobody named"*, *"setApprovalForAll is checked the same way"*
+For `approve`, `increaseAllowance`, `setApprovalForAll`, and Permit2's
+four-argument `approve`, the *spender argument* must itself be on the target
+allowlist. Permit2 names it second rather than first. Allowlisting the called
+contract or the asset says nothing about who is being trusted.
+→ `tools/verify-vault.mjs` · *"approving a spender nobody named"*, *"setApprovalForAll is checked the same way"*,
+  `test_sessionPermit2ApprovalChecksTheActualSpender`
 
 **44. Revocation is immediate and unilateral.**
 One transaction by the holder, no delay, no notice, no appeal.
@@ -366,10 +371,13 @@ everywhere, and no reading of the first two can be mistaken for it.
 → `tools/verify-kernel.mjs` · *"sealed is not proved"*, *"proved goes with it"*
 
 **48. A proof is about this token's payload, or it is refused.**
-The old hashes in a proof must equal the hashes on file, so a proof cannot be
-lifted from one token and replayed against another, and a re-seal cannot empty
+The verifier receives the token id and intended recipient from trusted call
+context, rather than recovering them only from caller-supplied proof bytes. The
+old hashes must equal the hashes on file. A proof therefore cannot be lifted
+onto another token or paired with another recipient, and a re-seal cannot empty
 a kernel under cover of a transfer.
-→ `tools/verify-kernel.mjs` · *"a proof about a different payload is rejected"*
+→ `tools/verify-kernel.mjs` · *"a proof about a different payload is rejected"*,
+  `test_kernelProofIsBoundToTokenAndRecipientContext`
 
 **49. The verifier is chosen once and never rotated.**
 It may be set from zero exactly one time, never to zero, and after that
@@ -384,6 +392,14 @@ a proof.
 is no oracle. A token with no kernel still transfers through them, because
 there is nothing to prove.
 → `tools/verify-kernel.mjs` · *"the atomic path refuses rather than waving through"*
+
+**50a. A usage grant belongs to the owner who made it.**
+An ERC-721 approvee cannot authorize use: unlike a transfer, the grant would
+survive revocation of that approval. Every grant records the token's
+unbounded ownership epoch. `usageAuthorised` answers false after the token
+changes hands, so a buyer never inherits the seller's delegates. A later buy-back does not
+revive them because the epoch only moves forward.
+→ `test/Ipseity.t.sol::test_kernelUsageGrantDoesNotOutliveApprovalOrSale`
 
 ---
 
@@ -730,13 +746,15 @@ acting for itself, and nobody else.
   `src/Succession.sol` · `onlyOwner`
 
 **116. A dead-man's switch that cannot be heard is a trap.**
-The silence opening the door is a bet about somebody's habits, so the knock
-is public, anybody may make it, it starts a second clock, and one touch of
-the instrument cancels it outright. A switch that fires the instant a timer
-expires, with no audible warning and no way back, takes tokens from people
-who were merely on holiday.
+The silence opening the door is a bet about somebody's habits, so the first
+knock is public, anybody may make it, and it starts a second clock. A stranger
+cannot knock again to restart that clock forever. One touch of the instrument
+cancels it outright. A switch that fires the instant a timer expires, with no
+audible warning and no way back, takes tokens from people who were merely on
+holiday.
 → `tools/verify-estate.mjs` · *"the owner speaking up cancels the knock
-  outright"*, `src/Succession.sol` · `summon`
+  outright"*, *"a stranger cannot restart the notice clock"*,
+  `src/Succession.sol` · `summon`
 
 **117. An arrangement that cannot fire says which part is broken.**
 `wouldPass` returns one of ten codes rather than a bool. A soulbound token,
@@ -1387,6 +1405,14 @@ enumerable set now, maintained in `openMarket` and `closeMarket`, which are
 the only two places membership changes. The suite opens a market on a token
 far past the first window and asserts it appears on page one.
 → `src/Pool.sol` · `openCount` / `openIds` · `tools/verify-site.mjs`
+
+**79. A royalty quote is defined across the whole ERC-2981 input domain.**
+`royaltyInfo` accepts a `uint256 salePrice`, so even a price near `2²⁵⁶ - 1`
+must return the configured fraction rather than reverting because the
+intermediate multiplication overflowed. The percentage uses full-precision
+512-bit multiplication before division; at the permanent 10% ceiling its
+result always fits back into one word.
+→ `test_royaltyDoesNotOverflowForMaximumSalePrice`
 
 ---
 

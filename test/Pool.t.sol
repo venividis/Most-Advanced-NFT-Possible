@@ -312,6 +312,32 @@ contract PoolTest is Test {
         assertEq(uint256(rb), 990 * WAD, "credited more than arrived");
     }
 
+    /// @dev A floor is about what the recipient receives. Checking the
+    ///      pool's gross debit instead lets an output-side transfer tax take
+    ///      the trade below the caller's explicit minimum.
+    function test_feeOnTransferOutputCannotDefeatSlippageFloor() public {
+        MockERC20 fot = new MockERC20("FeeOnTransfer", "FOT", 18, 100, false);
+        fot.mint(holder, 1e24);
+
+        vm.startPrank(holder);
+        token.mint{value: 0.01 ether}();
+        pool.openMarket(2, address(weth), address(fot), 30);
+        fot.approve(address(pool), type(uint256).max);
+        pool.deposit(2, 100 * WAD, 100 * WAD);
+        vm.stopPrank();
+
+        uint256 gross = pool.quote(2, true, WAD);
+        vm.prank(trader);
+        vm.expectRevert();
+        pool.swap(2, true, WAD, gross, trader, FOREVER);
+
+        uint256 before_ = fot.balanceOf(trader);
+        vm.prank(trader);
+        uint256 received = pool.swap(2, true, WAD, gross * 99 / 100, trader, FOREVER);
+        assertEq(received, fot.balanceOf(trader) - before_, "return was not net output");
+        assertLt(received, gross, "the transfer tax was not observed");
+    }
+
     function test_silentTokenIsAccepted() public {
         MockERC20 usdt = new MockERC20("Tether", "USDT", 6, 0, true);
         usdt.mint(holder, 1e12);

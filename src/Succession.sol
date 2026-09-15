@@ -100,6 +100,7 @@ contract Succession {
     error TooLong();
     error StillSpeaking(uint64 until);
     error NotCalled();
+    error AlreadyCalled();
     error NotYet(uint64 until);
     error Moved();
 
@@ -230,6 +231,11 @@ contract Succession {
         Plan storage p = _plan[id];
         if (p.from == address(0)) revert NoPlan();
         if (p.from != HUB.ownerOf(id)) revert Moved();
+        /*  The first knock starts the notice clock. Letting any later call
+            overwrite it gives every stranger a free veto: re-summon just
+            before `opensAt` forever and the heir can never claim. The
+            owner already has the deliberate reset door in `stillHere`. */
+        if (p.called != 0) revert AlreadyCalled();
         uint64 when = knockableAt(id);
         if (block.timestamp < when) revert StillSpeaking(when);
         p.called = uint64(block.timestamp);
