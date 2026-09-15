@@ -20,10 +20,13 @@
   is that minimum, plus a margin — the node's clock is not this process's
   clock, and the contract compares against the block's.
 
-    node tools/ens-name.mjs ipseity4d deployments/eth-sepolia.json [years]
+  Keep the label private until registration succeeds, then run:
+
+    node tools/ens-name.mjs <label> deployments/eth-sepolia.json [years]
 ───────────────────────────────────────────────────────────────────────────*/
 import fs from "node:fs";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { RpcChain } from "./rpc.mjs";
 import { sel } from "./evm.mjs";
@@ -114,6 +117,13 @@ const NAME = LABEL + ".eth";
 const node = namehash(NAME);
 const DUR = YEARS * 31536000n;
 
+/*  A competing registrant does not need our commitment: a label disclosed
+    before registration can be committed with their own owner and secret.
+    This label was previously published throughout the repository, so it
+    cannot safely be registered with this workflow.                     */
+if (LABEL.toLowerCase() === "ipseity4d")
+  throw new Error("that label is already public; choose an undisclosed label and keep it private until registration succeeds");
+
 const free = BigInt(await c.rpc("eth_call",
   [{ to: ENS.ctrl, data: sel("available(string)") + w(32) + encStr(LABEL) }, "latest"]));
 if (free !== 1n) throw new Error(`${NAME} is not available on this chain`);
@@ -123,12 +133,26 @@ const rp = await c.rpc("eth_call",
 const price = BigInt("0x" + rp.slice(2, 66)) + BigInt("0x" + rp.slice(66, 130));
 console.log(`\n  ${NAME} · ${YEARS} year(s) · ${(Number(price) / 1e18).toFixed(6)} ETH`);
 
-/*  A secret nobody can guess before the reveal. It is derived from data
-    this process already has rather than from randomness, because a secret
-    that only has to survive sixty seconds and never leaves this container
-    does not need entropy it cannot reproduce if the reveal has to be
-    retried.                                                            */
-const secret = "0x" + hex(keccak256(Buffer.from(`${NAME}:${me}:${rec.contracts.premises}`, "utf8")));
+/*  The salt must remain unpredictable even when the label, sender and every
+    deployment address are known. Persist it before committing so a retry
+    reveals the same commitment rather than abandoning an unrecoverable one.
+    The adjacent file is gitignored and must remain owner-readable only. */
+const secretPath = path.resolve(ROOT, REC) + ".ens-secret";
+let secret;
+if (fs.existsSync(secretPath)) {
+  const st = fs.lstatSync(secretPath);
+  if (!st.isFile() || (st.mode & 0o077) !== 0)
+    throw new Error(`${secretPath} must be a regular file accessible only by its owner`);
+  const saved = JSON.parse(fs.readFileSync(secretPath, "utf8"));
+  if (saved.label !== LABEL || String(saved.owner).toLowerCase() !== me.toLowerCase()
+      || !/^0x[0-9a-f]{64}$/.test(saved.secret))
+    throw new Error(`${secretPath} does not match this label and owner`);
+  secret = saved.secret;
+} else {
+  secret = "0x" + randomBytes(32).toString("hex");
+  fs.writeFileSync(secretPath, JSON.stringify({ label: LABEL, owner: me, secret }),
+    { flag: "wx", mode: 0o600 });
+}
 
 /*  register(string,address,uint256,bytes32,address,bytes[],bool,uint16) —
     eight words of head, the label in the tail, then an empty bytes[]. The
@@ -159,6 +183,7 @@ await c.send({ to: ENS.ctrl,
   data: sel(SIG_REG) + args,
   value: (price * 105n) / 100n,          // ENS refunds the excess
   label: "register" });
+fs.unlinkSync(secretPath);                // registration makes the salt public
 
 const owner = await c.rpc("eth_call", [{ to: ENS.registry, data: sel("owner(bytes32)") + node.slice(2) }, "latest"]);
 console.log(`  registered · registry owner 0x${owner.slice(-40)}`);

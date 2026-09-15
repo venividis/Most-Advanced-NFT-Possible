@@ -12,3 +12,4 @@ dist/
 # a throwaway testnet deployer key, generated in-container, never committed
 .testnet-key
 .testnet-crew
+*.ens-secret
