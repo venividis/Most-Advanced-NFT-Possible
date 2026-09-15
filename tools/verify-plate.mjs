@@ -76,14 +76,16 @@ async function fixture(chainId) {
   const c = await Chain.open(chainId === undefined ? {} : { chainId });
   const ens  = await c.deploy(A("test/mocks/MockENS.sol", "MockENS").bytecode, "", "MockENS");
   const hub  = await c.deploy(A("test/mocks/MockHub.sol", "MockHub").bytecode, "", "MockHub");
+  const wrapper = await c.deploy(A("test/mocks/MockAccount.sol", "MockWrapper").bytecode, "", "Wrapper");
   const site = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const plate = await c.deploy(A("src/Nameplate.sol", "Nameplate").bytecode,
-    encodeAddressArg(ens) + encodeAddressArg(hub) + encodeAddressArg(site), "Nameplate");
+    encodeAddressArg(ens) + encodeAddressArg(hub) + encodeAddressArg(site) +
+      encodeAddressArg(wrapper), "Nameplate");
   await c.exec(hub, "setSupply(uint256)", [1024]);
   const parent = nhash(["ipseity4d", "eth"]);
   await c.exec(ens, "setOwner(bytes32,address)", [parent, c.from.toString()]);
   await c.exec(plate, "claimParent(bytes32)", [parent]);
-  return { c, ens, hub, site, plate, parent };
+  return { c, ens, hub, wrapper, site, plate, parent };
 }
 
 /*═════════════ on Ethereum, where a .eth resolver actually runs ═════════════*/
@@ -256,7 +258,8 @@ head("a name held inside a token needs no binding at all");
   eq("before the name moves, nobody holds it",
      decUint(await H.c.read(H.plate, "heldBy(bytes32)", [node]), 0), 0n);
 
-  await H.c.exec(H.ens, "setOwner(bytes32,address)", [node, acct]);
+  await H.c.exec(H.ens, "setOwner(bytes32,address)", [node, H.wrapper]);
+  await H.c.exec(H.wrapper, "setOwner(uint256,address)", [BigInt(node), acct]);
   const held = await H.c.read(H.plate, "heldBy(bytes32)", [node]);
   eq("with the name in token 7's reach, the name is token 7's", decUint(held, 0), 7n);
   eq("and it is not sealed — a reach can send it back out", decUint(held, 1), 0n);
@@ -293,7 +296,8 @@ head("custody beats a binding that has gone stale");
     (1n).toString(16).padStart(64, "0") + encodeAddressArg(H.hub)
       + (7n).toString(16).padStart(64, "0"), "Account7b");
   await H.c.exec(H.hub, "set(uint256,address,address)", [7, H.c.from.toString(), acct7]);
-  await H.c.exec(H.ens, "setOwner(bytes32,address)", [node, acct7]);
+  await H.c.exec(H.ens, "setOwner(bytes32,address)", [node, H.wrapper]);
+  await H.c.exec(H.wrapper, "setOwner(uint256,address)", [BigInt(node), acct7]);
 
   eq("once it moves, it means token 7 — the bind is the stale one",
      decUint(await H.c.read(H.plate, "tokenForName(bytes)", [dns("moved.eth")])), 7n);
@@ -339,7 +343,6 @@ head("a wrapped name is unwrapped one level first");
 {
   const H = await fixture(1);
   const node = nhash(["wrapped", "eth"]);
-  const wrapper = await H.c.deploy(A("test/mocks/MockAccount.sol", "MockWrapper").bytecode, "", "Wrapper");
   const acct = await H.c.deploy(A("test/mocks/MockAccount.sol", "MockAccount").bytecode,
     (1n).toString(16).padStart(64, "0") + encodeAddressArg(H.hub)
       + (9n).toString(16).padStart(64, "0"), "Account9");
@@ -348,10 +351,31 @@ head("a wrapped name is unwrapped one level first");
   /*  The registry hands the node to the wrapper; the wrapper says the
       account holds it. Reading only the registry would see a wrapper and
       stop — which is how every wrapped name would fail to be recognised. */
-  await H.c.exec(H.ens, "setOwner(bytes32,address)", [node, wrapper]);
-  await H.c.exec(wrapper, "setOwner(uint256,address)", [BigInt(node), acct]);
+  await H.c.exec(H.ens, "setOwner(bytes32,address)", [node, H.wrapper]);
+  await H.c.exec(H.wrapper, "setOwner(uint256,address)", [BigInt(node), acct]);
   eq("through the wrapper, the name is token 9's",
      decUint(await H.c.read(H.plate, "heldBy(bytes32)", [node]), 0), 9n);
+}
+
+head("registry control cannot counterfeit custody");
+{
+  const H = await fixture(1);
+  const node = nhash(["counterfeit", "eth"]);
+  const acct = await H.c.deploy(A("test/mocks/MockAccount.sol", "MockAccount").bytecode,
+    (1n).toString(16).padStart(64, "0") + encodeAddressArg(H.hub) +
+      (7n).toString(16).padStart(64, "0"), "CounterfeitAccount");
+  await H.c.exec(H.hub, "setGrip(uint256,address)", [7, acct]);
+
+  await H.c.exec(H.ens, "setOwner(bytes32,address)", [node, acct]);
+  eq("an unwrapped registry controller is not the name NFT owner",
+     decUint(await H.c.read(H.plate, "heldBy(bytes32)", [node]), 0), 0n);
+
+  const fake = await H.c.deploy(A("test/mocks/MockAccount.sol", "MockWrapper").bytecode,
+    "", "FakeWrapper");
+  await H.c.exec(fake, "setOwner(uint256,address)", [BigInt(node), acct]);
+  await H.c.exec(H.ens, "setOwner(bytes32,address)", [node, fake]);
+  eq("a noncanonical wrapper cannot invent name custody",
+     decUint(await H.c.read(H.plate, "heldBy(bytes32)", [node]), 0), 0n);
 }
 
 /*═════════════ the clock the grip cannot stop ═════════════*/
