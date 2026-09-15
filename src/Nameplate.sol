@@ -57,9 +57,9 @@ interface IBoundAccount {
 
   ── holding the name IS the binding ──
 
-  A name does not have to be bound at all. Put the ENS name's own NFT into
-  a token's account and the name means that token, with no transaction on
-  this contract and nothing to remember: custody is the claim.
+  A wrapped name does not have to be bound at all. Put its NameWrapper NFT
+  into a token's account and the name means that token, with no transaction
+  on this contract and nothing to remember: custody is the claim.
 
   That is the stronger claim, so it wins over `bind`. A recorded intention
   can go stale — bind a name to token 3, move the name into token 7's
@@ -77,9 +77,10 @@ interface IBoundAccount {
   promise worth making deliberately and never by accident.
 
   An account's own word is not enough. Any contract can implement
-  `token()` and claim to be token 7's; the registry's answer for that id
-  must come back as the very address holding the name, or the claim is
-  discarded.
+  `token()` and claim to be token 7's; the canonical NameWrapper must own
+  the registry node and its answer must be the account. Registry control
+  alone is deliberately insufficient because a .eth registrant can reclaim
+  that control without a transfer from the account.
 
   ── who may do what, and the absence of an admin ──
 
@@ -100,6 +101,7 @@ contract Nameplate {
 
     IEnsRegistry public immutable ENS;
     IHubNames    public immutable HUB;
+    INameWrapperLike public immutable NAME_WRAPPER;
     /// @notice The site, which is what a name serves. ERC-6821's answer.
     address      public immutable PREMISES;
 
@@ -159,10 +161,16 @@ contract Nameplate {
     bytes4 private constant TEXT_IFACE        = 0x59d1d43c; // text(bytes32,string)
     bytes4 private constant WILDCARD_IFACE    = 0x9061b923; // resolve(bytes,bytes)
 
-    constructor(IEnsRegistry ens, IHubNames hub, address premises) {
+    constructor(
+        IEnsRegistry ens,
+        IHubNames hub,
+        address premises,
+        INameWrapperLike nameWrapper
+    ) {
         ENS = ens;
         HUB = hub;
         PREMISES = premises;
+        NAME_WRAPPER = nameWrapper;
     }
 
     /*═══════════════════ binding ═══════════════════*/
@@ -245,14 +253,14 @@ contract Nameplate {
         emit ParentClaimed(node, msg.sender);
     }
 
-    /// @dev Registry owner, or — when the registry hands the name to a
-    ///      wrapper contract — the wrapper's ERC-721 owner of the node.
+    /// @dev Registry owner, or — only when the registry hands the name to
+    ///      the configured NameWrapper — its ERC-721 owner of the node.
     function _ownsNode(bytes32 node, address who) private view returns (bool) {
         if (address(ENS) == address(0)) revert NoRegistryHere();
         address o = ENS.owner(node);
         if (o == who) return true;
-        if (o.code.length > 0) {
-            (bool ok, bytes memory ret) = o.staticcall(
+        if (o == address(NAME_WRAPPER) && o != address(0)) {
+            (bool ok, bytes memory ret) = address(NAME_WRAPPER).staticcall(
                 abi.encodeWithSelector(INameWrapperLike.ownerOf.selector, uint256(node)));
             if (ok && ret.length == 32 && abi.decode(ret, (address)) == who) return true;
         }
@@ -382,18 +390,17 @@ contract Nameplate {
         public view returns (uint256 token, bool sealed_)
     {
         if (address(ENS) == address(0)) return (0, false);
-        address o = ENS.owner(node);
-        if (o == address(0) || o.code.length == 0) return (0, false);
+        address wrapper = address(NAME_WRAPPER);
+        if (wrapper == address(0) || ENS.owner(node) != wrapper)
+            return (0, false);
 
-        /*  A wrapped name is owned in the registry by the wrapper, and by
-            a person inside it. Unwrap one level; a wrapper that does not
-            answer is simply the holder itself.                         */
-        (bool wok, bytes memory wret) = o.staticcall(
+        /*  Registry control is not NFT custody: a .eth registrant can
+            reclaim a node from its registry owner at any time. Only the
+            configured canonical wrapper can attest who owns the name NFT. */
+        (bool wok, bytes memory wret) = wrapper.staticcall(
             abi.encodeWithSelector(INameWrapperLike.ownerOf.selector, uint256(node)));
-        if (wok && wret.length == 32) {
-            address real = abi.decode(wret, (address));
-            if (real != address(0)) o = real;
-        }
+        if (!wok || wret.length != 32) return (0, false);
+        address o = abi.decode(wret, (address));
         if (o.code.length == 0) return (0, false);
 
         (bool ok, bytes memory ret) = o.staticcall(
