@@ -465,10 +465,9 @@ head("claim 8 · a sealed vault swaps a valuable NFT for a worthless one");
   await c.exec(NFT721, "mint(address,uint256)", [reach, 1]);      // the good one
   await c.exec(NFT721, "mint(address,uint256)", [me, 9999]);      // the junk one
   await c.exec(NFT721, "setApprovalForAll(address,bool)", [BROKER, true]);
-  await c.exec(reach, "guard(address)", [NFT721]);
   /* the approval is granted BEFORE the seal, which is the realistic case: a
      venue the vault already used, still approved when the seal went on. A
-     sealed account cannot grant a NEW one on a manifest asset, but nothing
+     sealed account cannot grant a NEW one on a promised asset, but nothing
      retracts the ones it already gave. */
   await c.exec(reach, "execute(address,uint256,bytes,uint8)",
     [NFT721, 0, enc("setApprovalForAll(address,bool)", [BROKER, true]), 0]);
@@ -477,6 +476,20 @@ head("claim 8 · a sealed vault swaps a valuable NFT for a worthless one");
      collection directly, so deny-by-default has nothing to refuse */
   await c.exec(reach, "guardNFT(address,uint256)", [NFT721, 1]);
   await c.exec(reach, "seal(uint64)", [evm.GENESIS_TIME + 200n * 86400n]);
+
+  let approvedWhileSealed = false;
+  try {
+    await c.exec(reach, "execute(address,uint256,bytes,uint8)",
+      [NFT721, 0, enc("approve(address,uint256)", [bob, 1]), 0]);
+    approvedWhileSealed = true;
+  } catch (e) { console.log("      guarded-piece approval: " + String(e.message).slice(0, 70)); }
+  if (approvedWhileSealed) {
+    reproduced("a guarded NFT can be approved for a deferred drain",
+      "guardNFT alone did not apply the sealed selector policy to its collection");
+  } else {
+    refuted("a guarded NFT can be approved for a deferred drain",
+      "guardNFT alone makes its collection a promised target while sealed");
+  }
 
   /*  The control, and it is the whole point of the claim: an identical
       vault that guards the COLLECTION but not the PIECE. If the swap goes
