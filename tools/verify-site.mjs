@@ -2287,6 +2287,15 @@ let gateAt = null;
   ok("`where would it land` answered from the kiln, nothing sent",
      !!landed, $("cpre").innerHTML.slice(0, 120));
 
+  $("cs").value = "</b><svg onload=alert(1)>";
+  await $("cchk").fire("click");
+  await nap(60);
+  ok("the launch preview renders a hostile symbol as text",
+     !$("cpre").innerHTML.includes("<svg") &&
+       $("cpre").innerHTML.includes("&lt;/b&gt;&lt;svg onload=alert(1)&gt;"),
+     $("cpre").innerHTML.slice(0, 180));
+  $("cs").value = "LNCH";
+
   /*──── the dynamic-fee guard, before any hook exists ────*/
   $("pq").value = usdc.toLowerCase();
   $("pp").value = "1";
