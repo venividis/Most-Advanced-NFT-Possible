@@ -731,6 +731,26 @@ head("the market picker, and the token list that is not fetched");
   ok("and from the directory",
      !dir2.body.includes(`href="/token/${far}/market"`),
      "a closed market is still being offered");
+
+  /*  The picker is intentionally bounded, but its displayed selection must
+      never disagree with the market ID used by the swap client. Fill the
+      first window, then request the next open market.                    */
+  while (Number(decUint(await c.read(nft, "totalSupply()"))) <= 40) {
+    await c.exec(nft, "mint()", [], { value: 10n ** 16n });
+  }
+  const opened = [];
+  for (let id = 2; id <= 41; ++id) {
+    const existing = await c.read(pool, "market(uint256)", [id]);
+    if (decUint(existing, 5) === 0n) {
+      await c.exec(pool, "openMarket(uint256,address,address,uint16)", [id, weth, dai, 30]);
+      opened.push(id);
+    }
+  }
+  const beyond = await GET(["token", "41", "market"]);
+  ok("a current market beyond the picker window is included and selected",
+     beyond.body.includes('<option value="41" selected>'),
+     "the picker would display a different market than the swap client uses");
+  for (const id of opened) await c.exec(pool, "closeMarket(uint256)", [id]);
 }
 
 head("the app parses as JavaScript");
