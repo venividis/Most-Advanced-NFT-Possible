@@ -2137,7 +2137,8 @@ head("driving the nameplate page");
   /*  And the same page against a resolver that does have one.        */
   const mockEns2 = await c.deploy(A("test/mocks/MockENS.sol", "MockENS").bytecode, "", "MockENS2");
   const plate2 = await c.deploy(A("src/Nameplate.sol", "Nameplate").bytecode,
-    encodeAddressArg(mockEns2) + encodeAddressArg(nft) + encodeAddressArg(site.premises),
+    encodeAddressArg(mockEns2) + encodeAddressArg(nft) + encodeAddressArg(site.premises) +
+      encodeAddressArg("0x" + "00".repeat(20)),
     "Nameplate3");
   const pName2 = await c.deploy(A("src/PageName.sol", "PageName").bytecode,
     encodeAddressArg(site.chrome) + encodeAddressArg(site.desk) +
@@ -2567,7 +2568,8 @@ head("the nameplate answers for the collection");
   /*  And one wired to a registry, for the full conversation. */
   const mockEns = await c.deploy(A("test/mocks/MockENS.sol", "MockENS").bytecode, "", "MockENS");
   const plate = await c.deploy(A("src/Nameplate.sol", "Nameplate").bytecode,
-    encodeAddressArg(mockEns) + encodeAddressArg(nft) + encodeAddressArg(site.premises),
+    encodeAddressArg(mockEns) + encodeAddressArg(nft) + encodeAddressArg(site.premises) +
+      encodeAddressArg("0x" + "00".repeat(20)),
     "Nameplate2");
 
   const label = (t) => "0x" + Buffer.from(keccak256(Buffer.from(t, "utf8"))).toString("hex");

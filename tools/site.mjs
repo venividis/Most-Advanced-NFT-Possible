@@ -297,7 +297,8 @@ export const UNISWAP = {
     wrapped: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     governor: ZERO, govToken: ZERO,
     poolManager: "0x000000000004444c5dc75cB358380D2e3dE08A90",
-    ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
+    ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
+    nameWrapper: "0xD4416b13d2b3a9aBae7AcD5D6C2BbDBE25686401"
   },
   8453: {
     name: "Base",
@@ -328,7 +329,8 @@ export const UNISWAP = {
     wrapped: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
     governor: ZERO, govToken: ZERO,
     poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
-    ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
+    ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
+    nameWrapper: "0xD4416b13d2b3a9aBae7AcD5D6C2BbDBE25686401"
   }
 };
 
@@ -803,7 +805,7 @@ export async function deploySite(c, A,
   const nameplate = await c.deploy(
     A("src/Nameplate.sol", "Nameplate").bytecode,
     encodeAddressArg(uniswap.ens || ZERO) + encodeAddressArg(hub) +
-    encodeAddressArg(premises), "Nameplate");
+    encodeAddressArg(premises) + encodeAddressArg(uniswap.nameWrapper || ZERO), "Nameplate");
 
   if (nameplate.toLowerCase() !== nameplateWillBe.toLowerCase()) {
     throw new Error(`the resolver landed at ${nameplate}, not the ${nameplateWillBe} ` +
