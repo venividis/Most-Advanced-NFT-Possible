@@ -284,6 +284,26 @@ contract LeaseTest is Test {
         assertEq(lease.owed(renter), PER_DAY * 9, "the renter's refund evaporated");
     }
 
+    /// @dev An owner can overwrite the user while preserving the exact expiry.
+    ///      The raw stored user must remain part of the integrity check even
+    ///      after ERC-4907 userOf intentionally starts returning zero.
+    function test_sameExpiryUserOverwriteStillRefundsAfterTheTermHasPassed() public {
+        _offer();
+        vm.prank(renter);
+        lease.rent{value: PER_DAY * 10}(1, 10, PER_DAY);
+
+        vm.warp(block.timestamp + 1 days);
+        lease.settle(1);
+        (, , uint64 until, , ) = lease.activeOf(1);
+        token.setUser(1, buyer, until);
+
+        vm.warp(block.timestamp + 30 days);
+        lease.settle(1);
+
+        assertEq(lease.earned(1), PER_DAY, "the holder kept nine days it never delivered");
+        assertEq(lease.owed(renter), PER_DAY * 9, "the same-expiry overwrite was hidden");
+    }
+
     /// @dev The bias when nobody was watching. The contract cannot know when
     ///      a lease broke, only the last block in which it was seen running
     ///      — so a holder who breaks one and never says so is credited for

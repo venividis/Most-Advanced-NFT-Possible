@@ -676,6 +676,13 @@ contract Ipseity is
         return _users[id].expires;
     }
 
+    /// @notice The stored ERC-4907 user, including after its term expires.
+    /// @dev Rental escrows use this together with userExpires to authenticate
+    ///      the record they installed after userOf has intentionally gone dark.
+    function rawUserOf(uint256 id) external view returns (address) {
+        return _users[id].user;
+    }
+
     /*═══════════════ binding · ERC-5192 / ERC-6454 ═══════════════*/
 
     function lock(uint256 id) external onlyOwner(id) {
