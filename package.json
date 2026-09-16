@@ -37,7 +37,7 @@
     "verify:instrument": "node tools/verify-instrument.mjs"
   },
   "dependencies": {
-    "@ethereumjs/common": "^10.1.2",
+    "@ethereumjs/common": "^10.1.3",
     "@ethereumjs/evm": "^10.1.2",
     "@ethereumjs/statemanager": "^10.1.2",
     "@ethereumjs/tx": "^10.1.2",
