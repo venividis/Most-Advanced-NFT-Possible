@@ -10,6 +10,12 @@
   migrate the conversation, it would end it.
 
       node tools/redeploy-site.mjs deployments/base-sepolia.json
+
+  Parley is normally retained because its address is the message archive.
+  A release that changes Parley's registry semantics must deliberately start
+  a new archive and rewire every new page to it:
+
+      node tools/redeploy-site.mjs deployments/base-sepolia.json --new-parley
 ───────────────────────────────────────────────────────────────────────────*/
 import fs from "node:fs";
 import path from "node:path";
@@ -21,11 +27,16 @@ import { deploySite, getter, UNISWAP } from "./site.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const recPath = process.argv[2];
 if (!recPath) throw new Error("which deployment? pass its record file");
+const newParley = process.argv.slice(3).includes("--new-parley");
+const unknown = process.argv.slice(3).filter((arg) => arg !== "--new-parley");
+if (unknown.length) throw new Error(`unknown option: ${unknown.join(" ")}`);
 const rec = JSON.parse(fs.readFileSync(recPath, "utf8"));
 
 const c = await RpcChain.open(rec.rpc, fs.readFileSync(path.join(ROOT, ".testnet-key"), "utf8").trim());
 console.log(`\n  chain ${c.chainId} · deployer ${c.from.toString()}`);
-console.log(`  keeping Parley ${rec.contracts.parley} — the conversation survives\n`);
+console.log(newParley
+  ? `  replacing Parley ${rec.contracts.parley} — new pages use the corrected registry\n`
+  : `  keeping Parley ${rec.contracts.parley} — the conversation survives\n`);
 
 const out = compile({ quiet: true, dirs: ["src", "test/mocks"] });
 const A = (f, n) => artifact(out, f, n);
@@ -39,11 +50,14 @@ const site = await deploySite(c, A, {
   pool: rec.contracts.pool,
   lease: rec.contracts.lease,
   sigil: rec.contracts.sigil,
-  parley: rec.contracts.parley,
+  ...(newParley ? {} : { parley: rec.contracts.parley }),
   ...(uni ? { uniswap: uni } : {})
 });
 
-rec.contracts = { ...rec.contracts, ...site, parley: rec.contracts.parley };
+if (newParley) {
+  rec.archivedParleys = [...(rec.archivedParleys || []), rec.contracts.parley];
+}
+rec.contracts = { ...rec.contracts, ...site };
 const tail = c.chainId === 1 ? "" : ":" + c.chainId;
 rec.urls = {
   door: `web3://${site.premises}${tail}/`,
