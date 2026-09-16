@@ -566,16 +566,15 @@ contract Pool {
 
         // the offsets are read, never rewritten: a trade moves along the
         // curve and does not move the curve
-        out = Curve.amountOut(got, rIn, rOut, vIn, vOut, m.feeBps);
+        uint256 grossOut = Curve.amountOut(got, rIn, rOut, vIn, vOut, m.feeBps);
 
         // the curve prices against liquidity the pool does not hold, so the
         // pool states its maximum trade rather than promising what it cannot pay
-        if (out > (rOut * MAX_OUT_BPS) / BPS) revert TradeTooLarge();
-        if (out < minOut) revert Slippage(out, minOut);
-        if (out == 0) revert ZeroAmount();
+        if (grossOut > (rOut * MAX_OUT_BPS) / BPS) revert TradeTooLarge();
+        if (grossOut == 0) revert ZeroAmount();
 
         uint256 newIn = rIn + got;
-        uint256 newOut = rOut - out;
+        uint256 newOut = rOut - grossOut;
         if (newIn > Curve.MAX_RESERVE) revert ReserveOverflow();
 
         // the fee never leaves; it stays as reserve for whoever holds the id
@@ -591,7 +590,15 @@ contract Pool {
         }
         unchecked { tradeCount[id] += 1; }
 
-        _push(tokenOut, to, out);
+        // `minOut` is a promise about what reaches the recipient, not what
+        // leaves this contract. Fee-on-transfer output tokens otherwise let
+        // a swap pass its floor while delivering less than the trader
+        // authorised. Measure the same way inputs are measured. The reserve
+        // still falls by `grossOut`: any transfer tax is imposed after the
+        // pool has paid and cannot remain available to another trader.
+        out = _pushMeasured(tokenOut, to, grossOut);
+        if (out < minOut) revert Slippage(out, minOut);
+        if (out == 0) revert ZeroAmount();
 
         emit Swapped(id, msg.sender, baseIn, got, out, m.rBase, m.rQuote);
     }
@@ -684,6 +691,16 @@ contract Pool {
         (bool ok, bytes memory data) =
             token.call(abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
         if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TransferFailed();
+    }
+
+    function _pushMeasured(address token, address to, uint256 amount)
+        private returns (uint256 received)
+    {
+        uint256 before_ = IERC20(token).balanceOf(to);
+        _push(token, to, amount);
+        uint256 after_ = IERC20(token).balanceOf(to);
+        if (after_ < before_) revert TransferFailed();
+        received = after_ - before_;
     }
 
     function _pull(address token, uint256 amount) private returns (uint256 received) {

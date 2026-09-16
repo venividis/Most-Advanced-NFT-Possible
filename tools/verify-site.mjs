@@ -2167,6 +2167,8 @@ head("driving the nameplate page");
 
   const body = decString(await c.read(pName2, "namePage()"));
   ok("with a registry, the page offers to bind", /bind/i.test(body));
+  ok("resolver text is escaped before it reaches the name page DOM",
+     /const ESC=/.test(body) && /ESC\(s\)/.test(body) && /&lt;/.test(body));
 
   const dnsOf = (nm) => "0x" + nm.split(".").map(
     (l) => l.length.toString(16).padStart(2, "0") +
@@ -2317,9 +2319,13 @@ let gateAt = null;
        $("cpre").innerHTML.includes("&lt;/b&gt;&lt;svg onload=alert(1)&gt;"),
      $("cpre").innerHTML.slice(0, 180));
   $("cs").value = "LNCH";
+  await $("cchk").fire("click");
+  await nap(60);
 
   /*──── the dynamic-fee guard, before any hook exists ────*/
   $("pq").value = usdc.toLowerCase();
+  await $("pq").fire("change");
+  await nap(60);
   $("pp").value = "1";
   $("pfd").checked = true;
   await $("pfd").fire("change");
@@ -2683,9 +2689,9 @@ head("two tokens whisper through a sealed room");
   await nap(200);
   const $ = (i) => byId.get(i);
   ok("the DM page grew a seal bar", !!$("sealbar"));
-  ok("and the page itself warns that a key belongs to a wallet, not a token",
-     /changed hands|belongs to the wallet/.test(page.body),
-     "the contract-rendered page makes no mention of the gap");
+  ok("and the page itself says a sold token's key is invalidated",
+     /changes hands|returns to plaintext/.test(page.body),
+     "the contract-rendered page makes no mention of invalidation");
   {
     const sel = $("as");
     sel.value = String(tokA);
@@ -2731,23 +2737,11 @@ head("two tokens whisper through a sealed room");
     const claim = byId.get("sealst").textContent;
     ok("with both points on chain, the room arms itself", /^sealed/.test(claim), claim);
 
-    /*  The banner used to say "only #a and #b can read what is said here"
-        after checking nothing but the sender's own key. The private half is
-        derived from a wallet signature, so a token sold after publishing
-        leaves a key its previous holder can still derive — and a message
-        sealed to it is readable by the person who left. These two tokens
-        have never moved, so the honest claim is available and made; what
-        must never appear is the old promise about the other end.       */
-    /*  The claim must agree with the chain rather than with a hope: a token
-        that has never moved may be called settled, and one that has moved
-        must say how many times. Asserting the count rather than a case is
-        what makes this a test of the banner and not of the fixture.    */
-    const farMoved = decUint(await c.read(nft, "statsOf(uint256)", [tokB]), 1);
-    ok("and its claim agrees with what the chain says about that token",
-       farMoved === 0n
-         ? /never|since it was minted/.test(claim)
-         : new RegExp("changed hands " + farMoved + "\\b").test(claim),
-       `chain says ${farMoved} transfers; bar says: ${claim}`);
+    /*  Parley returns a point only while its publisher still owns the
+        token. Reaching the sealed state therefore proves both published
+        points belong to the current holders, regardless of transfer count. */
+    ok("and its claim agrees with the ownership-bound keys on chain",
+       /current holders/.test(claim), claim);
     ok("rather than promising something about the far end it never checked",
        !/only #\d+ and #\d+ can read/.test(claim), claim);
     byId.get("say").value = "the quiet part, out loud to exactly one token";
@@ -2825,12 +2819,12 @@ head("two tokens whisper through a sealed room");
       said = String(byId.get("sealst").textContent || "");
       if (/changed hands/.test(said)) break;
     }
-    ok("a key published before a sale is called out, not sealed over in silence",
-       /changed hands/.test(said), said);
-    ok("and the bar says so as a warning rather than as reassurance",
-       /det only w|\bw\b/.test(String(byId.get("sealbar").className || "")),
+    ok("a sale invalidates the departed holder's published key",
+       /has not published a key/.test(said), said);
+    ok("and the room falls back to plaintext until the buyer publishes",
+       !/\bw\b/.test(String(byId.get("sealbar").className || "")),
        String(byId.get("sealbar").className));
-    console.log("      a sold token keeps its published key \u2014 and the page says whose it is");
+    console.log("      a sold token's old key cannot receive new sealed messages");
   }
   console.log("      derived from a signature, sealed with WebCrypto, bytes to everyone else");
 }

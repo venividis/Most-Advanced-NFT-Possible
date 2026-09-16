@@ -45,11 +45,18 @@
     "@ethereumjs/vm": "^10.1.2",
     "@shaderfrog/glsl-parser": "^7.0.1",
     "ethereum-cryptography": "^3.2.0",
-    "solc": "^0.8.36",
+    "solc": "0.8.36",
     "terser": "^5.49.0"
   },
   "devDependencies": {
     "hardhat": "^2.29.1",
     "playwright": "^1.62.1"
-  }
+  },
+  "overrides": {
+    "tmp": "0.2.7"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "packageManager": "npm@11.4.2"
 }

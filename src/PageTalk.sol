@@ -167,7 +167,8 @@ contract PageTalk {
             "<p class=e>#", t, " has not published a sealing key, so anything sent here "
             "goes on chain as plain text and this page will not pretend otherwise. If "
             "its holder publishes one, messages between you become ciphertext that the "
-            "contract cannot read either.</p>"
+            "contract cannot read either. If the token changes hands, that key reads as "
+            "absent and the room returns to plaintext until its new holder publishes.</p>"
         );
     }
 
@@ -179,20 +180,15 @@ contract PageTalk {
             "with ECDH, seals the body with AES-GCM, and sends the ciphertext. The "
             "contract stores a flag saying the body is sealed and cannot read it; "
             "neither can anybody else with a node.</p>"
-            /*  The half that was missing, and it is the half that matters.
-                The private key is derived from a wallet signature, so it
-                belongs to a wallet rather than to a token — and a token
-                that has been sold has left its old wallet behind while its
-                published point stays where it was. This is stated by the
-                contract so it is on the page with JavaScript switched off;
-                the client reads the token's transfer count and says which
-                case this is.                                             */
+            /*  The private key belongs to the publishing wallet. Parley
+                therefore stops returning its point as soon as that wallet
+                no longer owns the token. Old ciphertext does not change,
+                but no new message is sealed to a departed holder.         */
             "<p class=w>A key belongs to the wallet that derived it, not to "
-            "the token that published it. If this token has changed hands since it "
-            "published, the person who held it then can still open what you seal to "
-            "that key, and the person holding it now cannot. A token that has never "
-            "moved has no such gap \xe2\x80\x94 and the bar under the composer says "
-            "which of the two this is.</p>"
+            "the token that published it. If this token changes hands, its point "
+            "immediately reads as absent and this room returns to plaintext until "
+            "the new holder publishes. Earlier ciphertext remains readable by the "
+            "wallets it was originally sealed to.</p>"
             "<p class=e>The key is derived from a signature, not generated and stored, "
             "so it is the same key in every browser you connect the same wallet in and "
             "there is nothing to back up. Publishing a different one makes every earlier "

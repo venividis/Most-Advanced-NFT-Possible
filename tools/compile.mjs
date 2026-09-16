@@ -8,6 +8,7 @@
 ───────────────────────────────────────────────────────────────────────────*/
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -62,7 +63,35 @@ export function compile({ quiet = false, dirs = ["src"] } = {}) {
     return { error: "not found: " + p };
   };
 
-  const out = JSON.parse(solc.compile(JSON.stringify(input), { import: findImport }));
+  /*  Most verification programs use the identical src + test/mocks graph.
+      viaIR takes minutes on the complete site, and npm check used to repeat
+      that work in every fresh Node process. The cache key covers the exact
+      standard-json input, compiler build and remapping file. All Solidity
+      imports currently live inside the requested directories; including the
+      remapping text makes a future path change invalidate rather than reuse.
+      Set IPSEITY_NO_COMPILE_CACHE=1 when measuring the compiler itself.     */
+  const inputJSON = JSON.stringify(input);
+  const cacheKey = createHash("sha256")
+    .update(solc.version()).update("\0")
+    .update(inputJSON).update("\0")
+    .update(remaps.map(([a, b]) => `${a}=${b}`).join("\n"))
+    .digest("hex");
+  const cacheDir = path.join(ROOT, "out", "compile-cache");
+  const cacheFile = path.join(cacheDir, cacheKey + ".json");
+  let out;
+  if (process.env.IPSEITY_NO_COMPILE_CACHE !== "1" && fs.existsSync(cacheFile)) {
+    try { out = JSON.parse(fs.readFileSync(cacheFile, "utf8")); }
+    catch { /* an interrupted writer is only a cache miss */ }
+  }
+  if (!out) {
+    out = JSON.parse(solc.compile(inputJSON, { import: findImport }));
+    if (process.env.IPSEITY_NO_COMPILE_CACHE !== "1") {
+      fs.mkdirSync(cacheDir, { recursive: true });
+      const tmp = cacheFile + `.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(out));
+      fs.renameSync(tmp, cacheFile);
+    }
+  }
 
   const errors = (out.errors || []).filter((e) => e.severity === "error");
   const warnings = (out.errors || []).filter((e) => e.severity === "warning");

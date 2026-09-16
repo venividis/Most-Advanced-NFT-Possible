@@ -177,7 +177,12 @@ interface IDataVerifier {
     /// @return oldHashes  what the payload hashed to before the re-seal
     /// @return newHashes  what it hashes to now
     /// @return sealedTo   the key it is now sealed to
-    function verifyTransfer(bytes calldata proof)
+    /// @dev `tokenId` and `recipient` are supplied by the collection rather
+    ///      than recovered only from attacker-controlled proof bytes. A
+    ///      verifier must bind its statement to both values; otherwise a
+    ///      valid re-sealing proof can be replayed for another token or can
+    ///      be paired with a transfer to a different recipient.
+    function verifyTransfer(uint256 tokenId, address recipient, bytes calldata proof)
         external view returns (bool ok, bytes32[] memory oldHashes, bytes32[] memory newHashes, bytes32 sealedTo);
 }
 

@@ -6,6 +6,7 @@ import {Engine} from "../src/Engine.sol";
 import {Sigil} from "../src/Sigil.sol";
 import {Renderer} from "../src/Renderer.sol";
 import {Ipseity, IRenderer} from "../src/Ipseity.sol";
+import {IDataVerifier} from "../src/interfaces/Standards.sol";
 import {Section} from "../src/lib/Types.sol";
 import {SSTORE2} from "../src/lib/SSTORE2.sol";
 import {Trig} from "../src/lib/Trig.sol";
@@ -14,6 +15,23 @@ import {GripVault} from "../src/GripVault.sol";
 import {ERC6551Registry} from "./mocks/ERC6551Registry.sol";
 import {MockVerifier} from "./mocks/MockVerifier.sol";
 import {MockReceiver} from "./mocks/MockReceiver.sol";
+import {Permit2ish} from "./mocks/Permit2ish.sol";
+
+contract ContextVerifier is IDataVerifier {
+    function verifyTransfer(uint256 tokenId, address recipient, bytes calldata proof)
+        external pure
+        returns (bool ok, bytes32[] memory oldHashes, bytes32[] memory newHashes, bytes32 sealedTo_)
+    {
+        (bytes32 oldHash, bytes32 newHash, bytes32 key, uint256 provedId, address provedRecipient) =
+            abi.decode(proof, (bytes32, bytes32, bytes32, uint256, address));
+        oldHashes = new bytes32[](1);
+        newHashes = new bytes32[](1);
+        oldHashes[0] = oldHash;
+        newHashes[0] = newHash;
+        sealedTo_ = key;
+        ok = provedId == tokenId && provedRecipient == recipient;
+    }
+}
 
 /*───────────────────────────────────────────────────────────────────────────
   The Solidity-side suite.
@@ -337,6 +355,14 @@ contract IpseityTest is Test {
         assertEq(amount, 0.05 ether);
     }
 
+    /// @dev ERC-2981 accepts any uint256 sale price. Computing the percentage
+    ///      with a 256-bit intermediate used to revert near the top of that
+    ///      range even though the final royalty fits comfortably.
+    function test_royaltyDoesNotOverflowForMaximumSalePrice() public view {
+        (, uint256 amount) = token.royaltyInfo(1, type(uint256).max);
+        assertEq(amount, type(uint256).max / 20);
+    }
+
     /*═════════════════ ERC-173 ═════════════════*/
 
     /// @dev One-step handover is how collections lose their admin forever:
@@ -375,6 +401,32 @@ contract IpseityTest is Test {
         assertTrue(made.code.length > 0);
     }
 
+    /// @dev Permit2 names the spender in its second ABI argument. Merely
+    ///      allowlisting Permit2 as a session target must not let the key
+    ///      grant arbitrary third parties standing custody authority.
+    function test_sessionPermit2ApprovalChecksTheActualSpender() public {
+        uint256 id = _mint(alice);
+        IpseityAccount reach = IpseityAccount(payable(token.embody(id)));
+        Permit2ish permit2 = new Permit2ish();
+        address key = address(0x515510);
+        address spender = address(0xBAD);
+        bytes4 approve4 = bytes4(keccak256("approve(address,address,uint160,uint48)"));
+
+        address[] memory targets = new address[](1);
+        targets[0] = address(permit2);
+        bytes4[] memory selectors = new bytes4[](1);
+        selectors[0] = approve4;
+        vm.prank(alice);
+        reach.grantSession(key, uint64(block.timestamp + 1 days), 0, targets, selectors);
+
+        vm.prank(key);
+        vm.expectRevert(abi.encodeWithSelector(IpseityAccount.SpenderNotAllowed.selector, spender));
+        reach.executeAsSession(
+            address(permit2), 0,
+            abi.encodeWithSelector(approve4, address(token), spender, uint160(1), uint48(block.timestamp + 1 days))
+        );
+    }
+
     /*═════════════════ the sealed kernel ═════════════════*/
 
     function test_kernelTransferNeedsAProofAboutThisPayload() public {
@@ -399,6 +451,49 @@ contract IpseityTest is Test {
         assertEq(token.ownerOf(id), bob);
         assertEq(token.sealedTo(id), bytes32(uint256(2)));
         assertEq(token.dataHashesOf(id)[0], h2);
+    }
+
+    function test_kernelProofIsBoundToTokenAndRecipientContext() public {
+        uint256 id = _mint(alice);
+        token.setVerifier(new ContextVerifier());
+        bytes32 h1 = keccak256("one");
+        bytes32 h2 = keccak256("two");
+        bytes32[] memory hashes = new bytes32[](1);
+        hashes[0] = h1;
+
+        vm.prank(alice);
+        token.sealKernel(id, hashes, bytes32(uint256(1)));
+
+        // A valid proof made for Alice cannot be paired with Bob as the
+        // transfer argument, even though its old payload hash is correct.
+        bytes memory replay = abi.encode(h1, h2, bytes32(uint256(2)), id, alice);
+        vm.prank(alice);
+        vm.expectRevert(Ipseity.ProofRejected.selector);
+        token.transferWithKernel(bob, id, replay);
+
+        vm.prank(alice);
+        token.transferWithKernel(
+            bob, id, abi.encode(h1, h2, bytes32(uint256(2)), id, bob));
+        assertEq(token.ownerOf(id), bob);
+    }
+
+    function test_kernelUsageGrantDoesNotOutliveApprovalOrSale() public {
+        uint256 id = _mint(alice);
+        address user = address(0xA63E7);
+
+        vm.prank(alice);
+        token.approve(bob, id);
+        vm.prank(bob);
+        vm.expectRevert(Ipseity.NotHolder.selector);
+        token.authorizeUsage(id, user);
+
+        vm.prank(alice);
+        token.authorizeUsage(id, user);
+        assertTrue(token.usageAuthorised(id, user));
+
+        vm.prank(alice);
+        token.transferFrom(alice, bob, id);
+        assertFalse(token.usageAuthorised(id, user), "seller's usage grant survived the sale");
     }
 
     function test_cloneRecordsItsParent() public {

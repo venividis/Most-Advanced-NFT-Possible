@@ -43,6 +43,7 @@ const recordPath = arg("--record",
     : path.join(ROOT, "deployments/base-sepolia.json"));
 const record = JSON.parse(fs.readFileSync(recordPath, "utf8"));
 const PORT = Number(arg("--port", 8080));
+const HOST = arg("--host", "127.0.0.1");
 const PREMISES = record.contracts.premises;
 
 const c = await RpcChain.open(record.rpc, DEV_KEYS[0]);
@@ -57,11 +58,32 @@ if (c.chainId === 31337) {
   }
 }
 
-const body = (req) => new Promise((resolve) => {
+const MAX_REQUEST = 128 * 1024;
+const body = (req) => new Promise((resolve, reject) => {
   const chunks = [];
-  req.on("data", (d) => chunks.push(d));
+  let size = 0;
+  req.on("data", (d) => {
+    size += d.length;
+    if (size > MAX_REQUEST) {
+      reject(new Error("request body is too large"));
+      req.destroy();
+      return;
+    }
+    chunks.push(d);
+  });
   req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+  req.on("error", reject);
 });
+
+/*  This endpoint exists for pages to read through nodes that do not expose
+    CORS. It is not a general JSON-RPC relay: exposing admin/debug methods (or
+    even eth_sendRawTransaction) would turn a convenience gateway into a
+    public control plane for its configured node.                         */
+const PAGE_RPC = new Set([
+  "eth_blockNumber", "eth_call", "eth_chainId", "eth_estimateGas", "eth_gasPrice",
+  "eth_getBalance", "eth_getBlockByNumber", "eth_getCode", "eth_getLogs",
+  "eth_getStorageAt", "eth_getTransactionCount", "eth_getTransactionReceipt"
+]);
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -72,6 +94,10 @@ const server = http.createServer(async (req, res) => {
           is the exact bug shape this repository keeps meeting.          */
       const payload = JSON.parse(await body(req));
       res.writeHead(200, { "Content-Type": "application/json" });
+      if (!payload || !PAGE_RPC.has(payload.method)) {
+        return res.end(JSON.stringify({ jsonrpc: "2.0", id: (payload && payload.id) ?? 1,
+          error: { code: -32601, message: "method not available through the page gateway" } }));
+      }
       try {
         const result = await c.rpc(payload.method, payload.params || []);
         return res.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id ?? 1, result }));
@@ -108,11 +134,11 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   console.log(`
   serving ${PREMISES}
   from    ${record.rpc}  (chain ${c.chainId})
-  at      http://localhost:${PORT}/
+  at      http://${HOST}:${PORT}/
 
   Every page is an eth_call made when you ask. Stop this process and
   nothing is lost, because nothing is here.

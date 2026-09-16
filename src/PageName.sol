@@ -255,6 +255,13 @@ contract PageName {
         "(()=>{const I=window.IP;if(!I)return;const $=I.$;"
         "const E=document.getElementById('N');if(!E)return;"
         "const N=JSON.parse(E.textContent),S=N.sel;"
+        /*  Resolver text is not trusted. In particular, contentcontract is
+            controlled by whoever controls the ENS resolver and is rendered
+            below with innerHTML on the same origin as wallet-enabled pages.
+            Escape at that boundary rather than relying on a resolver to be
+            polite.                                                       */
+        "const ESC=v=>String(v==null?'':v).replace(/[&<>\"']/g,c=>"
+        "({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));"
         /*  No registry, no controls, nothing to bind listeners to. */
         "if(!N.here)return;"
         /*  A slider and a box telling each other the truth. The box is
@@ -333,7 +340,7 @@ contract PageName {
         "o+='<div><span>addr \\u2014 ETH sent to the name lands here</span><b>'"
         "+a+'</b></div>'}"
         "if(tx){const s=I.STR(tx);if(s)"
-        "o+='<div><span>contentcontract</span><b>'+s+'</b></div>'}"
+        "o+='<div><span>contentcontract</span><b>'+ESC(s)+'</b></div>'}"
         "if(ow){const a=A20(ow);"
         "o+='<div><span>the registry says the name is</span><b>'"
         "+(a===ZA?'unregistered \\u2014 nothing to bind':a)+'</b></div>';"
