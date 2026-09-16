@@ -85,8 +85,16 @@ contract DeskSeal {
         /*  Keyed by token, because `derive` signs a sentence naming the token:
             one cached key compared against another token's published point
             raises a mismatch that never happened.                        */
-        "let KEY=null,MY={};"
-        "const seal=async h=>{if(!KEY)return{k:0,h:h};"
+        "let KEY=null,PEER=null,MY={};"
+        /*  A DM page can remain open across a transfer. The key observed by
+            `arm` is therefore only a snapshot, never authority for a later
+            send. Re-read immediately before every encryption and fail open
+            to plaintext if the registry now reports no key or a rotation. */
+        "const seal=async h=>{if(!KEY||!PEER)return{k:0,h:h};"
+        "const now=await onChain(OTHER);"
+        "if(!now||now.x!==PEER.x||now.y!==PEER.y){KEY=null;PEER=null;"
+        "say('#'+T.other+' no longer has the key this room armed with \\u2014 plaintext until reconnected',1);"
+        "return{k:0,h:h}}"
         "const iv=crypto.getRandomValues(new Uint8Array(12));"
         "const ct=new Uint8Array(await sub.encrypt({name:'AES-GCM',iv:iv},KEY,H2B(h)));"
         "return{k:1,h:B2H(iv)+B2H(ct)}};"
@@ -107,7 +115,7 @@ contract DeskSeal {
         "const say=(m,warn)=>{st.textContent=m;"
         "bar.className=warn?'det only w':'det only'};"
 
-        "const arm=async me=>{KEY=null;PL.out(async h=>({k:0,h:h}));btn.hidden=true;"
+        "const arm=async me=>{KEY=null;PEER=null;PL.out(async h=>({k:0,h:h}));btn.hidden=true;"
         "if(me==null){say('connect to seal this room');return}"
         "const theirs=await onChain(OTHER);"
         "const mineOn=await onChain(me);"
@@ -126,7 +134,7 @@ contract DeskSeal {
         "say('the key this wallet derives is not the one #'+me+' published \\u2014 "
         "publish again to seal, or send plaintext',1);return}"
         "if(!theirs){say('#'+T.other+' has not published a key \\u2014 plaintext until they do');return}"
-        "KEY=await pairKey(MY[me],theirs);PL.out(seal);"
+        "KEY=await pairKey(MY[me],theirs);PEER=theirs;PL.out(seal);"
 
         /*  What the banner may honestly claim.
 

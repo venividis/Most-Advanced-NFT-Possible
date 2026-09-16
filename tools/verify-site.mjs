@@ -2768,17 +2768,11 @@ head("two tokens whisper through a sealed room");
     ok("the other end derives the same secret and reads it", read,
        byId.get("sealst") ? byId.get("sealst").textContent : "no status");
   }
-  /*──── the case the old banner lied about ────*/
+  /*──── an armed page survives a transfer ────*/
   {
-    /*  tokB changes hands. Its published point stays exactly where it was,
-        and the wallet that derived it still can — so a sender must be told
-        that sealing to it seals to somebody who has left.              */
-    const before = decUint(await c.read(nft, "statsOf(uint256)", [tokB]), 1);
-    await buyer.exec(nft, "transferFrom(address,address,uint256)",
-      [buyer.from.toString(), renter.from.toString(), tokB]);
-    eq("the far token has moved again", 
-       decUint(await c.read(nft, "statsOf(uint256)", [tokB]), 1), before + 1n);
-
+    /*  Arm while B's key is current, then move B without reloading this
+        page. A callback that merely captured the AES key in `arm` would
+        keep encrypting to the former holder forever.                    */
     const p = await GET(["dm", String(tokB)]);
     mount(p.body);
     wallet(c);
@@ -2787,18 +2781,36 @@ head("two tokens whisper through a sealed room");
     const sel = byId.get("as");
     sel.value = String(tokA);
     await sel.fire("change");
-    let said = "";
-    for (let t = 0; t < 16; t++) {
+    for (let t = 0; t < 16 && !/^sealed/.test(String(byId.get("sealst").textContent)); t++) {
       await nap(250);
-      said = String(byId.get("sealst").textContent || "");
-      if (/changed hands/.test(said)) break;
     }
-    ok("a key published before a sale is called out, not sealed over in silence",
-       /changed hands/.test(said), said);
-    ok("and the bar says so as a warning rather than as reassurance",
+    ok("the page is armed before the recipient moves",
+       /^sealed/.test(String(byId.get("sealst").textContent)),
+       String(byId.get("sealst").textContent));
+
+    const before = decUint(await c.read(nft, "statsOf(uint256)", [tokB]), 1);
+    await buyer.exec(nft, "transferFrom(address,address,uint256)",
+      [buyer.from.toString(), renter.from.toString(), tokB]);
+    eq("the recipient moves while the page remains open",
+       decUint(await c.read(nft, "statsOf(uint256)", [tokB]), 1), before + 1n);
+
+    byId.get("say").value = "sent only after the recipient moved";
+    await byId.get("send").fire("click");
+    await nap(400);
+    const room = decUint(await c.read(site.parley,
+      "pairKey(uint256,uint256)", [tokA, tokB]));
+    const logs = (await c.getLogs({ address: site.parley })).filter((l) =>
+      l.topics && l.topics[1] && BigInt(l.topics[1]) === room);
+    const data = String(logs[logs.length - 1].data).replace(/^0x/, "");
+    eq("the send revalidates the recipient and refuses stale-key encryption",
+       Number(BigInt("0x" + data.slice(3 * 64, 4 * 64))), 0);
+    const said = String(byId.get("sealst").textContent || "");
+    ok("the still-open page explains that its armed key expired",
+       /no longer has the key/.test(said), said);
+    ok("and marks the downgrade as a warning",
        /det only w|\bw\b/.test(String(byId.get("sealbar").className || "")),
        String(byId.get("sealbar").className));
-    console.log("      a sold token keeps its published key \u2014 and the page says whose it is");
+    console.log("      every send rechecks the recipient key, even on a page left open");
   }
   console.log("      derived from a signature, sealed with WebCrypto, bytes to everyone else");
 }
