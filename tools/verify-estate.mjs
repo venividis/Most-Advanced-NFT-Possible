@@ -164,6 +164,11 @@ head("succession · two clocks, and what resets them");
   await heir.exec(succ, "summon(uint256)", [id]);
   eq("now the knock lands, and a second clock starts",
      decUint(await c.read(succ, "wouldPass(uint256)", [id])), 8n);
+  const opens = decUint(await c.read(succ, "opensAt(uint256)", [id]));
+  await refuses("a second knock cannot restart the notice",
+    () => thief.exec(succ, "summon(uint256)", [id]));
+  eq("and the first knock keeps its original deadline",
+     decUint(await c.read(succ, "opensAt(uint256)", [id])), opens);
 
   const fixedOpening = decUint(await c.read(succ, "opensAt(uint256)", [id]));
   await refuses("a stranger cannot restart the notice clock",
@@ -248,6 +253,8 @@ head("succession · the token actually passes");
   warp(opens + 1n);
   eq("both clocks run out and it reads as ready",
      decUint(await c.read(succ, "wouldPass(uint256)", [id])), 0n);
+  await refuses("a stranger cannot displace a claim that is ready",
+    () => thief.exec(succ, "summon(uint256)", [id]));
 
   /*  Anybody may push the button; only the named party can receive. A
       claim that only the heir can call is a claim that needs the heir to

@@ -804,16 +804,27 @@ contract IpseityAccount {
           transfer(address,uint256)                 0xa9059cbb
           transferFrom(address,address,uint256)     0x23b872dd
 
-      A call to anything NOT on the manifest is unrestricted. An approval on
-      an asset the seal never promised is an approval over something nobody
-      was promised, and refusing it would be theatre.
+      A call to anything NOT on either manifest is unrestricted. A guarded
+      piece promises its identity even when its collection is not separately
+      on the balance manifest, so calls to that collection receive the same
+      approval defence.
 
       The cost is real and worth stating: a holder who wants to `claim()` on
-      a manifest asset while sealed cannot. They can unguard it before
-      sealing, or not guard it. Deny-by-default means some legitimate things
-      are denied; that is what the word default is doing.                  */
+      a promised target while sealed cannot. They can remove its promises
+      before sealing, or not make them. Deny-by-default means some legitimate
+      things are denied; that is what the word default is doing.           */
     function _refuseUnlessSafe(address to, bytes calldata data) internal view {
-        if (!onManifest[to]) return;                 // not promised, not policed
+        bool promised = onManifest[to];
+        if (!promised) {
+            uint256 n = _pieces.length;
+            for (uint256 i; i < n; ++i) {
+                if (_pieces[i].collection == to) {
+                    promised = true;
+                    break;
+                }
+            }
+        }
+        if (!promised) return;                       // not promised, not policed
         if (data.length < 4) revert NotSafeWhileSealed(bytes4(0));
 
         bytes4 sel = bytes4(data[0:4]);

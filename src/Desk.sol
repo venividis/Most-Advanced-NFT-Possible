@@ -296,7 +296,11 @@ contract Desk {
         // by making a pool swap and catching the revert, which is not cheap,
         // and a node that defaults an eth_call to a small budget answers
         // "out of gas" to a question that had an answer.
-        "const call=async(to,data,gas)=>{const p=pv();if(!p)throw new Error('no wallet found');"
+        "const onChain=async p=>{const c=await p.request({method:'eth_chainId'});"
+        "if(BigInt(c)!==BigInt(D.chain))throw new Error("
+        "'your wallet is on chain '+BigInt(c)+' and this page is chain '+D.chain)};"
+        "const call=async(to,data,gas)=>{const p=await IW.choose();"
+        "if(!p)throw new Error('no wallet found');await onChain(p);"
         "const o={to:to,data:data};if(gas)o.gas='0x'+BigInt(gas).toString(16);"
         "const r=await p.request({method:'eth_call',params:[o,'latest']});"
         "if(!r||r.length<66)throw new Error('the call returned nothing');return r};"
@@ -308,9 +312,7 @@ contract Desk {
         "const connect=async()=>{const p=await IW.choose();"
         "if(!p)throw new Error('no wallet found');"
         "const a=await p.request({method:'eth_requestAccounts'});A=a[0];"
-        "const c=await p.request({method:'eth_chainId'});"
-        "if(BigInt(c)!==BigInt(D.chain))throw new Error("
-        "'your wallet is on chain '+BigInt(c)+' and this page is chain '+D.chain);"
+        "await onChain(p);"
         "document.querySelectorAll('.acct').forEach(e=>{"
         "e.textContent=A.slice(0,6)+'\\u2026'+A.slice(-4)});return p};"
         "const send=async(to,data,value)=>{const p=await connect();"

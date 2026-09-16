@@ -47,6 +47,7 @@ contract Locker {
 
     Lock[] private _locks;
     mapping(address => uint256[]) private _of;
+    bool private _entered;
     /// @notice How much of a token this vault currently holds under lock —
     ///         the number a launch page cites when it says "locked".
     mapping(address => uint256) public totalLocked;
@@ -66,13 +67,21 @@ contract Locker {
     error OnlyLonger();
     error TransferFailed();
     error NobodyThere();
+    error Reentrant();
+
+    modifier nonReentrant() {
+        if (_entered) revert Reentrant();
+        _entered = true;
+        _;
+        _entered = false;
+    }
 
     /*═══════════════════ locking ═══════════════════*/
 
     /// @notice Lock `amount` of `token` until `until`. What is recorded is
     ///         what actually arrived, measured, not what was asked for.
     function lock(address token, uint256 amount, uint64 until)
-        external returns (uint256 id)
+        external nonReentrant returns (uint256 id)
     {
         return _lock(token, amount, until);
     }
@@ -96,7 +105,7 @@ contract Locker {
     }
 
     /// @notice After the clock says so, and only to whoever locked it.
-    function claim(uint256 id) external {
+    function claim(uint256 id) external nonReentrant {
         Lock storage l = _locks[id];
         if (l.owner != msg.sender) revert NotYours();
         if (block.timestamp < l.until) revert NotYet(l.until);
@@ -150,7 +159,7 @@ contract Locker {
     function lockWithPermit(
         address token, uint256 amount, uint64 until,
         uint256 deadline, uint8 v, bytes32 r, bytes32 s
-    ) external returns (uint256 id) {
+    ) external nonReentrant returns (uint256 id) {
         token.call(abi.encodeWithSignature(
             "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)",
             msg.sender, address(this), amount, deadline, v, r, s));

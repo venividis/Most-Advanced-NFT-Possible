@@ -118,10 +118,11 @@ contract Parley {
     uint256 public groups;
 
     /// @notice A token's sealing key: an uncompressed P-256 public point.
-    ///         Zero means the token has not published one and cannot be
-    ///         written to in confidence.
-    mapping(uint256 => bytes32) public sealX;
-    mapping(uint256 => bytes32) public sealY;
+    /// @dev The publisher is recorded so a transfer immediately makes the
+    ///      old holder's reproducible key unavailable to sealing clients.
+    mapping(uint256 => bytes32) private _sealX;
+    mapping(uint256 => bytes32) private _sealY;
+    mapping(uint256 => address) private _sealOwner;
 
     /*───────────────────── what happened ─────────────────────*/
 
@@ -345,13 +346,29 @@ contract Parley {
     ///         signature rather than generating one it has to keep.
     function announce(uint256 token, bytes32 x, bytes32 y) external {
         _asToken(token);
-        sealX[token] = x;
-        sealY[token] = y;
+        _sealX[token] = x;
+        _sealY[token] = y;
+        _sealOwner[token] = HUB.ownerOf(token);
         emit Announced(token, x, y);
     }
 
     function keyOf(uint256 token) external view returns (bytes32 x, bytes32 y) {
-        return (sealX[token], sealY[token]);
+        return _currentKey(token);
+    }
+
+    /// @notice Zero after a transfer, until the current holder publishes.
+    function sealX(uint256 token) external view returns (bytes32) {
+        return _sealOwner[token] == _ownerOrZero(token) ? _sealX[token] : bytes32(0);
+    }
+
+    /// @notice Zero after a transfer, until the current holder publishes.
+    function sealY(uint256 token) external view returns (bytes32) {
+        return _sealOwner[token] == _ownerOrZero(token) ? _sealY[token] : bytes32(0);
+    }
+
+    function _currentKey(uint256 token) private view returns (bytes32 x, bytes32 y) {
+        if (_sealOwner[token] != _ownerOrZero(token)) return (bytes32(0), bytes32(0));
+        return (_sealX[token], _sealY[token]);
     }
 
     /// @notice Both sides of a pair in one call, because a client that is
@@ -362,7 +379,7 @@ contract Parley {
         uint256 n = tokens.length;
         xs = new bytes32[](n);
         ys = new bytes32[](n);
-        for (uint256 i; i < n; ++i) { xs[i] = sealX[tokens[i]]; ys[i] = sealY[tokens[i]]; }
+        for (uint256 i; i < n; ++i) { (xs[i], ys[i]) = _currentKey(tokens[i]); }
     }
 
     /*═══════════════════ what a client asks before it walks ═══════════════════*/

@@ -57,6 +57,7 @@ contract DeskLaunch {
             name does not survive is a cosmetic loss, and a length that does
             not match its body moves every following argument.            */
         "const ASCII=s=>String(s==null?'':s).replace(/[^\\x20-\\x7e]/g,'').slice(0,64);"
+        "const HTML=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');"
         "const HEX=s=>{let h='';for(let i=0;i<s.length;i++)"
         "h+=s.charCodeAt(i).toString(16).padStart(2,'0');return h};"
         // length word + body padded up to a whole number of words
@@ -129,7 +130,7 @@ contract DeskLaunch {
         "const r=await I.call(K.kiln,coinAtData(who,f.n,f.y,f.d,f.v,f.salt));"
         "landed='0x'+String(r).slice(26,66);"
         "$('cpre').innerHTML='<div><span>it would land at</span><b>'+landed+'</b></div>'"
-        "+'<div><span>supply</span><b>'+I.fmt(f.v,f.d,6)+' '+f.y+'</b></div>';"
+        "+'<div><span>supply</span><b>'+I.fmt(f.v,f.d,6)+' '+HTML(f.y)+'</b></div>';"
         "say('read from the launchpad \\u00b7 nothing sent','ok')});"
 
         "onc('cgo',async()=>{const f=form();"

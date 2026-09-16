@@ -226,7 +226,9 @@ contract Succession {
     /// @notice Knock. Anybody may — the successor is written down and does
     ///         not change because of who rang the bell, and a knock nobody
     ///         can make is a knock that needs the heir to still be
-    ///         watching on exactly the right day.
+    ///         watching on exactly the right day. The first knock stands
+    ///         until the owner cancels it; another caller cannot move the
+    ///         heir's deadline.
     function summon(uint256 id) external {
         Plan storage p = _plan[id];
         if (p.from == address(0)) revert NoPlan();

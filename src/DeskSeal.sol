@@ -128,34 +128,10 @@ contract DeskSeal {
         "if(!theirs){say('#'+T.other+' has not published a key \\u2014 plaintext until they do');return}"
         "KEY=await pairKey(MY[me],theirs);PL.out(seal);"
 
-        /*  What the banner may honestly claim.
-
-            Static-static ECDH is symmetric, and the private half here is
-            derived from a wallet signature rather than stored — so whoever
-            held a token when it published its point can still derive that
-            point's private key forever. If the token has since changed
-            hands, a message sealed to that point is readable by the person
-            who left and NOT by the person who arrived. The old banner said
-            'only #a and #b can read this' after checking only that the
-            sender's own key matched, which is a promise about the other
-            end that nothing here had established.
-
-            A token that has never moved settles it: its publisher is the
-            only holder it has ever had. A token that has moved cannot be
-            settled from on chain alone, so the page says that instead of
-            guessing.                                                     */
-        "let moved=null;"
-        "if(S.stats){const st=await I.tryCall(T.hub,S.stats+I.W(OTHER));"
-        "if(st)moved=I.word(st,1)}"
-        "if(moved===0n)"
-        "say('sealed \\u00b7 #'+T.other+' has held this key since it was minted, "
-        "so it is the key of whoever holds it now');"
-        "else if(moved===null)"
-        "say('sealed to the key #'+T.other+' published \\u2014 whether that is still "
-        "its holder could not be read just now',1);"
-        "else say('sealed to the key #'+T.other+' published, and that token has changed "
-        "hands '+moved+(moved===1n?' time':' times')+' \\u2014 a key published before a "
-        "sale can still be opened by whoever held it then',1);"
+        /*  Parley returns a point only while the wallet that published it
+            still owns the token. A sale makes `theirs` empty above, so
+            reaching here proves both points belong to the current holders. */
+        "say('sealed \\u00b7 both tokens published under their current holders');"
         "PL.repaint()};"
 
         "btn.addEventListener('click',async()=>{try{"

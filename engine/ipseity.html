@@ -441,7 +441,7 @@ pre.code b{color:var(--a);font-weight:400}
 <div id="coach"></div>
 
 <div id="nest"><div id="nestbox"><div id="nestbar"></div><iframe id="nestframe" title="This token, one section deeper"
-  sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe></div></div>
+  sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe></div></div>
 
 <aside id="sheet" aria-hidden="true">
   <div id="grip"></div>
@@ -2960,13 +2960,17 @@ BUILD.SIGN = m => {
         const here = digest712(aDomain(), "Attestation", aMsg(), aTypes);
         let there = "—", agrees = null;
         try {
-          there = await readSig(reach, "attestationDigest(string,bytes32)",
-                                [aMsg().purpose, aMsg().payload]);
+          const answer = await readSig(reach, "attestationDigest(string,bytes32)",
+                                       [aMsg().purpose, aMsg().payload]);
+          if(typeof answer !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(answer))
+            throw new Error("invalid attestation digest");
+          there = answer;
           agrees = String(there).toLowerCase() === String(here).toLowerCase();
         } catch {}
-        el.innerHTML = '<pre class="code">computed here  ' + here +
+        el.innerHTML = '<pre class="code"></pre>';
+        el.firstElementChild.textContent = "computed here  " + here +
           "\nthe vault says  " + there +
-          (agrees === null ? "" : "\n" + (agrees ? "they agree" : "THEY DISAGREE")) + "</pre>";
+          (agrees === null ? "" : "\n" + (agrees ? "they agree" : "THEY DISAGREE"));
       });
       $("#g-purp").addEventListener("input", showAttest);
       $("#g-pay").addEventListener("input", showAttest);

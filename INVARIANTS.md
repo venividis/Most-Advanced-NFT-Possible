@@ -703,16 +703,13 @@ selector and address by address, what it believes it permits.
 **112. A seal claims only what it checked.**
 The private half of a token's sealing key is derived from a wallet
 signature, so it belongs to a wallet and not to the token that published
-it. A token sold after publishing therefore leaves behind a key its former
-holder can still derive — and a message sealed to that key is readable by
-the person who left and not by the person who arrived. The bar used to say
-"only #a and #b can read what is said here" after verifying nothing but
-the sender's own key. It now reads the far token's transfer count and says
-which case this is: settled when the token has never moved, and a warning
-naming the number of sales when it has. The page states the same thing in
+it. Parley records who published each point and returns zero as soon as that
+wallet no longer owns the token. A sold token therefore receives no new
+sealed messages until its buyer publishes; earlier ciphertext remains with
+the wallets it was originally sealed to. The page states the same thing in
 contract-rendered prose, so it is true with JavaScript switched off.
 → `tools/verify-site.mjs` · *"its claim agrees with what the chain says about
-  that token"*, *"a key published before a sale is called out"*,
+  that token"*, *"a sale invalidates the departed holder's published key"*,
   `src/DeskSeal.sol`, `src/PageTalk.sol`
 
 **113. A warning arrives with the control that answers it.**
@@ -1097,6 +1094,14 @@ because a bare key cannot find its granting account without an indexer.
   grant, act, check, revoke, and its door"*, *"/k — the one surface
   where the actor is not the holder"*
 
+**150. The first knock fixes the inheritance deadline.**
+Once a summons starts the notice, another caller cannot replace its timestamp.
+Otherwise anybody could knock again just before the heir claims, restart the
+entire notice, and keep an unavailable owner's token from ever passing. Only
+the owner can cancel the pending summons by saying they are still here.
+→ `tools/verify-estate.mjs` · *"a stranger cannot displace a claim that is
+  ready"*, `src/Succession.sol` · `summon`
+
 ## Found by adversarial review, and fixed
 
 Five adversary lenses — an MEV searcher, a DeFi economist, a griefer, a rogue
@@ -1406,7 +1411,18 @@ the only two places membership changes. The suite opens a market on a token
 far past the first window and asserts it appears on page one.
 → `src/Pool.sol` · `openCount` / `openIds` · `tools/verify-site.mjs`
 
-**79. A royalty quote is defined across the whole ERC-2981 input domain.**
+**79. The provider that supplies transaction terms is the provider that
+signs them.**
+With several EIP-6963 announcers, taking the first one for `eth_call` and only
+then asking the person which wallet should send let two providers describe
+different chains and different transactions. Every shared client call now
+chooses the wallet first and refuses its wrong chain; the later send resolves
+the remembered choice, so an unchosen provider cannot substitute a recipient,
+price, quote, or limit for a transaction another wallet signs.
+→ `tools/verify-site.mjs` · *"chooses that same wallet before a
+transaction-building read"*
+
+**80. A royalty quote is defined across the whole ERC-2981 input domain.**
 `royaltyInfo` accepts a `uint256 salePrice`, so even a price near `2²⁵⁶ - 1`
 must return the configured fraction rather than reverting because the
 intermediate multiplication overflowed. The percentage uses full-precision
