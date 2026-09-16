@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RpcChain } from "./rpc.mjs";
+import { RpcChain, DEV_KEYS } from "./rpc.mjs";
 import { sel } from "./evm.mjs";
 import { PAGES, VIA, EXPECTED } from "./site.mjs";
 
@@ -28,8 +28,11 @@ const WRITE = process.argv.includes("--write");
 if (!recPath) throw new Error("which deployment? pass its record file");
 const rec = JSON.parse(fs.readFileSync(path.resolve(ROOT, recPath), "utf8"));
 
-const c = await RpcChain.open(rec.rpc,
-  fs.readFileSync(path.join(ROOT, ".testnet-key"), "utf8").trim());
+/* Recovery is read-only. Requiring the historical deployer's secret made the
+   tool least useful in exactly the incident it exists to handle: a lost key
+   or deployment host. Any syntactically valid local development key can make
+   eth_call, so use one unless the operator explicitly supplies another. */
+const c = await RpcChain.open(rec.rpc, process.env.PRIVATE_KEY || DEV_KEYS[0]);
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 

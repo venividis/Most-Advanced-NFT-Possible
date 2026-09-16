@@ -56,19 +56,29 @@ console.log("\n  \x1b[1mIPSEITY · testnet\x1b[0m");
 head("the node");
 const c = await RpcChain.open(RPC, KEY);
 const chainId = c.chainId;
+const journal = process.env.DEPLOYMENT_JOURNAL ||
+  path.join(ROOT, "dist", `deployment-${chainId}-${c.from.toString().slice(2)}.jsonl`);
+c.setJournal(journal);
 const bal = await c.balanceOf(c.from.toString());
 console.log(`      ${RPC}`);
 console.log(`      chain ${chainId} · deployer ${c.from.toString()}`);
 console.log(`      balance ${(Number(bal) / 1e18).toFixed(4)} ETH`);
+console.log(`      receipt journal ${path.relative(ROOT, journal)}`);
 
-/*  What this run actually needs, priced at this chain's own gas: two mints
-    at 0.01 ether each, ~70M gas of deployment with a 3x margin for fee
-    drift and any L2's data fee. On Base Sepolia at its usual fraction of a
-    gwei that lands near 0.021 ETH, almost all of it the mint value.     */
+/*  What this run actually needs, priced at this chain's own gas: two seed
+    mints and the measured full deployment with a fee-drift margin.      */
 const gasPrice = BigInt(await c.rpc("eth_gasPrice"));
 /*  1.5x on the gas half: enough for fee drift without demanding a faucet
     grant three times the run. The two seed mints dominate anyway.       */
-const need = 2n * 10n ** 14n + (90_000_000n * gasPrice * 15n) / 10n;
+/*  The complete contemporary deployment meters about 162M gas. The old
+    90M constant let a Sepolia run pass preflight and die after 56 mined
+    transactions. Budget 180M, then retain the same 1.5x fee-drift margin.
+    A high estimate is inconvenient; a half-deployment is irrecoverable
+    without a receipt journal and substantially more expensive.          */
+const deploymentGas = 180_000_000n;
+const need = 2n * 10n ** 14n + (deploymentGas * gasPrice * 15n) / 10n;
+console.log(`      preflight ${(Number(need) / 1e18).toFixed(4)} ETH ` +
+  `(180M gas, 1.5x fee margin, two seed mints)`);
 if (bal < need) {
   throw new Error(
     `fund the deployer first: it needs about ${(Number(need) / 1e18).toFixed(4)} ETH ` +
