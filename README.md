@@ -577,6 +577,11 @@ true, then attack it. [INVARIANTS.md](INVARIANTS.md) lists one hundred and thirt
 statements and names the test for each, plus thirteen known limitations that are
 documented rather than defended.
 
+The release remains a testnet candidate. [MAINNET_READINESS.md](MAINNET_READINESS.md)
+is the blocking checklist for audit, reproducible artifacts, custody, deployment,
+governance and the irreversible sealing ceremony; a working testnet is not a
+substitute for closing those gates.
+
 Writing an invariant down is not the same as running it. Nine of these were
 stated as Foundry `testFuzz_` properties and had never been executed, because
 Foundry cannot be installed in this environment. `tools/fuzz.mjs` runs them

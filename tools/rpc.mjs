@@ -14,6 +14,8 @@
 import { createLegacyTx } from "@ethereumjs/tx";
 import { createCustomCommon, Mainnet, Hardfork } from "@ethereumjs/common";
 import { hexToBytes, bytesToHex, privateToAddress } from "@ethereumjs/util";
+import fs from "node:fs";
+import path from "node:path";
 import { enc } from "./evm.mjs";
 
 /*  Node's global fetch does not read HTTP(S)_PROXY, so in an environment
@@ -82,6 +84,20 @@ export class RpcChain {
     this.nonce = null;
     this.gas = {};
     this.lastGas = 0n;
+    this.journalPath = null;
+  }
+
+  /*  A deployment journal contains public receipt data only: never the key,
+      signed transaction, or calldata. Keeping it append-only means an
+      interrupted public deployment still leaves an exact nonce/address/hash
+      trail that can be reconciled with the chain before anything resumes. */
+  setJournal(file) {
+    this.journalPath = path.resolve(file);
+    fs.mkdirSync(path.dirname(this.journalPath), { recursive: true });
+    fs.appendFileSync(this.journalPath, JSON.stringify({
+      kind: "session", chainId: this.chainId, deployer: this.from.toString(),
+      startingNonce: this.nonce.toString(), startedAt: new Date().toISOString()
+    }) + "\n", { mode: 0o600 });
   }
 
   static async open(url, keyHex) {
@@ -111,8 +127,9 @@ export class RpcChain {
           a better error than a mined failure — surface it.              */
       throw new Error(`${label || "tx"} would revert: ${e.message}`);
     }
+    const nonce = this.nonce;
     const tx = createLegacyTx({
-      nonce: this.nonce, gasPrice, gasLimit,
+      nonce, gasPrice, gasLimit,
       to: to || undefined,
       value: BigInt(value),
       data: hexToBytes(data.startsWith("0x") ? data : "0x" + data)
@@ -130,6 +147,15 @@ export class RpcChain {
     if (receipt.status !== "0x1") throw new Error(`${label || "tx"} reverted in ${receipt.transactionHash}`);
     const gas = BigInt(receipt.gasUsed);
     if (label) this.gas[label] = (this.gas[label] || 0n) + gas;
+    if (this.journalPath) {
+      fs.appendFileSync(this.journalPath, JSON.stringify({
+        kind: to ? "call" : "deploy", nonce: nonce.toString(),
+        label: label || (to ? "tx" : "deploy"), transactionHash: hash,
+        contractAddress: receipt.contractAddress || null,
+        blockNumber: BigInt(receipt.blockNumber).toString(),
+        gasUsed: gas.toString(), recordedAt: new Date().toISOString()
+      }) + "\n");
+    }
     return { gas, hash, address: receipt.contractAddress || null,
              block: BigInt(receipt.blockNumber) };
   }
