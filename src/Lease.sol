@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 interface IIpseityLease {
     function ownerOf(uint256 id) external view returns (address);
     function userOf(uint256 id) external view returns (address);
+    function rawUserOf(uint256 id) external view returns (address);
     function userExpires(uint256 id) external view returns (uint256);
     function leaseAgentOf(uint256 id) external view returns (address);
     function setUserVia(uint256 id, address user, uint64 expires) external;
@@ -52,15 +53,15 @@ interface IIpseityLease {
                                     token's, and the rest becomes the
                                     renter's to reclaim
 
-  "Broken" is not asserted by anyone. It is observed, from the expiry the
-  token still carries: an intact lease shows exactly the `until` this
-  contract set, a sold one shows zero because a transfer deletes the
-  record, and an overwritten one shows whatever replaced it. That signal
-  outlives the term, which matters more than it looks — `userOf` returns
-  zero after expiry for an intact lease and a broken one alike, so reading
-  breakage from it meant a lease broken on its first day vested in full to
-  the holder the moment the term ran out, and the renter's claim on the
-  nine days they never got expired quietly along with it.
+  "Broken" is not asserted by anyone. It is observed from the raw user and
+  expiry the token still carries: an intact lease shows exactly the renter
+  and `until` this contract set, while a transfer deletes the record and an
+  overwrite changes it. That raw record outlives the term, which matters
+  more than it looks — `userOf` returns zero after expiry for an intact
+  lease and a broken one alike, so reading breakage from it meant a lease
+  broken on its first day vested in full to the holder the moment the term
+  ran out, and the renter's claim on the nine days they never got expired
+  quietly along with it.
 
   The holder keeps the power to end a lease at any moment, and pays for it
   at exactly the rate they were being paid.
@@ -293,12 +294,12 @@ contract Lease {
         and the whole escrow was whether anybody happened to call `settle`
         in time. Nobody was going to.
 
-        So breakage is read from the expiry the token carries, which
-        survives the term: an intact lease still shows exactly the `until`
-        this contract set, a sold one shows zero because transfer deletes
-        the record, and an overwritten one shows whatever replaced it. The
-        elapsed share is clamped to the term so settling late cannot credit
-        the holder for time after it ended.                              */
+        So breakage is read from the raw user and expiry the token carries,
+        which survive the term: an intact lease still shows exactly the
+        renter and `until` this contract set, while a transfer deletes the
+        record and an overwrite changes it. The elapsed share is clamped to
+        the term so settling late cannot credit the holder for time after it
+        ended.                                                          */
     function _settle(uint256 id) private {
         Active memory a = activeOf[id];
         if (a.renter == address(0)) return;
@@ -365,7 +366,7 @@ contract Lease {
     ///      passed — which is the part that was wrong.
     function _intact(uint256 id, Active memory a) private view returns (bool) {
         if (HUB.userExpires(id) != a.until) return false;
-        if (block.timestamp < a.until && HUB.userOf(id) != a.renter) return false;
+        if (HUB.rawUserOf(id) != a.renter) return false;
         return true;
     }
 
