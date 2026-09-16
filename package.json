@@ -50,7 +50,7 @@
   },
   "devDependencies": {
     "hardhat": "^2.29.1",
-    "playwright": "^1.62.1"
+    "playwright": "^1.63.0"
   },
   "overrides": {
     "tmp": "0.2.7"
