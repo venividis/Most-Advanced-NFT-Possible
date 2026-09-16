@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 import { compile, artifact } from "./compile.mjs";
 import { enc, sel, decUint, decAddr, decBool, decString, encodeAddressArg } from "./evm.mjs";
 import { RpcChain, DEV_KEYS } from "./rpc.mjs";
+import { deploymentBudget } from "./deployment-budget.mjs";
 import { deploySite, getter, UNISWAP, bandArgs, bandOrWhole, bandFor } from "./site.mjs";
 import { keccak256 } from "ethereum-cryptography/keccak.js";
 
@@ -76,9 +77,12 @@ const gasPrice = BigInt(await c.rpc("eth_gasPrice"));
     A high estimate is inconvenient; a half-deployment is irrecoverable
     without a receipt journal and substantially more expensive.          */
 const deploymentGas = 180_000_000n;
-const need = 2n * 10n ** 14n + (deploymentGas * gasPrice * 15n) / 10n;
+const budget = deploymentBudget(chainId, gasPrice, deploymentGas);
+const need = budget.total;
 console.log(`      preflight ${(Number(need) / 1e18).toFixed(4)} ETH ` +
-  `(180M gas, 1.5x fee margin, two seed mints)`);
+  `(180M gas, 1.5x fee margin, two seed mints` +
+  (budget.l1Data ? `, ${(Number(budget.l1Data) / 1e18).toFixed(2)} ETH rollup L1-data reserve` : "") +
+  `)`);
 if (bal < need) {
   throw new Error(
     `fund the deployer first: it needs about ${(Number(need) / 1e18).toFixed(4)} ETH ` +
