@@ -330,7 +330,7 @@ export const UNISWAP = {
     governor: ZERO, govToken: ZERO,
     poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
     ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
-    nameWrapper: "0xD4416b13d2b3a9aBae7AcD5D6C2BbDBE25686401"
+    nameWrapper: "0x0635513f179D50A207757E05759CbD106d7dFcE8"
   }
 };
 
