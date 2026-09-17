@@ -124,7 +124,7 @@ contract PageName {
 
     function _card() private view returns (string memory) {
         if (PLATE.ENS() == address(0)) return _absent();
-        return string.concat(_terms(), _bind(), _parent());
+        return string.concat(_terms(), _bind(), _parent(), _clock());
     }
 
     /*  A chain with no registry. The resolver is here anyway, at the address
@@ -217,8 +217,13 @@ contract PageName {
             "<input id=npn placeholder=\"yourname.eth\">"
             "<div class=det id=npdet></div>"
             "<button class=go id=npgo>Claim it, once</button>"
-            "</div>"
+            "</div>";
+    }
 
+    /*  Expiry does not depend on whether the wildcard has been claimed.
+        Keep its warning and control outside that mutually exclusive card. */
+    function _clock() private pure returns (string memory) {
+        return
             "<h2>the clock</h2>"
             "<p class=w>A <code>.eth</code> name is rented. Sealing one in a "
             "token&#39;s grip means nobody can take it out &mdash; and means nothing "

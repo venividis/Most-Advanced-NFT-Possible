@@ -2247,6 +2247,21 @@ head("driving the nameplate page");
      dated.includes(new Date(then * 1000).toISOString().slice(0, 10)), dated.slice(0, 160));
   ok("and still says where it cannot renew", /no renewer set/i.test(dated), dated.slice(0, 160));
   console.log("      the expiry is read from the registrar the registry names");
+
+  /*  Claiming the wildcard changes only the wildcard card. The clock is
+      not conditional on that claim: indeed a renewer cannot be configured
+      until the claim exists, so a fresh configured page must still carry
+      the warning and its controls.                                    */
+  const controller2 = await c.deploy(A("test/mocks/MockRegistrar.sol", "MockController").bytecode,
+    BigInt(10n ** 16n).toString(16).padStart(64, "0"), "Controller3");
+  await c.exec(plate2, "claimParent(bytes32)", [node]);
+  await c.exec(plate2, "setRenewer(address)", [controller2]);
+  const claimedBody = decString(await c.read(pName2, "namePage()"));
+  ok("a claimed parent removes only the one-shot claim control",
+     /parent node/i.test(claimedBody) && !/id=npgo/.test(claimedBody));
+  ok("and a fresh page keeps the expiry warning once renewal is configured",
+     /<h2>the clock<\/h2>/i.test(claimedBody) && /id=nrn/.test(claimedBody) &&
+       /id=nrgo/.test(claimedBody));
 }
 
 head("driving the launchpad");
