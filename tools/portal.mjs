@@ -41,7 +41,9 @@
   returned is what goes out, with the status and the headers the contract
   chose. The one thing added is a strict allowlist of which headers may
   cross, because a contract that could set arbitrary response headers on a
-  shared origin could set cookies for its neighbours.
+  shared origin could set cookies for its neighbours. Contract documents are
+  also sandboxed into an opaque origin: scripts still run, but cannot use the
+  DOM cookie API to set parent-domain cookies for every portal host.
 
       node tools/portal.mjs --port 8080
       node tools/portal.mjs --port 8080 --domain ipseity.link
@@ -84,6 +86,14 @@ const BY_NAME = new Map(Object.entries(CHAINS).map(([id, c]) => [c.name, Number(
     of ERC-5219; a contract setting Set-Cookie on a shared origin is not.  */
 const ALLOW = new Set(["content-type", "cache-control", "content-language",
                        "content-disposition", "etag", "last-modified", "vary"]);
+
+/*  Header filtering cannot stop an active document from writing cookies with
+    `document.cookie`. A CSP sandbox without `allow-same-origin` gives every
+    contract document an opaque origin while `allow-scripts` preserves active
+    on-chain applications. In particular, it prevents one contract host from
+    filling the shared parent domain's cookie jar and denying service to all
+    of its siblings with an oversized Cookie request header.             */
+export const CONTRACT_CSP = "sandbox allow-scripts";
 
 const chains = new Map();
 async function chainFor(id) {
@@ -180,7 +190,10 @@ export async function serve(req, res) {
       `that are not a (status, body, headers) response.`);
   }
 
-  const headers = { "Content-Type": "text/html; charset=utf-8" };
+  const headers = {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": CONTRACT_CSP,
+  };
   for (const [k, v] of out.headers) {
     const key = String(k).toLowerCase();
     /*  A header value carrying CR or LF could end the header block and
