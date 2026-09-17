@@ -1309,6 +1309,8 @@ head("the door is the map, in a person's words");
       mint, priced in its own label, running the terminal's own word.  */
   ok("the ways in are on the door, rendered by the contract",
      page.body.includes("id=ways") && page.body.includes("OPEN A CONSOLE"));
+  ok("and the console door lets the router select this chain's first token",
+     page.body.includes('data-w=console href="/c"'));
   ok("and the mint stands at the gate with its price in the label",
      /id=mint1>mint the next one/.test(page.body));
   ok("and the terminal speaks from the door itself",
