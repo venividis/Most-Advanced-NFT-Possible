@@ -16,7 +16,7 @@ import { compile, artifact } from "./compile.mjs";
 import { Chain, encodeAddressArg, decUint } from "./evm.mjs";
 import { createAddressFromString } from "@ethereumjs/util";
 import { deploySite, encRequest, decResponse, LAYERZERO, endpointFor } from "./site.mjs";
-import { CHAINS, route } from "./portal.mjs";
+import { CHAINS, CONTRACT_CSP, route } from "./portal.mjs";
 
 let pass = 0, fail = 0;
 const ok = (n, c, d) => {
@@ -135,6 +135,12 @@ head("only headers that cannot hurt a shared origin cross");
   ok("and a header carrying a newline is dropped rather than written",
      /\[\\r\\n\]/.test(src) || /[\\]r[\\]n/.test(src),
      "no CR/LF guard found in portal.mjs");
+  ok("active contract documents run in a cookie-isolated opaque origin",
+     CONTRACT_CSP.split(/\s+/).includes("sandbox") &&
+       CONTRACT_CSP.split(/\s+/).includes("allow-scripts") &&
+       !CONTRACT_CSP.split(/\s+/).includes("allow-same-origin") &&
+       /["']Content-Security-Policy["']\s*:\s*CONTRACT_CSP/.test(src),
+     `unsafe contract CSP: ${CONTRACT_CSP}`);
   ok("the door carries no signing key and no code that could use one",
      !/privateToAddress|DEV_KEYS|sendRawTransaction|__wallet/.test(src),
      "portal.mjs references key material");
