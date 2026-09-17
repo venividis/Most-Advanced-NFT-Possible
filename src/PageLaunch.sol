@@ -289,7 +289,7 @@ contract PageLaunch {
             "setter and no owner, so the only thing that opens the gate is the clock. "
             "That is what makes a lock a lock rather than a promise: the pool itself "
             "will not process the withdrawal.</p>"
-            "<p class=e class=w><b>And the same two bits are what a trap looks like.</b> "
+            "<p class=\"e w\"><b>And the same two bits are what a trap looks like.</b> "
             "A hook that refuses withdrawals until Friday and a hook that refuses them "
             "forever are indistinguishable by address. The bits prove the power exists; "
             "nothing about them proves it will be used well. Read the hook, not just its "

@@ -1315,6 +1315,8 @@ head("the door is the map, in a person's words");
      page.body.includes("id=tin") && page.body.includes("id=tout"));
   ok("and the lore folds itself behind stars, script willing",
      page.body.includes("lore"));
+  ok("while warning paragraphs are excluded from lore folding",
+     page.body.includes("querySelectorAll('p.e:not(.w)')"));
 
   mount(page.body);
   globalThis.location = { href: "/" };

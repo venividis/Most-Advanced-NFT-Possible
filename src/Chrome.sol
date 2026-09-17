@@ -400,10 +400,10 @@ contract Chrome {
             "<code>data-call</code> came out of a contract, not out of this page's "
             "JavaScript, and you can check it against the ABI yourself.</p>"
             "<div id=s></div>"
-            /*  Every p.e on the page folds behind a star. Hover reads it, a
-                click pins it. With scripts off, nothing hides — the chips
+            /*  Explanatory p.e paragraphs fold behind a star, but warnings
+                remain visible. With scripts off, nothing hides — the chips
                 simply never appear, and the page reads as written.       */
-            "<script>(()=>{const l=document.querySelectorAll('p.e');"
+            "<script>(()=>{const l=document.querySelectorAll('p.e:not(.w)');"
             "const ps=l&&l.forEach?l:[];"
             "ps.forEach(p=>{if(!p.parentNode||!p.classList)return;"
             "const c=document.createElement('button');c.className='lore';"
