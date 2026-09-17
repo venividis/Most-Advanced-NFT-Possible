@@ -89,6 +89,7 @@ contract DeskTalk {
             "\",\"stats\":\"",   _s("statsOf(uint256)"),
             "\",\"invite\":\"",  _s("invite(uint256,uint256,uint256)"),
             "\",\"evict\":\"",   _s("evict(uint256,uint256,uint256)"),
+            "\",\"supply\":\"",  _s("totalSupply()"),
             "\",\"inWin\":\"",   _s("inWindow(uint256,uint256)"),
             "\",\"invWin\":\"",  _s("invitedInWindow(uint256,uint256)"),
             "\",\"stewOf\":\"",  _s("stewardedBy(uint256,uint256,uint256)"),
@@ -410,8 +411,9 @@ contract DeskTalk {
             offered to everyone and answered for by the chain.          */
         "const roster=async()=>{const box=$('roster');if(!box||!T.roster)return;"
         "const me=K.me();"
+        "const z=await I.call(T.hub,S.supply),supply=Number(I.word(z,0));"
         "let mem=[],pend=[];"
-        "for(let base=1;base<4096;base+=256){"
+        "for(let base=1;base<=supply;base+=256){"
         "const r=await I.tryCall(T.roster,S.inWin+I.W(T.room)+I.W(base));"
         "if(!r)break;const bits=I.word(r,0);"
         "const p=await I.tryCall(T.roster,S.invWin+I.W(T.room)+I.W(base));"
@@ -419,7 +421,7 @@ contract DeskTalk {
         "for(let i=0;i<256;i++){"
         "if((bits>>BigInt(i))&1n)mem.push(base+i);"
         "if((pbits>>BigInt(i))&1n)pend.push(base+i)}"
-        "if(bits===0n&&pbits===0n&&base>1)break}"
+        "}"
         "if(!mem.length){box.textContent='nobody has walked in yet';return}"
         "box.innerHTML='';"
 
