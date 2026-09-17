@@ -700,6 +700,13 @@ sends the page's own calldata, and then asks the account, selector by
 selector and address by address, what it believes it permits.
 → `tools/verify-site.mjs` · *"driving the session keys"*, `src/PageKeys.sol`
 
+**111a. Claiming the wildcard does not hide its expiry clock.**
+The wildcard claim card is conditional because its button is one-shot. The
+expiry warning and permissionless renewal control are not: they remain in a
+freshly rendered name page after the parent is claimed and a renewer is set.
+→ `tools/verify-site.mjs` · *"a fresh page keeps the expiry warning once
+renewal is configured"*, `src/PageName.sol`
+
 **112. A seal claims only what it checked.**
 The private half of a token's sealing key is derived from a wallet
 signature, so it belongs to a wallet and not to the token that published
