@@ -130,22 +130,25 @@ const doMod = (k, p) =>
 
 /*═══════════════ the fee hook ═══════════════*/
 
-head("the fee a pool charges is read out of the artwork");
+head("the fee a pool charges is copied from the artwork by its owner");
 const FLOOR = 3000n, CEIL = 100000n;      // 0.30% .. 10%
+/*  A token is born with a section drawn from the block that carried the
+    mint, so put it at rest before the hook takes its initial snapshot. */
+await c.exec(nft, "commit(uint256,uint256)", [1, HALF << 96n]);
 const facet = await c.deploy(A("src/Facet.sol", "Facet").bytecode,
   encodeAddressArg(pm) + encodeAddressArg(nft) + w(1) + w(FLOOR) + w(CEIL), "Facet");
 {
-  /*  A token is born with a section drawn from the block that carried the
-      mint, so it is not at rest until it is put there.                 */
-  await c.exec(nft, "commit(uint256,uint256)", [1, HALF << 96n]);
   eq("at rest the pool charges exactly the floor",
      decUint(await c.read(facet, "fee()")), FLOOR);
 
   /*  Turn the solid a quarter, which genuinely tips the cut plane. */
   const turned = (16384n << 48n) | (HALF << 96n) | (0n << 112n);
   await c.exec(nft, "commit(uint256,uint256)", [1, turned]);
+  eq("turning the artwork alone does not move somebody else's fee",
+     decUint(await c.read(facet, "fee()")), FLOOR);
+  await c.exec(facet, "syncFee()", []);
   const raised = decUint(await c.read(facet, "fee()"));
-  ok("turning the solid raises it", raised > FLOOR, `${FLOOR} -> ${raised}`);
+  ok("the owner's sync raises it", raised > FLOOR, `${FLOOR} -> ${raised}`);
   ok("and never past the ceiling it was built with", raised <= CEIL, String(raised));
 
   const r = await c.read(facet, "reading()", []);
@@ -154,7 +157,22 @@ const facet = await c.deploy(A("src/Facet.sol", "Facet").bytecode,
 
   /*  Back to rest: the promise the whole curve library is built around. */
   await c.exec(nft, "commit(uint256,uint256)", [1, HALF << 96n]);
+  await c.exec(facet, "syncFee()", []);
   eq("returned to rest, it is the floor again", decUint(await c.read(facet, "fee()")), FLOOR);
+
+  const renter = await c.as("0x" + "22".repeat(32));
+  await c.exec(nft, "setUser(uint256,address,uint64)",
+    [1, renter.from.toString(), evm.BLOCK.header.timestamp + 3600n]);
+  await renter.exec(nft, "commit(uint256,uint256)", [1, turned]);
+  eq("an ERC-4907 renter cannot move the snapshotted fee",
+     decUint(await c.read(facet, "fee()")), FLOOR);
+  await refuses("nor may that renter synchronize the fee",
+    () => renter.exec(facet, "syncFee()", []),
+    "the artwork operator crossed the token-owner boundary");
+  await c.exec(facet, "syncFee()", []);
+  ok("the token owner can approve the same section", decUint(await c.read(facet, "fee()")) > FLOOR);
+  await c.exec(nft, "commit(uint256,uint256)", [1, HALF << 96n]);
+  await c.exec(facet, "syncFee()", []);
 }
 
 head("and the pool actually charges it");
@@ -178,9 +196,10 @@ head("and the pool actually charges it");
 
   const turned = (16384n << 48n) | (HALF << 96n);
   await c.exec(nft, "commit(uint256,uint256)", [1, turned]);
+  await c.exec(placed, "syncFee()", []);
   await doSwap(key(DYNAMIC, placed));
   const after = decUint(await c.read(pm, "lastFeeCharged()"));
-  ok("turning the artwork changed what the next swap paid, on chain",
+  ok("syncing the artwork changed what the next swap paid, on chain",
      after > FLOOR, `${FLOOR} -> ${after}`);
   await c.exec(nft, "commit(uint256,uint256)", [1, HALF << 96n]);
 }

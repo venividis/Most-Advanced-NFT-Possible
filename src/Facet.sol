@@ -31,8 +31,8 @@ struct SwapParams {
 
   FACET — the pool charges what the solid is doing
 
-  A coin launched from a token gets a Uniswap v4 pool whose FEE is read,
-  on every swap, out of that token's four-dimensional section.
+  A coin launched from a token gets a Uniswap v4 pool whose FEE is copied
+  from that token's four-dimensional section when its owner asks.
 
   Turn the solid so the cutting 3-space stays where it was and the pool is
   cheap. Turn it until the section is far from where it started and the
@@ -68,9 +68,9 @@ struct SwapParams {
   `Curve.concentration` is measured off the engine's own distance
   functions: a real section volume for a real cut plane, per solid. The
   token's own AMM in Pool.sol already prices against it. This hook reads
-  the same number, so a holder who turns their solid moves both markets in
-  the same direction, for the same reason, and neither can disagree with
-  what the artwork is showing.
+  the same number into an owner-controlled snapshot, so a holder who turns
+  their solid can move both markets in the same direction without giving
+  an ERC-4907 renter control of somebody else's liquidity.
 
   At rest — the section untouched and centred — concentration is zero on
   every solid, so the pool charges exactly FLOOR. That is the promise the
@@ -99,6 +99,12 @@ contract Facet {
     /// @notice The collection, and the token whose section sets the fee.
     IHubSection public immutable HUB;
     uint256 public immutable TOKEN;
+    /// @notice The section captured when this hook was deployed. Kept in
+    ///         bytecode so selector-faithful test placement preserves it.
+    uint256 public immutable INITIAL_SECTION;
+
+    uint256 private _section;
+    bool private _synced;
 
     /// @notice The fee at rest, and the fee at the furthest cut. Both fixed
     ///         at deployment, in hundredths of a basis point.
@@ -106,6 +112,7 @@ contract Facet {
     uint24 public immutable CEILING;
 
     error NotTheManager();
+    error NotTokenOwner();
     error NotDynamic();
     error BadBand();
 
@@ -116,6 +123,7 @@ contract Facet {
         MANAGER = manager;
         HUB = hub;
         TOKEN = token;
+        INITIAL_SECTION = hub.sectionOf(token);
         FLOOR = floor_;
         CEILING = ceiling_;
     }
@@ -127,11 +135,23 @@ contract Facet {
 
     /*═══════════════════ the fee, as a public reading ═══════════════════*/
 
+    /// @notice The owner-approved section that controls the next swap.
+    function section() public view returns (uint256) {
+        return _synced ? _section : INITIAL_SECTION;
+    }
+
+    /// @notice Copy the artwork's current section into the fee calculation.
+    /// @dev    ERC-4907 users may operate the artwork, but only the current
+    ///         token owner may make that operation financially effective.
+    function syncFee() external {
+        if (msg.sender != HUB.ownerOf(TOKEN)) revert NotTokenOwner();
+        _section = HUB.sectionOf(TOKEN);
+        _synced = true;
+    }
+
     /// @notice What the next swap will pay, in hundredths of a basis point.
-    /// @dev    A `view`, so a page can show the number before anybody
-    ///         trades and a trader can check it against the artwork.
     function fee() public view returns (uint24) {
-        uint256 c = Curve.concentration(HUB.sectionOf(TOKEN));
+        uint256 c = Curve.concentration(section());
         uint256 span = uint256(CEILING) - uint256(FLOOR);
         return uint24(uint256(FLOOR) + (span * c) / Curve.MAX_CONCENTRATION);
     }
@@ -140,10 +160,10 @@ contract Facet {
     ///         explain than assert.
     function reading()
         external view
-        returns (uint256 section, uint256 concentration, uint24 now_, uint24 floor_, uint24 ceiling_)
+        returns (uint256 section_, uint256 concentration, uint24 now_, uint24 floor_, uint24 ceiling_)
     {
-        section = HUB.sectionOf(TOKEN);
-        concentration = Curve.concentration(section);
+        section_ = section();
+        concentration = Curve.concentration(section_);
         now_ = fee();
         floor_ = FLOOR;
         ceiling_ = CEILING;
