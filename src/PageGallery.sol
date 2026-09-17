@@ -54,7 +54,9 @@ contract PageGallery {
         uint256 from = supply - skip;                  // newest first
         uint256 to = from > PER_PAGE ? from - PER_PAGE : 0;
         out = "<div class=gal>";
-        for (uint256 id = from; id > to; --id) out = string.concat(out, _cell(id));
+        for (uint256 ordinal = from; ordinal > to; --ordinal) {
+            out = string.concat(out, _cell(HUB.tokenByIndex(ordinal - 1)));
+        }
         return string.concat(out, "</div>");
     }
 

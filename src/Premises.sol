@@ -284,7 +284,7 @@ contract Premises {
             }
             return (
                 200,
-                string(IRendererDoc(HUB.renderer()).document(HUB.viewOf(1))),
+                string(IRendererDoc(HUB.renderer()).document(HUB.viewOf(HUB.tokenByIndex(0)))),
                 _headers(HTML)
             );
         }

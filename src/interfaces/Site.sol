@@ -15,6 +15,7 @@ import {TokenView} from "../lib/Types.sol";
 
 interface IHub {
     function totalSupply() external view returns (uint256);
+    function tokenByIndex(uint256 index) external view returns (uint256);
     function MAX_SUPPLY() external view returns (uint256);
     function COLLECTION() external view returns (uint256);
     function FIRST_ID() external view returns (uint256);
