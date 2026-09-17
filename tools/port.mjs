@@ -68,6 +68,9 @@ const b32 = (a) => String(a).toLowerCase().replace(/^0x/, "").padStart(64, "0");
 const hex = (t) => "0x" + Buffer.from(t, "utf8").toString("hex");
 
 const RPC = process.env.RPC_URL || "http://127.0.0.1:8545";
+const writes = verb === "deploy" || verb === "echo";
+if (writes && !process.env.PRIVATE_KEY)
+  throw new Error(`${verb} requires PRIVATE_KEY; refusing to sign with a public development key`);
 const KEY = process.env.PRIVATE_KEY || DEV_KEYS[0];
 
 const lzFor = (chainId) =>
