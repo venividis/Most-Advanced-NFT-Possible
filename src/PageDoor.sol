@@ -148,7 +148,7 @@ contract PageDoor {
             "<h2 id=ways-h>ways in</h2><ul id=ways class=r>"
             "<li><a data-w=see href=\"/gallery\">SEE THEM</a> &mdash; every token issued "
             "on this chain, drawn by the chain itself.</li>"
-            "<li><a data-w=console href=\"", supply == 0 ? "/door" : "/c/1",
+            "<li><a data-w=console href=\"", supply == 0 ? "/door" : "/c",
             "\">OPEN A CONSOLE</a> &mdash; one plain control room per token: turn it, "
             "hold, trade, hand on, speak, make, look. Yours once you connect; anyone "
             "may read.</li>"
