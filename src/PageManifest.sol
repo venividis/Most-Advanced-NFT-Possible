@@ -284,13 +284,14 @@ contract PageManifest {
     ///         offer. Paged for the same reason the directory page is.
     function index(uint256 page) external view returns (string memory) {
         uint256 supply = HUB.totalSupply();
-        uint256 from = page * PAGE + 1;
-        uint256 to = from + PAGE - 1;
-        if (to > supply) to = supply;
+        uint256 fromOrdinal = page * PAGE + 1;
+        uint256 toOrdinal = fromOrdinal + PAGE - 1;
+        if (toOrdinal > supply) toOrdinal = supply;
 
         string memory rows;
         bool first = true;
-        for (uint256 id = from; id <= to && id <= supply; ++id) {
+        for (uint256 ordinal = fromOrdinal; ordinal <= toOrdinal && ordinal <= supply; ++ordinal) {
+            uint256 id = HUB.tokenByIndex(ordinal - 1);
             bool marketOpen;
             bool rentable;
             if (address(POOL) != address(0)) (,,,,, marketOpen,,,,,,) = POOL.market(id);
@@ -308,9 +309,10 @@ contract PageManifest {
 
         return string.concat(
             _collection(supply),
-            ",\"window\":{\"from\":", from.str(), ",\"to\":", to.str(),
+            ",\"window\":{\"from\":", (HUB.FIRST_ID() + fromOrdinal - 1).str(),
+            ",\"to\":", (HUB.FIRST_ID() + toOrdinal - 1).str(),
             ",\"pageSize\":", PAGE.str(), ",\"page\":", page.str(),
-            ",\"more\":", to < supply ? "true" : "false",
+            ",\"more\":", toOrdinal < supply ? "true" : "false",
             ",\"next\":\"/services.json/", (page + 1).str(), "\"}",
             ",\"offering\":[", rows, "]}"
         );
