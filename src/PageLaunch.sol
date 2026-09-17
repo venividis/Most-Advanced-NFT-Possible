@@ -142,6 +142,10 @@ contract PageLaunch {
             "\",\"band\":\"", _sel("band(uint256,uint24,uint24)"),
             "\",\"facetArg\":\"", _sel("facetArg(uint256,uint24,uint24)"),
             "\",\"deployHook\":\"", _sel("deployHook(uint8,bytes32,bytes32)"),
+            "\",\"facetToken\":\"", _sel("TOKEN()"),
+            "\",\"facetHub\":\"", _sel("HUB()"),
+            "\",\"sectionOf\":\"", _sel("sectionOf(uint256)"),
+            "\",\"syncFee\":\"", _sel("syncFee(uint256)"),
             // six flat words: the five PoolKey fields then the price
             "\",\"initV4\":\"",
                 _sel("initialize((address,address,uint24,int24,address),uint160)"),
@@ -255,6 +259,10 @@ contract PageLaunch {
             "title=\"nothing to one hundred per cent\"></div>"
             "</div>"
             "<div class=det id=fsum></div>"
+            "<label>deployed Facet <span class=m>owner-only fee synchronization</span></label>"
+            "<input id=fha placeholder=\"0x... hook address\">"
+            "<button id=fsync>Synchronize fee to the current section</button>"
+            "<div class=det id=fsynced></div>"
             "</div>"
             "<button id=hmine>Find an address</button>"
             "<div class=det id=hmined></div>"
@@ -274,11 +282,13 @@ contract PageLaunch {
             "<p class=e>Two are offered here, and they are not alternatives to each "
             "other so much as answers to different questions. Pick the one whose "
             "question you are actually asking.</p>"
-            "<p class=e><b>The Facet</b> reads a token's four-dimensional section on "
-            "every swap and charges a fee from it &mdash; at rest, the floor you set; "
+            "<p class=e><b>The Facet</b> charges from an owner-approved snapshot of a "
+            "token's four-dimensional section &mdash; at rest, the floor you set; "
             "at the furthest cut, the ceiling. You are not typing a number into a form, "
-            "you are turning the artwork, and the pool follows because the artwork "
-            "<em>is</em> the parameter. It only attaches to a dynamic-fee pool, and a "
+            "you turn the artwork, then use <b>Synchronize fee</b> to make that exact "
+            "section effective. The expected section is included in the transaction, "
+            "so a renter cannot change it while your update is pending. It only attaches "
+            "to a dynamic-fee pool, and a "
             "dynamic-fee pool only works with a hook like it: v4 starts such a pool at "
             "zero and lets nothing but the hook move it, and a pool key cannot be "
             "edited afterwards. Choose one without the other and the pool is priced at "

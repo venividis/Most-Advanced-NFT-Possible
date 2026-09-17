@@ -113,6 +113,7 @@ contract Facet {
 
     error NotTheManager();
     error NotTokenOwner();
+    error SectionMoved();
     error NotDynamic();
     error BadBand();
 
@@ -143,9 +144,11 @@ contract Facet {
     /// @notice Copy the artwork's current section into the fee calculation.
     /// @dev    ERC-4907 users may operate the artwork, but only the current
     ///         token owner may make that operation financially effective.
-    function syncFee() external {
+    function syncFee(uint256 expectedSection) external {
         if (msg.sender != HUB.ownerOf(TOKEN)) revert NotTokenOwner();
-        _section = HUB.sectionOf(TOKEN);
+        uint256 liveSection = HUB.sectionOf(TOKEN);
+        if (liveSection != expectedSection) revert SectionMoved();
+        _section = expectedSection;
         _synced = true;
     }
 

@@ -182,9 +182,9 @@ contract DeskLaunch {
         "e.innerHTML='<div><span>your solid is</span><b>'"
         "+(Number(conc)*100/80000).toFixed(1)+'% of the way to its furthest cut</b></div>'"
         "+'<div><span>so the pool would charge</span><b>'+pc(now)+' right now</b></div>'"
-        "+'<div><span>and turning it moves that</span><b>'"
+        "+'<div><span>after the owner synchronizes, it moves</span><b>'"
         "+pc(g.floor)+' to '+pc(g.ceiling)+'</b></div>'"
-        "+'<div><span>nobody can set it by hand</span><b>no setter, no owner</b></div>'};"
+        "+'<div><span>between synchronizations</span><b>the fee stays fixed</b></div>'};"
         "['ft','ffl','fcl'].forEach(i=>{const e=$(i);"
         "if(e)e.addEventListener('input',()=>{fsum()})});"
 
@@ -195,6 +195,20 @@ contract DeskLaunch {
         "if($('hgo'))$('hgo').disabled=true;"
         "if(k)fsum();else gsum();psum()};"
         "const hk=$('hk');if(hk)hk.addEventListener('change',hshow);"
+
+        /*  Read the Facet's own immutable hub and token rather than trusting
+            form state left over from deployment. The live section is then
+            carried in the transaction as an expectation: if a renter changes
+            it between this read and mining, the contract reverts instead of
+            approving a section the owner never saw. */
+        "onc('fsync',async()=>{const hook=String($('fha').value||'').trim();"
+        "if(!/^0x[0-9a-fA-F]{40}$/.test(hook))throw new Error('paste the deployed Facet address');"
+        "const tr=await I.call(hook,S.facetToken),hr=await I.call(hook,S.facetHub);"
+        "const tok=I.word(tr,0),hub='0x'+String(hr).slice(26,66);"
+        "const sr=await I.call(hub,S.sectionOf+I.W(tok)),expected=I.word(sr,0);"
+        "const out=$('fsynced');if(out)out.innerHTML='<div><span>section approved</span><b>0x'"
+        "+expected.toString(16).padStart(64,'0')+'</b></div>';"
+        "await I.send(hook,S.syncFee+I.W(expected))});"
 
         /*  The search. Windows of sixty thousand, because an eth_call has a
             gas ceiling and a function that ignored it would fail at some
@@ -229,6 +243,7 @@ contract DeskLaunch {
             a fact about the kind rather than about the address: a Gate's
             beforeSwap returns a zero fee override for ever.             */
         "mined={salt:salt,at:at,arg:word,flags:flags,kind:kd,sets:kd===1};"
+        "if(kd===1&&$('fha'))$('fha').value=at;"
         "out.innerHTML='<div><span>found after</span><b>'+tried+' tried</b></div>'"
         "+'<div><span>the hook would live at</span><b>'+at+'</b></div>'"
         "+'<div><span>its low 14 bits</span><b>0x'"

@@ -146,7 +146,7 @@ const facet = await c.deploy(A("src/Facet.sol", "Facet").bytecode,
   await c.exec(nft, "commit(uint256,uint256)", [1, turned]);
   eq("turning the artwork alone does not move somebody else's fee",
      decUint(await c.read(facet, "fee()")), FLOOR);
-  await c.exec(facet, "syncFee()", []);
+  await c.exec(facet, "syncFee(uint256)", [turned]);
   const raised = decUint(await c.read(facet, "fee()"));
   ok("the owner's sync raises it", raised > FLOOR, `${FLOOR} -> ${raised}`);
   ok("and never past the ceiling it was built with", raised <= CEIL, String(raised));
@@ -157,7 +157,7 @@ const facet = await c.deploy(A("src/Facet.sol", "Facet").bytecode,
 
   /*  Back to rest: the promise the whole curve library is built around. */
   await c.exec(nft, "commit(uint256,uint256)", [1, HALF << 96n]);
-  await c.exec(facet, "syncFee()", []);
+  await c.exec(facet, "syncFee(uint256)", [HALF << 96n]);
   eq("returned to rest, it is the floor again", decUint(await c.read(facet, "fee()")), FLOOR);
 
   const renter = await c.as("0x" + "22".repeat(32));
@@ -167,12 +167,15 @@ const facet = await c.deploy(A("src/Facet.sol", "Facet").bytecode,
   eq("an ERC-4907 renter cannot move the snapshotted fee",
      decUint(await c.read(facet, "fee()")), FLOOR);
   await refuses("nor may that renter synchronize the fee",
-    () => renter.exec(facet, "syncFee()", []),
+    () => renter.exec(facet, "syncFee(uint256)", [turned]),
     "the artwork operator crossed the token-owner boundary");
-  await c.exec(facet, "syncFee()", []);
+  await refuses("and a renter cannot front-run the section the owner approved",
+    () => c.exec(facet, "syncFee(uint256)", [HALF << 96n]),
+    "the sync accepted a live section different from the owner's expectation");
+  await c.exec(facet, "syncFee(uint256)", [turned]);
   ok("the token owner can approve the same section", decUint(await c.read(facet, "fee()")) > FLOOR);
   await c.exec(nft, "commit(uint256,uint256)", [1, HALF << 96n]);
-  await c.exec(facet, "syncFee()", []);
+  await c.exec(facet, "syncFee(uint256)", [HALF << 96n]);
 }
 
 head("and the pool actually charges it");
@@ -196,7 +199,7 @@ head("and the pool actually charges it");
 
   const turned = (16384n << 48n) | (HALF << 96n);
   await c.exec(nft, "commit(uint256,uint256)", [1, turned]);
-  await c.exec(placed, "syncFee()", []);
+  await c.exec(placed, "syncFee(uint256)", [turned]);
   await doSwap(key(DYNAMIC, placed));
   const after = decUint(await c.read(pm, "lastFeeCharged()"));
   ok("syncing the artwork changed what the next swap paid, on chain",
@@ -402,6 +405,9 @@ head("so the client refuses it, and refuses the opposite too");
   ok("the deploy carries the kind the visitor chose",
      /S\.deployHook\+I\.W\(mined\.kind\)/.test(js),
      "deployHook was hard-coded to kind 0, so only a gate could ever be built");
+  ok("the launch page exposes the Facet synchronization transaction",
+     /S\.syncFee\+I\.W\(expected\)/.test(js) && /S\.sectionOf\+I\.W\(tok\)/.test(js),
+     "the owner cannot approve the displayed live section from the shipped UI");
   ok("and the Facet's word is packed by the contract that unpacks it",
      /S\.facetArg\+I\.W\(b\.token\)/.test(js),
      "the client packs the token/floor/ceiling word itself — an off-by-eight " +
