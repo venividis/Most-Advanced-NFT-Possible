@@ -44,12 +44,13 @@ contract DeskRooms {
         "T.def('roster','roster <room>',0,'who is in a room',async(a)=>{"
         "if(!X.roster)return'no roster wired on this deployment';"
         "const k=await I.call(X.parley,S.gkey+I.W(BigInt(a[0])));"
+        "const z=await I.call(X.hub,S.supply),supply=Number(I.word(z,0));"
         "let out=[];"
-        "for(let base=1;base<4096;base+=256){"
+        "for(let base=1;base<=supply;base+=256){"
         "const r=await I.tryCall(X.roster,S.inWin+k.slice(2)+I.W(base));"
         "if(!r)break;const bits=I.word(r,0);"
         "for(let i=0;i<256;i++)if((bits>>BigInt(i))&1n)out.push('#'+(base+i));"
-        "if(bits===0n&&base>1)break}"
+        "}"
         "return out.length?out.join(' '):'nobody is in that room'});"
         "})();";
 }
