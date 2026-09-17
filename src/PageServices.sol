@@ -261,7 +261,7 @@ contract PageServices {
     function _give(uint256 id, address grip) private pure returns (string memory) {
         return string.concat(
             "<h2 id=give>give</h2>"
-            "<p class=e>Paying into the Grip is not a donation to the holder. It is a "
+            "<p class=\"e w\">Paying into the Grip is not a donation to the holder. It is a "
             "donation to the <em>token</em>, permanently, and the only person it ever "
             "benefits is whoever holds the token &mdash; today and every day after. There "
             "is no way to undo it, including for you.</p>"

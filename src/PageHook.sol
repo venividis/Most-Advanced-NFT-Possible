@@ -88,7 +88,7 @@ contract PageHook {
             _hex4(f), "</code>. Read straight off the address with no call &mdash; and "
             "for the same reason, not falsifiable: the PoolManager tests these very bits "
             "to decide what to invoke.</p>"
-            "<p class=e class=w>What this cannot tell you is whether the powers are used "
+            "<p class=\"e w\">What this cannot tell you is whether the powers are used "
             "well. A hook that unlocks on Friday and one that never unlocks have the "
             "same address shape. This is the list of what to go and read.</p>"
             "<p><a class=g href=\"/launch\">back to the launchpad &rarr;</a></p>"

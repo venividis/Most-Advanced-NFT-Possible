@@ -231,7 +231,7 @@ contract PageSwap {
               "<code>deadline</code>. Your trade therefore expires: if it is still "
               "unmined when the deadline passes it reverts rather than filling at a "
               "price from another hour.</p>"
-            : "<p class=e class=w>This deployment sends to <code>SwapRouter02</code>, "
+            : "<p class=\"e w\">This deployment sends to <code>SwapRouter02</code>, "
               "whose <code>exactInputSingle</code> has <em>no deadline field at all</em>. "
               "The router does offer one, behind <code>multicall(uint256,bytes[])</code>, "
               "and that argument is a dynamic array of dynamic bytes &mdash; unreachable "
