@@ -119,24 +119,16 @@ contract Nameplate {
       which is the wrong answer for four fifths of an edition that was
       deliberately partitioned.
 
-      The partition is also the fix. Every id belongs to exactly one chain
-      by arithmetic, so the name needs no chain syntax at all: `1500.<name>`
-      is a Base token because 1500 is in Base's band, and a reader types
-      nothing they would have to be told. What the resolver cannot derive is
-      where the other four deployments sit, because those addresses did not
-      exist when it was constructed. That is the only thing a station holds.
-
-      The local chain needs no station: PREMISES and HUB are immutables, so
-      the deployment the resolver sits in always answers. Stations are for
-      the other four, they are write-once, and the authorisation is the ENS
-      registry's opinion of who owns the parent — the same mailbox rule the
-      parent slot already uses, not an admin.                            */
+      The single-chain edition is also the fix. Every id belongs to Ethereum,
+      so the name needs no chain syntax at all and a reader types nothing they
+      would have to be told. Stations predate the Ethereum-only
+      edition and remain ABI-compatible, but `_bandFirst` now rejects every
+      non-Ethereum chain, so they cannot advertise a second production home. */
     struct Station { address premises; address hub; }
     mapping(uint256 => Station) public stationOf;      // chainId → deployment
 
-    /// @notice The edition, tiled across five chains. Must agree with
-    ///         `BANDS` in tools/site.mjs, which the suite checks tiles
-    ///         1..4096 exactly once with no hole and no overlap.
+    /// @notice The Ethereum-only edition size. Must agree with `BANDS` in
+    ///         tools/site.mjs.
     uint256 internal constant EDITION = 4096;
 
     event StationSet(uint256 indexed chainId, address premises, address hub);
@@ -526,29 +518,19 @@ contract Nameplate {
     /// @notice The first id of a chain's band, or 0 if the edition does not
     ///         use that chain. Must agree with `BANDS` in tools/site.mjs.
     function _bandFirst(uint256 c) internal pure returns (uint256) {
-        if (c == 1)    return 1;       // Ethereum   1 .. 1024
-        if (c == 8453) return 1025;    // Base    1025 .. 2048
-        if (c == 130)  return 2049;    // Unichain 2049 .. 3072
-        if (c == 56)   return 3073;    // BNB      3073 .. 3584
-        if (c == 4663) return 3585;    // Robinhood 3585 .. 4096
-        return 0;
+        return c == 1 ? 1 : 0; // Ethereum 1 .. 4096
     }
 
     /// @notice Which chain an id lives on. Zero for an id outside the
     ///         edition entirely.
-    /// @dev    A chain the edition does not use is a rehearsal, and a
-    ///         rehearsal holds the whole edition — the same rule
-    ///         `bandOrWhole` applies off chain. Without this a testnet
-    ///         would route its own token 7 to Ethereum and answer for a
-    ///         deployment on another network.
+    /// @dev    Local development and Ethereum Sepolia hold the whole edition
+    ///         for testing, matching `bandOrWhole` off chain. Every other
+    ///         chain resolves nothing.
     function _chainOfToken(uint256 id) internal view returns (uint256) {
         if (id == 0 || id > EDITION) return 0;
-        if (_bandFirst(block.chainid) == 0) return block.chainid;
-        if (id <= 1024) return 1;
-        if (id <= 2048) return 8453;
-        if (id <= 3072) return 130;
-        if (id <= 3584) return 56;
-        return 4663;
+        if (block.chainid == 31337 || block.chainid == 11155111) return block.chainid;
+        if (_bandFirst(block.chainid) == 0) return 0;
+        return 1;
     }
 
     /// @dev The deployment for a chain: this one's immutables where the

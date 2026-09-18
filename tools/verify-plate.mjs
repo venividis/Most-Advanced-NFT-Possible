@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*───────────────────────────────────────────────────────────────────────────
-  IPSEITY · one name, five chains
+  IPSEITY · one name, one chain
 
   A .eth name lives on Ethereum, so its resolver runs there, so
   `block.chainid` inside it is 1 for every query anyone ever makes. A
@@ -125,112 +125,42 @@ head("an id in this chain's own band answers, as it always did");
   eq("reachable", decUint(r, 3), 1n);
 }
 
-head("an id from another band is refused until somebody says where that chain is");
+head("every id in the edition resolves to Ethereum")
 {
-  eq("1500 is in Base's band", decUint(await c.read(plate, "whereIs(uint256)", [1500]), 0), 8453n);
-  eq("but nothing has said where Base is",
-     decAddr(await c.read(plate, "whereIs(uint256)", [1500]), 1),
-     "0x" + "00".repeat(20));
-  eq("so it is not reachable", decUint(await c.read(plate, "whereIs(uint256)", [1500]), 3), 0n);
-  eq("and the wildcard does not answer for it",
-     decUint(await c.read(plate, "tokenForName(bytes)", [dns("1500.ipseity4d.eth")])), 0n);
-
-  /*  The failure this guards. Before the station exists the resolver must
-      not fall back to the local premises, because `eip155:8453:<this
-      chain's address>` is a URL that resolves to a stranger's contract. */
-  const cc = await txt(1500, "contentcontract");
-  ok("and it does not quote this chain's address under Base's number",
-     cc === "" || !cc.includes(site.slice(2)),
-     `contentcontract answered "${cc}"`);
-}
-
-head("a station, write-once, authorised by the parent's ENS owner");
-{
-  const renter = c.as("0x" + "cd".repeat(32));
-  await refuses("a stranger cannot set one",
-    () => renter.exec(plate, "setStation(uint256,address,address)",
-      [8453, ELSEWHERE[8453].premises, ELSEWHERE[8453].hub]));
-  await refuses("nor can a chain the edition does not use be given one",
-    () => c.exec(plate, "setStation(uint256,address,address)",
-      [999, ELSEWHERE[8453].premises, ELSEWHERE[8453].hub]),
-    "a station for a chain with no band would never be read");
-  await refuses("nor a station pointing at nothing",
-    () => c.exec(plate, "setStation(uint256,address,address)",
-      [8453, "0x" + "00".repeat(20), ELSEWHERE[8453].hub]));
-
-  await c.exec(plate, "setStation(uint256,address,address)",
-    [8453, ELSEWHERE[8453].premises, ELSEWHERE[8453].hub]);
-  ok("the parent's owner can", true);
-  await refuses("and only once",
-    () => c.exec(plate, "setStation(uint256,address,address)",
-      [8453, site, site]),
-    "a rewritable station repoints a token's site after somebody bought it");
-}
-
-head("now one name answers for a token on another chain");
-{
-  eq("1500.ipseity4d.eth means token 1500",
+  await c.exec(hub, "setSupply(uint256)", [4096]);
+  const r = await c.read(plate, "whereIs(uint256)", [1500]);
+  eq("1500 belongs to Ethereum", decUint(r, 0), 1n);
+  eq("at the one canonical deployment", decAddr(r, 1).toLowerCase(), site);
+  eq("and is reachable", decUint(r, 3), 1n);
+  eq("the wildcard resolves it locally",
      decUint(await c.read(plate, "tokenForName(bytes)", [dns("1500.ipseity4d.eth")])), 1500n);
-  eq("the ERC-6821 record names Base and Base's premises",
-     await txt(1500, "contentcontract"), "base:" + ELSEWHERE[8453].premises);
-  eq("the avatar names Base's hub, not this one",
-     await txt(1500, "avatar"),
-     "eip155:8453/erc721:" + ELSEWHERE[8453].hub + "/1500");
-  eq("and the https link is Base's gateway host",
-     await txt(1500, "url"),
-     "https://" + ELSEWHERE[8453].premises.slice(2) + ".base.w3link.io/token/1500");
-
-  /*  The account is a contract on Base. This chain has an address at that
-      6551 slot too, and it belongs to somebody else.                   */
-  await c.exec(hub, "set(uint256,address,address)",
-    [1500, c.from.toString(), "0x" + "99".repeat(20)]);
-  eq("addr stays empty, because the account is not on this chain",
-     decAddr(await c.read(plate, "addr(bytes32)", [nhash(["1500", "ipseity4d", "eth"])])),
-     "0x" + "00".repeat(20));
-
-  const raw = await c.read(plate, "resolve(bytes,bytes)",
-    [dns("1500.ipseity4d.eth"), sel("addr(bytes32)") + "00".repeat(32)]);
-  eq("and ENSIP-10 resolve(addr) is empty too, for the same reason",
-     ("0x" + String(raw).replace(/^0x/, "").slice(-40)), "0x" + "00".repeat(20));
 }
 
-head("a band whose chain no gateway serves says so, rather than inventing a host");
+head("another production chain cannot be registered")
 {
-  await c.exec(plate, "setStation(uint256,address,address)",
-    [130, ELSEWHERE[130].premises, ELSEWHERE[130].hub]);
-  eq("2500 is Unichain's", decUint(await c.read(plate, "whereIs(uint256)", [2500]), 0), 130n);
-  eq("and its url is web3://, because no public gateway serves Unichain",
-     await txt(2500, "url"),
-     "web3://" + ELSEWHERE[130].premises + ":130/token/2500");
+  await refuses("Base is not part of the edition",
+    () => c.exec(plate, "setStation(uint256,address,address)",
+      [8453, ELSEWHERE[8453].premises, ELSEWHERE[8453].hub]),
+    "the resolver cannot advertise a second production home");
+  await refuses("nor can an arbitrary chain",
+    () => c.exec(plate, "setStation(uint256,address,address)",
+      [999, ELSEWHERE[8453].premises, ELSEWHERE[8453].hub]));
 }
 
-head("the ERC-6821 record is an ERC-3770 address, not a CAIP one");
+head("the ERC-6821 record points to Ethereum")
 {
-  /*  ERC-6821 accepts a bare 0x address or an ERC-3770 chain-specific one,
-      and ERC-3770 is `shortName:address` with the short name taken from
-      ethereum-lists/chains. This returned `eip155:<id>:<address>` until a
-      gateway was handed one and could not parse it. The two forms look
-      interchangeable, which is exactly why the mistake survived review:
-      `eip155:` IS correct for the avatar record three lines away.       */
   const cc = await txt(1500, "contentcontract");
   ok("it does not use the CAIP form", !cc.startsWith("eip155:"), cc);
   ok("it is shortName:address, one colon", cc.split(":").length === 2, cc);
-  eq("and the short name is Base's, from the canonical registry", cc.split(":")[0], "base");
+  eq("and the short name is Ethereum's", cc.split(":")[0], "eth");
   ok("the address half is a 20-byte hex address",
      /^0x[0-9a-f]{40}$/.test(cc.split(":")[1]), cc);
 
-  /*  The avatar record is CAIP and must stay that way — an NFT reference
-      is not a chain-specific address.                                   */
   const av = await txt(1500, "avatar");
-  ok("while the avatar is still eip155, which is right for an NFT",
-     av.startsWith("eip155:8453/erc721:"), av);
-
-  /*  A chain with no registered short name cannot be named, so it is not
-      named: the bare address is the honest answer, and inventing a short
-      name would send a reader looking for a chain nobody lists.        */
-  const H = await fixture(1);
-  await H.c.exec(H.ens, "setOwner(bytes32,address)", [H.parent, H.c.from.toString()]);
-  console.log("      every band's short name is checked against ethereum-lists/chains");
+  ok("the avatar remains a CAIP NFT reference on Ethereum",
+     av.startsWith("eip155:1/erc721:"), av);
+  eq("the URL uses Ethereum's gateway", await txt(1500, "url"),
+     "https://" + site.slice(2) + ".eth.w3link.io/token/1500");
 }
 
 head("an id outside the edition is nowhere at all");
@@ -476,29 +406,29 @@ head("renewal is permissionless, so the page needs an address and a price");
   console.log("      one call: the clock, and the address anyone may pay it at");
 }
 
-/*═════════════ and on a chain the edition does not use ═════════════*/
+/*═════════════ and on Ethereum's rehearsal chain ═════════════*/
 
 head("a rehearsal holds the whole edition, and routes nothing away");
 {
-  /*  Base Sepolia is not in BANDS. Without the rehearsal branch, token 7
+  /*  Ethereum Sepolia is not in BANDS. Without the rehearsal branch, token 7
       here would be routed to Ethereum and the name would answer for a
       deployment on a different network — while every test above still
       passed, because they all run on a chain that IS in the edition.  */
-  const G = await fixture(84532);
+  const G = await fixture(11155111);
   const t = readTxt(G.c, G.plate);
 
   eq("token 7 stays on this chain, not Ethereum",
-     decUint(await G.c.read(G.plate, "whereIs(uint256)", [7]), 0), 84532n);
-  eq("and so does an id from Base's mainnet band",
-     decUint(await G.c.read(G.plate, "whereIs(uint256)", [1500]), 0), 84532n);
+     decUint(await G.c.read(G.plate, "whereIs(uint256)", [7]), 0), 11155111n);
+  eq("and so does every other edition id",
+     decUint(await G.c.read(G.plate, "whereIs(uint256)", [1500]), 0), 11155111n);
   await G.c.exec(G.hub, "setSupply(uint256)", [4096]);
   eq("2500.ipseity4d.eth resolves here",
      decUint(await G.c.read(G.plate, "tokenForName(bytes)", [dns("2500.ipseity4d.eth")])), 2500n);
   eq("with this chain's short name and this chain's premises",
-     await t(2500, "contentcontract"), "basesep:" + G.site);
+     await t(2500, "contentcontract"), "sep:" + G.site);
   eq("and this chain's gateway",
      await t(2500, "url"),
-     "https://" + G.site.slice(2) + ".basesep.w3link.io/token/2500");
+     "https://" + G.site.slice(2) + ".sep.w3link.io/token/2500");
   console.log("      the branch a harness pinned to one chain id could not reach");
 }
 

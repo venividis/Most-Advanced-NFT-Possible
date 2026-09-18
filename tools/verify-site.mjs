@@ -449,10 +449,8 @@ head("and it describes the collection-wide surface too");
 
   /*════════════ the partition, from both ends ════════════
 
-    The edition is one run of 4096 split into five contiguous bands, one
-    per chain, fixed in each hub's constructor. Nothing crosses and nothing
-    is trusted: two chains cannot issue the same number because neither can
-    issue outside its own band.
+    The edition is one run of 4096 issued only on Ethereum, fixed in the
+    hub's constructor. No second production chain can issue its numbers.
 
     That promise is written down twice — in `tools/site.mjs`, which is what
     the deploy reads, and in `PageManifest.EDITION`, which is what the
