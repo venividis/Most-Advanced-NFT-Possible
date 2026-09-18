@@ -29,119 +29,23 @@ at read time.
 
 ---
 
-## The commons, heard on the other chains
+## Ethereum only
 
-The five chains issue one edition and nothing crosses between them. What
-crosses is speech, and only speech.
+IPSEITY is one edition of 4,096 tokens on Ethereum. Every token id, owner,
+section, account, market, lease, name and conversation has one canonical home:
+Ethereum mainnet. There are no sidechain bands, mirrored editions, wrapped
+tokens or bridges. A deployment anywhere else is a rehearsal and is never part
+of the production edition.
 
-`Parley.speak` is untouched — free, local, no dependency on any of this. It
-works on a chain where the port was never deployed, never funded, or has
-stopped answering. Federation is a *separate payable call*: `echo` pays the
-LayerZero fee and carries a copy outward. A social layer that needs a message
-to arrive before anyone can talk has a single point of silence, so the local
-commons is never behind the bridge.
+The deployment table assigns the complete `#1`–`#4096` range to chain id `1`.
+The on-chain service manifest publishes the same single-chain map, and the name
+resolver maps every valid token id back to Ethereum. The test suite checks that
+these independent descriptions agree and cover the edition exactly once.
 
-Only the commons crosses, and there is no function for anything else. A group
-carries a steward, and a steward is an authority — carrying it across would
-mean trusting a message to say who may speak. A pair room is derived from two
-token ids, and under the partition those two ids may live on different chains,
-so a federated pair room would be a room that means different things in
-different places. There is no correct way to do it, so there is no function.
-
-The port cannot write into Parley at all, and asks for no privilege there.
-What arrives is emitted under the port's own event, tagged with the chain it
-came from, so each chain's archive stays exactly what it was: a record of what
-was said by someone standing on that chain. A reader who wants the whole
-conversation reads two logs and can always tell which is which.
-
-The back-link is rewritten at the border. Parley's walk works because every
-message carries the block number of the previous one, so a client steps
-backwards with single-block `eth_getLogs` and never scans a range. Block
-21,000,000 on Ethereum is not block 21,000,000 anywhere else, so the sender's
-pointer is dropped and the port writes its own in the receiving chain's
-numbering.
-
-Two protocol properties are the reason this was admissible at all, and both
-were verified live rather than read off a page. An unwired lane fails at
-**quote** time — the default verifier is a small contract whose entire
-behaviour is to revert with *"Please set your OApp's DVNs and/or Executor"* —
-so a lane nobody configured refuses loudly instead of accepting a message that
-would never arrive. And delivery is **permissionless**: the endpoint's receive
-path has no access control, so once the DVNs have attested anyone can deliver.
-The paid executor is a convenience and never a dependency, which means no
-server is required for any of it.
-
-Nobody can re-point the port's security, and what floats is named. LayerZero
-lets an OApp choose which DVNs must attest and lets a delegate change that
-later — a delegate is an admin key. The port calls `setDelegate(address(0))`
-at construction and carries no function that could set it, or any
-configuration, again. An earlier version of this paragraph claimed the
-verifier set was therefore as immutable as the bytecode, and that was wrong:
-an OApp that pins nothing runs on the endpoint's *default* libraries and DVN
-set, which LayerZero Labs can roll forward without asking. So the pin is a
-constructor argument now — lane libraries and raw config entries, written
-once by the OApp itself and never writable again — and a deployment that
-passes none floats on the defaults as a stated choice, admissible for speech
-in a way it would never be for custody. The port also speaks the protocol's
-actual ABI — `lzReceive` taking `Origin` as a static tuple, plus
-`allowInitializePath` and `nextNonce`, the two questions the endpoint and
-its executor ask before a lane will carry anything — which for one stretch
-it did not: the suite's mock had been written in the port's own invented
-dialect and vouched for it fluently. `tools/probe-port-abi.mjs` measured the
-three protocol selectors answering `revert 0x` at the deployed bytecode; the
-full story is in `OMNICHAIN.md`, and the mock now performs the real
-handshake.
-
-## One edition, five chains, no bridge
-
-The collection is one run of 4096, cut into five contiguous bands and issued
-from five chains. Each hub is handed its band in the constructor as an
-`immutable`, and `mint` issues `FIRST_ID + totalSupply` and refuses past
-`LAST_ID`.
-
-```
-Ethereum    #1    – #1024     1024      the first band, where #1 should be
-Base        #1025 – #2048     1024
-Unichain    #2049 – #3072     1024      cheapest place to turn a solid
-BNB         #3073 – #3584      512
-Robinhood   #3585 – #4096      512      sends and receives; no lzRead
-```
-
-Two tokens can never be numbered the same, and nothing has to be trusted for
-that to hold: neither chain is able to issue outside its own band, so there
-is no message to miss, no quorum to compromise, and no bridge. Nothing
-crosses. There is one edition and five places it is issued from, the way one
-print run can be signed in five cities.
-
-The bands are powers of two on power-of-two boundaries because the edition is
-2^12 and a split you can check in your head is a split a buyer can audit.
-
-Robinhood's is the smallest, and the reason needs stating precisely because
-it is easy to get wrong. LayerZero *is* integrated there: the mainnet
-endpoint carries SendUln302 and ReceiveUln302 at v3.0.2, and a production
-OApp quotes Robinhood to Ethereum at 3.709e-4 ETH today. It sends and it
-receives. What it does not carry is ReadLib1002, the library behind lzRead —
-so it can neither ask another chain a question nor be asked one. Every other
-chain of the five can. That matters because reading is seventeen times
-cheaper than messaging (1.957e-5 ETH against 3.404e-4, measured from
-Unichain, because the answer lands on the chain that asked), so the cheap way
-for this collection to see all of itself at once reaches four of the five and
-not the fifth. The smallest band is the honest size for the least connected
-place — and "least connected" means exactly that one thing, not that the
-chain is worse.
-
-The partition is written down twice, which is a bug waiting for a redeploy
-unless something checks: `tools/site.mjs` holds the table the deploy reads,
-`PageManifest.EDITION` holds the one the world reads, and the suite asserts
-they are the same table and that it tiles 1..4096 exactly once. The guard
-itself is tested against an overlap, a hole, an unexhausted edition, a band
-that runs backwards, and an empty table — a guard nothing has ever seen fail
-is a guard nobody has checked.
-
-Every chain's `/services.json` publishes the whole map, so a program that
-finds one chain can find the other four. Reading only `ceiling` would tell it
-this chain is the entire collection, and it would be wrong by a factor of
-four.
+Cross-chain and LayerZero contracts remain in the repository as archived
+research and are not part of the collection's deployment path. Nothing in the
+production UI offers another network or represents an asset on another chain
+as an IPSEITY token.
 
 ## What is actually new here
 

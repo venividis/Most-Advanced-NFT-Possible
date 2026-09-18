@@ -142,49 +142,17 @@ export function portPeers(chainId) {
 }
 
 /*───────────────────────────────────────────────────────────────────────────
-  THE PARTITION — one edition of 4096, cut into five bands
+  THE EDITION — all 4096 production tokens live on Ethereum
 
-  A token's number is its name. Two tokens numbered #7 would not be two
-  tokens with the same name, they would be a broken promise about how many
-  there are — and no bridge, quorum or oracle is needed to keep that
-  promise if the numbers simply cannot collide. Each chain is handed a
-  contiguous band in its constructor, and `mint` issues `FIRST_ID +
-  totalSupply` and refuses past `LAST_ID`. The partition is enforced by
-  arithmetic on each chain independently, with nothing to trust and no
-  message to miss.
-
-  This is the reason the collection can be multi-chain at all without
-  becoming a bridge. Nothing crosses. There is one edition and five places
-  it is issued from, the way one print run can be signed in five cities.
-
-  WHY THESE SIZES. The edition is 4096 = 2^12, so every band is a power of
-  two on a power-of-two boundary — a split you can check in your head and
-  a reader can verify without arithmetic. Ethereum, Base and Unichain take
-  a full quarter each; BNB and Robinhood split the last quarter.
-
-  Ethereum holds the first band because #1 should exist where the edition
-  is canonical, and because Ethereum is the one chain whose continued
-  existence needs no argument. Unichain gets a full quarter despite being
-  the newest, because it is the cheapest place to turn a solid — the
-  gesture the whole collection is built on — and it carries the v4 stack
-  natively. Robinhood's band is the smallest not as a judgement of the
-  chain but because it is the only one of the five that cannot be read
-  from: it carries a LayerZero endpoint but no read library, so a token
-  minted there can speak and can never be heard by the others. A smaller
-  band is the honest size for the place with the least connectivity.
-
-  These bounds go into an `immutable` at construction. They cannot be
-  changed afterwards, on purpose: a band that could move is a band that
-  could be made to overlap, and the whole guarantee is that it cannot.
+  A token number is its name, so it has exactly one canonical chain. Ethereum
+  receives the complete range. Any chain absent from BANDS is a rehearsal and
+  cannot be mistaken for part of the production edition. The immutable bounds
+  passed to the hub enforce this at deployment.
 ───────────────────────────────────────────────────────────────────────────*/
 export const COLLECTION = 4096;
 
 export const BANDS = {
-  1:    { name: "Ethereum",  first:    1, last: 1024 },
-  8453: { name: "Base",      first: 1025, last: 2048 },
-  130:  { name: "Unichain",  first: 2049, last: 3072 },
-  56:   { name: "BNB",       first: 3073, last: 3584 },
-  4663: { name: "Robinhood", first: 3585, last: 4096 },
+  1: { name: "Ethereum", first: 1, last: 4096 },
 };
 
 /*  The one property that makes the whole design work: the bands tile the
@@ -219,10 +187,18 @@ assertTiles(BANDS);
 ///         there would be minting a number some other chain owns.
 export const bandFor = (chainId) => BANDS[Number(chainId)] || null;
 
-/*  A testnet is a rehearsal, not part of the edition, so it takes the
-    whole range: the point of a rehearsal is to exercise every id, and no
-    token on it is ever the token it is pretending to be.               */
-export const bandOrWhole = (chainId) => bandFor(chainId) || { name: "rehearsal", first: 1, last: COLLECTION };
+/*  Local development and Ethereum Sepolia are explicit rehearsals. Refuse
+    every other chain instead of silently giving an unsupported network the
+    complete range and creating a plausible-looking duplicate edition.   */
+export const REHEARSAL_CHAINS = new Set([31337, 11155111]);
+export const bandOrWhole = (chainId) => {
+  const id = Number(chainId);
+  const band = bandFor(id);
+  if (band) return band;
+  if (REHEARSAL_CHAINS.has(id))
+    return { name: "Ethereum rehearsal", first: 1, last: COLLECTION };
+  throw new Error(`chain ${id} is unsupported: IPSEITY is Ethereum-only`);
+};
 
 /// @notice The two constructor words, hex-encoded, for a chain's band.
 export const bandArgs = (chainId) => {

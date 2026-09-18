@@ -225,56 +225,17 @@ contract PageDoor {
 
     /*═══════════════════ the chains ═══════════════════*/
 
-    /// @dev Multichain, honestly: this same contract deploys at the same
-    ///      address on every chain the deployer's nonce sequence visits,
-    ///      each serving its own chain's assets and its own conversation.
-    ///      Nothing crosses. Moving value between chains is a bridge's job
-    ///      and deliberately outside this site — a page that quietly wrapped
-    ///      one would be a custodian pretending to be a hyperlink. The
-    ///      buttons switch the WALLET (EIP-3326, adding the chain first if
-    ///      it is missing, EIP-3085); the site you are reading stays put.
+    /// @dev There is one production home: Ethereum. Test deployments may
+    ///      still report their actual chain, but this page never advertises
+    ///      another production network or offers to move the wallet there.
     function _chains() private view returns (string memory) {
         return string.concat(
-            "<h2>chains</h2>"
+            "<h2>network</h2>"
             "<p class=e>This page is chain <b>", block.chainid == 1 ? "Ethereum" :
-                block.chainid == 8453 ? "Base" :
-                block.chainid == 84532 ? "Base Sepolia" :
                 block.chainid == 11155111 ? "Ethereum Sepolia" : "another chain",
-            "</b>. The same site deploys per chain; each trades its own chain's "
-            "assets and holds its own conversation. These buttons move your "
-            "<i>wallet</i>; moving <i>value</i> between chains is a bridge's job, "
-            "and this site will never quietly be one.</p>"
-            /*  All five chains of the edition, and the two rehearsal
-                chains — the previous list stopped at four and rendered the
-                fifth band's home as "another chain", which is a poor name
-                for a fifth of the collection.                            */
-            "<p>"
-            "<button class=ch2 data-id=\"0x1\" data-n=\"Ethereum\" "
-            "data-r=\"https://ethereum-rpc.publicnode.com\" data-s=\"ETH\">Ethereum</button>"
-            "<button class=ch2 data-id=\"0x2105\" data-n=\"Base\" "
-            "data-r=\"https://mainnet.base.org\" data-s=\"ETH\">Base</button>"
-            "<button class=ch2 data-id=\"0x82\" data-n=\"Unichain\" "
-            "data-r=\"https://mainnet.unichain.org\" data-s=\"ETH\">Unichain</button>"
-            "<button class=ch2 data-id=\"0x38\" data-n=\"BNB\" "
-            "data-r=\"https://bsc-dataseed.bnbchain.org\" data-s=\"BNB\">BNB</button>"
-            "<button class=ch2 data-id=\"0x1237\" data-n=\"Robinhood\" "
-            "data-r=\"https://rpc.mainnet.chain.robinhood.com\" data-s=\"ETH\">Robinhood</button>"
-            "<button class=ch2 data-id=\"0x14a34\" data-n=\"Base Sepolia\" "
-            "data-r=\"https://sepolia.base.org\" data-s=\"ETH\">Base Sepolia</button>"
-            "<button class=ch2 data-id=\"0xaa36a7\" data-n=\"Sepolia\" "
-            "data-r=\"https://ethereum-sepolia-rpc.publicnode.com\" data-s=\"ETH\">Sepolia</button>"
-            "</p>"
-            "<script>(()=>{const I=window.IP;"
-            "document.querySelectorAll('.ch2').forEach(b=>b.addEventListener('click',async()=>{"
-            "try{const p=I.pv();if(!p)throw new Error('no wallet found');"
-            "try{await p.request({method:'wallet_switchEthereumChain',"
-            "params:[{chainId:b.dataset.id}]})}"
-            "catch(e){if(e&&(e.code===4902||/unrecognized|not added/i.test(String(e.message)))){"
-            "await p.request({method:'wallet_addEthereumChain',params:[{chainId:b.dataset.id,"
-            "chainName:b.dataset.n,rpcUrls:[b.dataset.r],"
-            "nativeCurrency:{name:b.dataset.s,symbol:b.dataset.s,decimals:18}}]})}else throw e}"
-            "I.say('wallet is on '+b.dataset.n+' \\u2014 open that chain\\u2019s site to act there','ok')}"
-            "catch(e){I.say(String(e&&e.message||e),'no')}}))})()</script>"
+            "</b>. IPSEITY is Ethereum-only: all 4,096 token ids, ownership, "
+            "state, markets and conversations live on Ethereum. No mirror, "
+            "sidechain edition or bridge can represent an IPSEITY token.</p>"
         );
     }
 
