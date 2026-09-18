@@ -301,7 +301,7 @@ contract Desk {
         "'your wallet is on chain '+BigInt(c)+' and this page is chain '+D.chain)};"
         "const call=async(to,data,gas)=>{const p=await IW.choose();"
         "if(!p)throw new Error('no wallet found');await onChain(p);"
-        "const o={to:to,data:data};if(gas)o.gas='0x'+BigInt(gas).toString(16);"
+        "const o={to:to,data:data};if(A)o.from=A;if(gas)o.gas='0x'+BigInt(gas).toString(16);"
         "const r=await p.request({method:'eth_call',params:[o,'latest']});"
         "if(!r||r.length<66)throw new Error('the call returned nothing');return r};"
         // the same, but a failure is an answer rather than an exception —
@@ -320,6 +320,11 @@ contract Desk {
         "if(value!=null&&BigInt(value)>0n)tx.value='0x'+BigInt(value).toString(16);"
         "const h=await p.request({method:'eth_sendTransaction',params:[tx]});"
         "say('sent \\u00b7 '+h,'ok');return h};"
+        "const wait=async h=>{const p=await IW.choose();"
+        "for(let i=0;i<120;i++){const r=await p.request({method:'eth_getTransactionReceipt',params:[h]});"
+        "if(r){if(r.status!=null&&BigInt(r.status)===0n)throw new Error('transaction reverted');"
+        "say('confirmed \\u00b7 '+h,'ok');return r}await new Promise(q=>setTimeout(q,1000))}"
+        "throw new Error('transaction is still pending; check your wallet or explorer')};"
         "const chainOk=async()=>{const p=pv();if(!p)return false;"
         "try{return BigInt(await p.request({method:'eth_chainId'}))===BigInt(D.chain)}catch(e){return false}};"
         // the plain buttons the vault and index pages still use
@@ -344,7 +349,7 @@ contract Desk {
         "await send(el.dataset.to,d,v)}"
         "catch(e){say(String(e&&e.message||e),'no')}}));"
         "return{D:D,pv:pv,nm:nm,$:$,say:say,W:W,S:S,SW:SW,AD:AD,pad:pad,parse:parse,fmt:fmt,"
-        "TK:TK,STR:STR,call:call,tryCall:tryCall,word:word,connect:connect,send:send,"
+        "TK:TK,STR:STR,call:call,tryCall:tryCall,word:word,connect:connect,send:send,wait:wait,"
         "chainOk:chainOk,acct:()=>A}"
         "})();";
 

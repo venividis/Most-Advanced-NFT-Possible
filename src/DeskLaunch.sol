@@ -29,12 +29,13 @@ pragma solidity ^0.8.24;
   `view`, so the visitor's own node does the search and commits nothing, and
   the client just moves a window along and counts.
 
-  ── and it will not build a v4 liquidity call ──
+  ── liquidity is encoded by Solidity, never approximated here ──
 
   `modifyLiquidities` takes a dynamic array of dynamic bytes behind a
-  decoder that rejects non-canonical encoding. That is past what is written
-  above, and rather than approximate it the page sends v4 liquidity nowhere
-  and says so.
+  decoder that rejects non-canonical encoding. `V4PositionPlanner` now owns
+  exactly that encoding job. This client sends it the choices a person can
+  understand, reads back canonical PositionManager calldata, displays the
+  authority and amount limits, and forwards those bytes unchanged.
 ───────────────────────────────────────────────────────────────────────────*/
 contract DeskLaunch {
     function launch() external pure returns (string memory) {
@@ -46,7 +47,7 @@ contract DeskLaunch {
         "const E=document.getElementById('K');if(!E)return;"
         "const K=JSON.parse(E.textContent),S=K.sel;"
         "const U=(window.UNI&&window.UNI.U)||null;"
-        "let mined=null,landed=null;"
+        "let mined=null,landed=null,made=null,liqPlan=null;"
         "const say=(m,c)=>I.say(m,c);"
 
         /*  A string argument, by hand.
@@ -190,10 +191,10 @@ contract DeskLaunch {
 
         "const hshow=()=>{const k=hkind();"
         "const g=$('hkg'),f=$('hkf');"
-        "if(g)g.style.display=k?'none':'';if(f)f.style.display=k?'':'none';"
+        "if(g)g.style.display=k===1?'none':'';if(f)f.style.display=k===0?'none':'';"
         "if($('hmined'))$('hmined').innerHTML='';mined=null;"
         "if($('hgo'))$('hgo').disabled=true;"
-        "if(k)fsum();else gsum();psum()};"
+        "if(k!==0)fsum();if(k!==1)gsum();psum()};"
         "const hk=$('hk');if(hk)hk.addEventListener('change',hshow);"
 
         /*  The search. Windows of sixty thousand, because an eth_call has a
@@ -210,6 +211,9 @@ contract DeskLaunch {
         "if(kd===1){const b=facetBand();"
         "const a=await I.call(K.kiln,S.facetArg+I.W(b.token)+I.W(b.floor)+I.W(b.ceiling));"
         "word='0x'+String(a).slice(2,66)}"
+        "else if(kd===2){const b=facetBand(),g=gateArg();"
+        "const a=await I.call(K.kiln,S.gateFacetArg+I.W(b.token)+I.W(b.floor)+I.W(b.ceiling)"
+        "+I.W(g.opens)+I.W(g.unlocks));word='0x'+String(a).slice(2,66)}"
         "else word=gateArg().word;"
         "const rh=await I.call(K.kiln,S.recipeHash+I.W(kd)+I.pad(word));"
         "const hash='0x'+String(rh).slice(2,66);"
@@ -228,12 +232,12 @@ contract DeskLaunch {
         /*  `sets` is the only property the pool step cares about, and it is
             a fact about the kind rather than about the address: a Gate's
             beforeSwap returns a zero fee override for ever.             */
-        "mined={salt:salt,at:at,arg:word,flags:flags,kind:kd,sets:kd===1};"
+        "mined={salt:salt,at:at,arg:word,flags:flags,kind:kd,sets:kd!==0};"
         "out.innerHTML='<div><span>found after</span><b>'+tried+' tried</b></div>'"
         "+'<div><span>the hook would live at</span><b>'+at+'</b></div>'"
         "+'<div><span>its low 14 bits</span><b>0x'"
         "+(BigInt(at)&0x3fffn).toString(16)+' \\u2014 '"
-        "+(kd?'beforeInitialize + beforeSwap':'beforeSwap + beforeRemoveLiquidity')"
+        "+(kd===2?'beforeInitialize + beforeSwap + beforeRemoveLiquidity':kd?'beforeInitialize + beforeSwap':'beforeSwap + beforeRemoveLiquidity')"
         "+'</b></div>'"
         "+'<div><span>it sets the fee</span><b>'"
         "+(kd?'yes \\u2014 pair it with a dynamic-fee pool':'no \\u2014 pair it with a fixed fee')"
@@ -318,9 +322,59 @@ contract DeskLaunch {
         "const t=tickOf(lo===a?price:1/price,d0,d1);"
         "const snapped=Math.round(t/sp)*sp;"
         "const sq=await I.call(U?U.venue:K.kiln,((U&&U.sel.vSqrtAt)||'')+I.S(snapped));"
+        "const hook=mined?mined.at:'0x0000000000000000000000000000000000000000';"
+        "const sqrt=I.word(sq,0);made={token:fToken(),coin:a,c0:lo,c1:hi,fee:fee,sp:sp,"
+        "hook:hook,sqrt:sqrt,d0:d0,d1:d1};"
         "await I.send(K.manager,S.initV4+I.AD(lo)+I.AD(hi)+I.W(fee)+I.S(sp)"
-        "+I.AD(mined?mined.at:'0x0000000000000000000000000000000000000000')"
-        "+I.W(I.word(sq,0)))});"
+        "+I.AD(hook)+I.W(sqrt))});"
+
+        /*───── 4 · the position ─────*/
+        "const fToken=()=>BigInt(String($('ct').value||'0').trim()||'0');"
+        "const hexBytes=x=>{x=String(x||'0x').trim();"
+        "if(!/^0x(?:[0-9a-fA-F]{2})*$/.test(x))throw new Error('hook data must be whole bytes of hex');"
+        "return x.slice(2)};"
+        "const tail=b=>I.W(b.length/2)+b+'0'.repeat((64-b.length%64)%64);"
+        "const extract=(r,wi)=>{const off=Number(I.word(r,wi));"
+        "const n=Number(BigInt('0x'+r.slice(2+off*2,2+off*2+64)));"
+        "return'0x'+r.slice(2+off*2+64,2+off*2+64+n*2)};"
+        "const positionForm=()=>{if(!made)throw new Error('create the pool first');"
+        "const lower=Number(String($('ll').value||'').trim()),upper=Number(String($('lu').value||'').trim());"
+        "if(!Number.isInteger(lower)||!Number.isInteger(upper)||lower>=upper)"
+        "throw new Error('choose two ticks, lower then upper');"
+        "if(lower%made.sp||upper%made.sp)throw new Error('both ticks must be multiples of '+made.sp);"
+        "const a0=I.parse($('l0').value,made.d0),a1=I.parse($('l1').value,made.d1);"
+        "if(a0<=0n&&a1<=0n)throw new Error('put at least one currency into the position');"
+        "if(a0>(1n<<128n)-1n||a1>(1n<<128n)-1n)throw new Error('an amount is too large');"
+        "const owner=String($('lo').value||I.acct()||'').trim();"
+        "if(!/^0x[0-9a-fA-F]{40}$/.test(owner)||/^0x0{40}$/i.test(owner))"
+        "throw new Error('connect, or name who owns the position and its fees');"
+        "const mins=Number($('ld').value);if(!(mins>0&&mins<=10080))"
+        "throw new Error('deadline must be 1 minute to 7 days');"
+        "const deadline=BigInt(Math.floor(Date.now()/1000)+Math.round(mins*60));"
+        "const hd=hexBytes($('lh').value);return{lower,upper,a0,a1,owner,deadline,hd}};"
+        "const planData=f=>{const st=I.AD(made.c0)+I.AD(made.c1)+I.W(made.fee)+I.S(made.sp)"
+        "+I.AD(made.hook)+I.S(f.lower)+I.S(f.upper)+I.W(made.sqrt)+I.W(f.a0)+I.W(f.a1)"
+        "+I.AD(f.owner)+I.W(f.deadline)+I.W(13*32)+tail(f.hd);"
+        "return S.mintPlan+I.W(made.token)+I.AD(made.coin)+I.W(3*32)+st};"
+        "on('lcheck',async()=>{await I.connect();const f=positionForm();"
+        "const r=await I.call(K.planner,planData(f));"
+        "liqPlan={f:f,liquidity:I.word(r,0),value:I.word(r,1),data:extract(r,2)};"
+        "$('lplan').innerHTML='<div><span>position owner + all LP fees</span><b>'+f.owner+'</b></div>'"
+        "+'<div><span>range</span><b>ticks '+f.lower+' to '+f.upper+'</b></div>'"
+        "+'<div><span>liquidity</span><b>'+liqPlan.liquidity+'</b></div>'"
+        "+'<div><span>maximum token 0</span><b>'+I.fmt(f.a0,made.d0,8)+'</b></div>'"
+        "+'<div><span>maximum token 1</span><b>'+I.fmt(f.a1,made.d1,8)+'</b></div>'"
+        "+'<div><span>position manager</span><b>'+K.positionManager+'</b></div>';"
+        "$('lgo').disabled=false;say('canonical plan built by Solidity \\u00b7 nothing sent','ok')});"
+        "on('lapprove',async()=>{await I.connect();const f=positionForm();"
+        "for(const z of [[made.c0,f.a0],[made.c1,f.a1]]){const t=z[0],amt=z[1];"
+        "if(/^0x0{40}$/i.test(t)||amt===0n)continue;"
+        "await I.wait(await I.send(t,S.approve+I.AD(K.permit2)+I.W(amt)));"
+        "await I.wait(await I.send(K.permit2,S.permitApprove+I.AD(t)+I.AD(K.positionManager)+I.W(amt)+I.W(f.deadline)))}"
+        "say('approvals confirmed \\u00b7 rebuild the plan if anything changed','ok')});"
+        "on('lgo',async()=>{await I.connect();if(!liqPlan)throw new Error('build and inspect the position first');"
+        "await I.wait(await I.send(K.positionManager,liqPlan.data,liqPlan.value));"
+        "liqPlan=null;$('lgo').disabled=true;say('position confirmed','ok')});"
 
         /*───── reading a hook ─────*/
         "on('hxgo',()=>{const v=String($('hx').value||'').trim();"

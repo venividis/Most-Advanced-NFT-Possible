@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Hook} from "./lib/Hook.sol";
 import {Curve} from "./lib/Curve.sol";
 import {Facet} from "./Facet.sol";
+import {GateFacet} from "./GateFacet.sol";
 
 interface IHolds {
     function ownerOf(uint256 id) external view returns (address);
@@ -330,6 +331,17 @@ contract Kiln {
         return bytes32((token << 48) | (uint256(floor_) << 24) | uint256(ceiling_));
     }
 
+    /// @notice Packs every immutable choice for the combined Gate + Facet.
+    function gateFacetArg(
+        uint256 token, uint24 floor_, uint24 ceiling_, uint64 opens, uint64 unlocks
+    ) external pure returns (bytes32) {
+        if (floor_ > ceiling_ || ceiling_ > Hook.MAX_FEE || token > type(uint64).max) revert BadBand();
+        return bytes32(
+            (token << 176) | (uint256(floor_) << 152) | (uint256(ceiling_) << 128)
+                | (uint256(opens) << 64) | uint256(unlocks)
+        );
+    }
+
     function recipeHash(uint8 kind, bytes32 arg)
         external view returns (bytes32 hash, uint16 flags)
     {
@@ -369,6 +381,20 @@ contract Kiln {
                     uint24(uint256(arg))                   // ceiling
                 )),
                 uint16(Hook.BEFORE_INITIALIZE | Hook.BEFORE_SWAP)
+            );
+        }
+        if (kind == 2) {
+            return (
+                abi.encodePacked(type(GateFacet).creationCode, abi.encode(
+                    POOL_MANAGER,
+                    HUB,
+                    uint256(uint64(uint256(arg) >> 176)),
+                    uint24(uint256(arg) >> 152),
+                    uint24(uint256(arg) >> 128),
+                    uint64(uint256(arg) >> 64),
+                    uint64(uint256(arg))
+                )),
+                uint16(Hook.BEFORE_INITIALIZE | Hook.BEFORE_SWAP | Hook.BEFORE_REMOVE_LIQUIDITY)
             );
         }
         revert NothingToLaunch();
