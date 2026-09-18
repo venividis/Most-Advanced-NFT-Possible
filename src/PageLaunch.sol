@@ -24,6 +24,13 @@ interface IKiln {
     function launchedAt(address coin) external view returns (uint256);
 }
 
+interface IV4PositionPlanner {
+    function POSITION_MANAGER() external view returns (address);
+    function PERMIT2() external view returns (address);
+}
+
+interface ILaunchView { function liquidity() external pure returns (string memory); }
+
 /*───────────────────────────────────────────────────────────────────────────
   PageLaunch — a launchpad, and the one thing it can tell you that no
   hosted launchpad can
@@ -65,14 +72,13 @@ interface IKiln {
   needs a token this contract did not make — the pool step takes any address,
   so nothing here prevents it. It just will not carry this name.
 
-  ── and what it cannot do ──
+  ── the nested call, without a browser ABI library ──
 
-  Seed a v4 pool with liquidity. Creating one is reachable: `PoolKey` is five
-  static fields, so `initialize` is six flat words. Adding liquidity goes
-  through `modifyLiquidities(bytes,uint256)`, whose argument is a dynamic
-  array of dynamic bytes with a decoder that rejects non-canonical encoding
-  — and this client has no ABI coder. The page routes v4 liquidity nowhere
-  rather than somewhere plausible, and says which step it stopped at.
+  Creating a v4 pool is six flat words. Adding liquidity is a nested action
+  program. `V4PositionPlanner` uses Solidity's canonical ABI encoder for that
+  one job and returns finished PositionManager calldata; it has no custody or
+  execution function. The launcher still chooses every economic term and the
+  wallet still sends directly to Uniswap.
 ───────────────────────────────────────────────────────────────────────────*/
 contract PageLaunch {
     using LibNum for uint256;
@@ -83,12 +89,15 @@ contract PageLaunch {
     IDeskLaunch public immutable DESKL;
     IVenue     public immutable VENUE;
     IKiln      public immutable KILN;
+    IV4PositionPlanner public immutable PLANNER;
+    ILaunchView public immutable LAUNCH_VIEW;
 
     uint256 public constant PAGE = 20;
 
     constructor(
         IChrome chrome, IDesk desk, IDeskUni deskU,
-        IDeskLaunch deskL, IVenue venue, IKiln kiln
+        IDeskLaunch deskL, IVenue venue, IKiln kiln, IV4PositionPlanner planner,
+        ILaunchView launchView
     ) {
         CHROME = chrome;
         DESK = desk;
@@ -96,6 +105,8 @@ contract PageLaunch {
         DESKL = deskL;
         VENUE = venue;
         KILN = kiln;
+        PLANNER = planner;
+        LAUNCH_VIEW = launchView;
     }
 
     /*═══════════════════ /launch ═══════════════════*/
@@ -124,6 +135,9 @@ contract PageLaunch {
             "<script type=\"application/json\" id=\"K\">{",
             "\"kiln\":\"", LibNum.hexAddr(address(KILN)),
             "\",\"manager\":\"", LibNum.hexAddr(VENUE.POOL_MANAGER()),
+            "\",\"planner\":\"", LibNum.hexAddr(address(PLANNER)),
+            "\",\"positionManager\":\"", LibNum.hexAddr(PLANNER.POSITION_MANAGER()),
+            "\",\"permit2\":\"", LibNum.hexAddr(PLANNER.PERMIT2()),
             "\",\"v4\":", VENUE.hasV4() ? "true" : "false",
             ",\"wrapped\":\"", LibNum.hexAddr(VENUE.WRAPPED()),
             "\",\"dynamicFee\":", uint256(Hook.DYNAMIC_FEE).str(),
@@ -145,6 +159,10 @@ contract PageLaunch {
             // six flat words: the five PoolKey fields then the price
             "\",\"initV4\":\"",
                 _sel("initialize((address,address,uint24,int24,address),uint160)"),
+            "\",\"mintPlan\":\"",
+                _sel("mintPlan(uint256,address,((address,address,uint24,int24,address),int24,int24,uint160,uint128,uint128,address,uint256,bytes))"),
+            "\",\"permitApprove\":\"",
+                _sel("approve(address,address,uint160,uint48)"),
             "\"}}</script>"
         );
     }
@@ -358,20 +376,8 @@ contract PageLaunch {
             "</code> marks the pool dynamic-fee: the key fixes no fee and the hook sets "
             "one per swap. Choosing it <em>without</em> a hook that returns a fee "
             "creates a pool nothing can ever price &mdash; the page will not let you, "
-            "but it is worth knowing why.</p>"
-            "<h2>4 &middot; the liquidity</h2>"
-            "<p class=w>This is the step this page stops at, for v4. Adding liquidity "
-            "goes through <code>modifyLiquidities(bytes,uint256)</code>, whose argument "
-            "is a dynamic array of dynamic bytes behind a decoder that rejects any "
-            "non-canonical encoding &mdash; and this client has no ABI coder. It could "
-            "be built: the page contract has <code>abi.encode</code> and could hand the "
-            "browser finished calldata to forward. It is not built yet, and until it is "
-            "the page routes v4 liquidity nowhere rather than somewhere plausible.</p>"
-            "<p class=e>So every launch finishes its liquidity on an interface you "
-            "already trust with your positions &mdash; this site deliberately stopped "
-            "carrying one. The pool exists either way, the hook is on it either way, "
-            "and nothing about where the liquidity arrives from changes what the gate "
-            "enforces.</p>"
+            "but it is worth knowing why.</p>",
+            LAUNCH_VIEW.liquidity()
         );
     }
 

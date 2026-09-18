@@ -449,7 +449,14 @@ opens at one time, liquidity unlocks at another, both immutable, so "locked
 until" is enforced by the pool rather than promised. `/hook/<address>` reads
 any hook's powers off its address — the bits are the mechanism, not a claim
 — and says the unreassuring half out loud: a lock and a trap have the same
-address shape. And `/lock` is the vault: any ERC-20, a slider that runs to
+address shape. The fourth step now asks a read-only `V4PositionPlanner` for
+canonical `MINT_POSITION + SETTLE_PAIR` calldata: the launcher chooses the
+range, amount caps, hook data, deadline, and the address that owns both the
+position and every LP fee. The planner receives no approval and holds no
+asset; the wallet approves Permit2 and sends the returned bytes directly to
+Uniswap's PositionManager. The same planner exposes increase, decrease, fee
+collection and burn plans, with position ownership enforced by the
+PositionManager. And `/lock` is the vault: any ERC-20, a slider that runs to
 ten years, no owner, no rescue path, extend-only — the amount recorded is
 the amount that arrived, and the only key is the clock. A lock is also a
 *position*: `give` hands the claim to any address without moving the date,
@@ -1245,6 +1252,7 @@ src/
   Sigil.sol             the 4D projector, in Solidity
   Pool.sol              every token as its own exchange
   Lease.sol             renting a token by the day, priced by its holder
+  V4PositionPlanner.sol canonical, non-custodial v4 position action plans
   Premises.sol          the front door: ERC-5219, holds none of the artwork
   Chrome.sol            the shell every page shares
   Desk.sol              the application for the collection's own markets

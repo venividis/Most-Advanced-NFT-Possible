@@ -169,7 +169,9 @@ const UNI = {
       and the only one this site still describes.                       */
   governor: "0x0000000000000000000000000000000000000000",
   govToken: "0x0000000000000000000000000000000000000000",
-  poolManager: uniManager
+  poolManager: uniManager,
+  v4Positions: uniPositions,
+  permit2: uniRouterV3
 };
 
 const site = await deploySite(c, A, { hub: nft, pool, lease, sigil, uniswap: UNI });
@@ -1724,7 +1726,7 @@ head("the same page wired to the other router");
   const venue02 = await c.deploy(A("src/Venue.sol", "Venue").bytecode,
     encodeAddressArg(uniFactory) + encodeAddressArg(uniQuoter) +
     encodeAddressArg(uniRouter02) + w(1) + encodeAddressArg(uniRouter02) +
-    encodeAddressArg(weth) + w(0) + w(0) + w(0), "Venue02");
+    encodeAddressArg(weth) + w(0) + w(0) + w(0) + w(0) + w(0), "Venue02");
   const deskU02 = await c.deploy(A("src/DeskUni.sol", "DeskUni").bytecode,
     encodeAddressArg(venue02) + encodeAddressArg(pool), "DeskUni02");
   const pSwap02 = await c.deploy(A("src/PageSwap.sol", "PageSwap").bytecode,
@@ -3163,6 +3165,8 @@ for (const [file, name] of [
   ["src/PageTerminal.sol", "PageTerminal"], ["src/PageGallery.sol", "PageGallery"],
   ["src/PageLaunch.sol", "PageLaunch"], ["src/PageLock.sol", "PageLock"],
   ["src/PageHook.sol", "PageHook"], ["src/DeskLaunch.sol", "DeskLaunch"],
+  ["src/LaunchView.sol", "LaunchView"],
+  ["src/V4PositionPlanner.sol", "V4PositionPlanner"],
   ["src/DeskSeal.sol", "DeskSeal"], ["src/Roster.sol", "Roster"],
   ["src/DeskRooms.sol", "DeskRooms"], ["src/PageCast.sol", "PageCast"], ["src/PageSeal.sol", "PageSeal"],
   ["src/PageKeys.sol", "PageKeys"], ["src/PageName.sol", "PageName"],

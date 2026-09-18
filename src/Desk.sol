@@ -301,7 +301,7 @@ contract Desk {
         "'your wallet is on chain '+BigInt(c)+' and this page is chain '+D.chain)};"
         "const call=async(to,data,gas)=>{const p=await IW.choose();"
         "if(!p)throw new Error('no wallet found');await onChain(p);"
-        "const o={to:to,data:data};if(gas)o.gas='0x'+BigInt(gas).toString(16);"
+        "const o={to:to,data:data};if(A)o.from=A;if(gas)o.gas='0x'+BigInt(gas).toString(16);"
         "const r=await p.request({method:'eth_call',params:[o,'latest']});"
         "if(!r||r.length<66)throw new Error('the call returned nothing');return r};"
         // the same, but a failure is an answer rather than an exception —

@@ -163,10 +163,14 @@ contract Venue {
     ///         is the one v4 entry point a client with no ABI coder can
     ///         reach on its own: `PoolKey` is five static fields, so
     ///         `initialize((address,address,uint24,int24,address),uint160)`
-    ///         is six flat words with no offset. Adding liquidity is not —
-    ///         that goes through `modifyLiquidities(bytes,uint256)`, whose
-    ///         argument is a dynamic array of dynamic bytes.
+    ///         is six flat words with no offset. The separate position planner
+    ///         canonically builds the nested `modifyLiquidities` action plan.
     address public immutable POOL_MANAGER;
+    /// @notice v4 PositionManager, which owns position NFTs and receives the
+    ///         action plans produced by V4PositionPlanner.
+    address public immutable V4_POSITIONS;
+    /// @notice Permit2 used by the configured v4 PositionManager.
+    address public immutable PERMIT2;
     /// @dev Seven addresses as seven arguments is seven chances to transpose
     ///      two of them at deployment and not notice until a page prints the
     ///      quoter where the router should be. A named struct makes the call
@@ -181,6 +185,8 @@ contract Venue {
         address governor;
         address govToken;
         address poolManager;
+        address v4Positions;
+        address permit2;
     }
 
     error UnknownRouterKind();
@@ -201,6 +207,8 @@ contract Venue {
         GOVERNOR = w.governor;
         GOV_TOKEN = w.govToken;
         POOL_MANAGER = w.poolManager;
+        V4_POSITIONS = w.v4Positions;
+        PERMIT2 = w.permit2;
     }
 
     /// @notice Whether v4 is wired up here, separately from v3.

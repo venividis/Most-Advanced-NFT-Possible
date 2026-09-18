@@ -459,6 +459,9 @@ contract PageManifest {
             "\",\"router\":\"", LibNum.hexAddr(VENUE.ROUTER()),
             "\",\"routerKind\":", uint256(VENUE.ROUTER_KIND()).str(),
             ",\"positions\":\"", LibNum.hexAddr(VENUE.POSITIONS()),
+            "\",\"v4PoolManager\":\"", LibNum.hexAddr(VENUE.POOL_MANAGER()),
+            "\",\"v4Positions\":\"", LibNum.hexAddr(VENUE.V4_POSITIONS()),
+            "\",\"permit2\":\"", LibNum.hexAddr(VENUE.PERMIT2()),
             "\",\"wrapped\":\"", LibNum.hexAddr(VENUE.WRAPPED()),
             "\",\"governor\":\"", LibNum.hexAddr(VENUE.GOVERNOR()),
             "\",\"govToken\":\"", LibNum.hexAddr(VENUE.GOV_TOKEN()), "\"}"
