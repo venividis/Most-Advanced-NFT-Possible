@@ -406,6 +406,15 @@ head("so the client refuses it, and refuses the opposite too");
      /S\.facetArg\+I\.W\(b\.token\)/.test(js),
      "the client packs the token/floor/ceiling word itself — an off-by-eight " +
      "puts the token id inside the fee band, silently");
+  ok("the liquidity call is built by the Solidity planner",
+     /I\.call\(K\.planner,planData\(f\)\)/.test(js),
+     "the client never asks the canonical encoder for its action plan");
+  ok("the returned plan goes straight to the configured PositionManager",
+     /I\.send\(K\.positionManager,liqPlan\.data,liqPlan\.value\)/.test(js),
+     "the planner or launchpad is being put in the custody path");
+  ok("position ownership and fee control are explicit",
+     /position owner \+ all LP fees/.test(js),
+     "the person signing is not told who will own the position and its fees");
 }
 
 head("the band a person picks is the band the hook is built with");

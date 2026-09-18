@@ -273,6 +273,8 @@ export const UNISWAP = {
     wrapped: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     governor: ZERO, govToken: ZERO,
     poolManager: "0x000000000004444c5dc75cB358380D2e3dE08A90",
+    v4Positions: "0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e",
+    permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
     nameWrapper: "0xD4416b13d2b3a9aBae7AcD5D6C2BbDBE25686401"
   },
@@ -284,7 +286,9 @@ export const UNISWAP = {
     positions: "0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1",
     wrapped: "0x4200000000000000000000000000000000000006",
     governor: ZERO, govToken: ZERO,
-    poolManager: "0x498581fF718922c3f8e6A244956aF099B2652b2b"
+    poolManager: "0x498581fF718922c3f8e6A244956aF099B2652b2b",
+    v4Positions: "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
+    permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3"
   },
   84532: {
     name: "Base Sepolia",
@@ -294,7 +298,9 @@ export const UNISWAP = {
     positions: "0x27F971cb582BF9E50F397e4d29a5C7A34f11faA2",
     wrapped: "0x4200000000000000000000000000000000000006",
     governor: ZERO, govToken: ZERO,
-    poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408"
+    poolManager: "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+    v4Positions: "0x4b2c77d209d3405f41a037ec6c77f7f5b8e2ca80",
+    permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3"
   },
   11155111: {
     name: "Ethereum Sepolia",
@@ -305,6 +311,8 @@ export const UNISWAP = {
     wrapped: "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14",
     governor: ZERO, govToken: ZERO,
     poolManager: "0xE03A1074c86CFeDd5C142C4F04F1a1536e203543",
+    v4Positions: "0x429ba70129df741B2Ca2a85BC3A2a3328e5c09b4",
+    permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
     nameWrapper: "0xD4416b13d2b3a9aBae7AcD5D6C2BbDBE25686401"
   }
@@ -334,7 +342,8 @@ export function predictCreate(sender, nonce) {
 export const NO_VENUE = {
   name: "nowhere in particular",
   factory: ZERO, quoter: ZERO, router: ZERO, routerKind: 0, poolManager: ZERO,
-  positions: ZERO, wrapped: ZERO, governor: ZERO, govToken: ZERO
+  positions: ZERO, wrapped: ZERO, governor: ZERO, govToken: ZERO,
+  v4Positions: ZERO, permit2: ZERO
 };
 
 export const REQUEST = sel("request(string[],(string,string)[])");
@@ -418,6 +427,8 @@ export const VIA = [
   ["deskU",       "pLaunch",   "DESKU()"],
   ["deskT",       "pSwap",     "DESKT()"],
   ["deskL",       "pLaunch",   "DESKL()"],
+  ["v4Planner",   "pLaunch",   "PLANNER()"],
+  ["launchView",  "pLaunch",   "LAUNCH_VIEW()"],
   ["deskEstate",  "pEstate",   "ESTATE()"],
   ["deskSeal",    "pTalk",     "SEAL()"],
   ["roster",      "deskTalk",  "ROSTER()"],
@@ -455,8 +466,8 @@ export const VIA = [
     trusting this sentence.                                              */
 export const EXPECTED = [
   "engine", "sigil", "renderer", "reach", "grip", "ipseity", "pool", "lease",
-  "chrome", "parley", "roster", "deskRooms", "kiln", "locker", "venue",
-  "nameplate", "deskU", "deskT", "deskL", "deskSeal", "pSwap", "desk",
+  "chrome", "parley", "roster", "deskRooms", "kiln", "v4Planner", "locker", "venue",
+  "nameplate", "deskU", "deskT", "deskL", "launchView", "deskSeal", "pSwap", "desk",
   "deskTalk", "deskTerm", "pDoor", "pToken", "pMarket", "pPool", "pServices",
   "pManifest", "pTalk", "pRooms", "pTerminal", "pGallery", "pLaunch", "pLock",
   "pHook", "pCast", "pSeal", "pKeys", "pName", "succession", "consign",
@@ -495,6 +506,10 @@ export async function deploySite(c, A,
   const kiln = await c.deploy(
     A("src/Kiln.sol", "Kiln").bytecode,
     encodeAddressArg(hub) + encodeAddressArg(uniswap.poolManager || ZERO), "Kiln");
+  const v4Planner = await c.deploy(
+    A("src/V4PositionPlanner.sol", "V4PositionPlanner").bytecode,
+    encodeAddressArg(kiln) + encodeAddressArg(uniswap.v4Positions || ZERO) +
+    encodeAddressArg(uniswap.permit2 || ZERO), "V4PositionPlanner");
   const locker = await c.deploy(
     A("src/Locker.sol", "Locker").bytecode, "", "Locker");
 
@@ -511,7 +526,9 @@ export async function deploySite(c, A,
     encodeAddressArg(uniswap.wrapped) +
     encodeAddressArg(uniswap.governor) +
     encodeAddressArg(uniswap.govToken) +
-    encodeAddressArg(uniswap.poolManager || ZERO),
+    encodeAddressArg(uniswap.poolManager || ZERO) +
+    encodeAddressArg(uniswap.v4Positions || ZERO) +
+    encodeAddressArg(uniswap.permit2 || ZERO),
     "Venue");
 
   const deskU = await c.deploy(
@@ -624,10 +641,13 @@ export async function deploySite(c, A,
 
   const deskL = await c.deploy(
     A("src/DeskLaunch.sol", "DeskLaunch").bytecode, "", "DeskLaunch");
+  const launchView = await c.deploy(
+    A("src/LaunchView.sol", "LaunchView").bytecode, "", "LaunchView");
   const pLaunch = await c.deploy(
     A("src/PageLaunch.sol", "PageLaunch").bytecode,
     encodeAddressArg(chrome) + encodeAddressArg(desk) + encodeAddressArg(deskU) +
-    encodeAddressArg(deskL) + encodeAddressArg(venue) + encodeAddressArg(kiln),
+    encodeAddressArg(deskL) + encodeAddressArg(venue) + encodeAddressArg(kiln) +
+    encodeAddressArg(v4Planner) + encodeAddressArg(launchView),
     "PageLaunch");
   const pLock = await c.deploy(
     A("src/PageLock.sol", "PageLock").bytecode,
@@ -789,7 +809,7 @@ export async function deploySite(c, A,
   }
 
   return {
-    chrome, parley, roster, deskRooms, kiln, locker, venue, nameplate, deskU, deskT, deskL, deskSeal, pSwap, desk, deskTalk, deskTerm,
+    chrome, parley, roster, deskRooms, kiln, v4Planner, locker, venue, nameplate, deskU, deskT, deskL, launchView, deskSeal, pSwap, desk, deskTalk, deskTerm,
     pDoor, pToken, pMarket, pPool, pServices, pManifest, pTalk, pRooms,
     pTerminal, pGallery, pLaunch, pLock, pHook, pCast,
     pSeal, pKeys, pName, succession, consign, deskEstate, deskWill, pEstate,

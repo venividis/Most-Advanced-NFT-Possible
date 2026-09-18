@@ -190,6 +190,8 @@ interface IVenue {
     function GOVERNOR() external view returns (address);
     function GOV_TOKEN() external view returns (address);
     function POOL_MANAGER() external view returns (address);
+    function V4_POSITIONS() external view returns (address);
+    function PERMIT2() external view returns (address);
 
     function present() external view returns (bool);
     function hasV4() external view returns (bool);
