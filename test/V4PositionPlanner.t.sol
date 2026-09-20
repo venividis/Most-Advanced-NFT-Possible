@@ -15,6 +15,8 @@ contract LaunchLedgerMock is ILaunchLedger {
         allowed[token][actor] = ok;
     }
 
+    function allow(uint256 token, address actor, bool ok) external { allowed[token][actor] = ok; }
+
     function mayActAs(uint256 token, address who) external view override returns (bool) {
         return allowed[token][who];
     }
@@ -22,12 +24,76 @@ contract LaunchLedgerMock is ILaunchLedger {
 
 contract PositionManagerReadMock {
     V4PositionPlanner.PoolKey private _key;
+    mapping(uint256 => V4PositionPlanner.PoolKey) private _keys;
+    mapping(uint256 => uint256) public liquidityOf;
+    mapping(uint256 => address) public ownerOf;
+    uint256 public nextTokenId = 1;
 
     function setKey(V4PositionPlanner.PoolKey memory key_) external { _key = key_; }
-    function getPoolAndPositionInfo(uint256)
+    function getPoolAndPositionInfo(uint256 id)
         external view returns (V4PositionPlanner.PoolKey memory, uint256)
     {
-        return (_key, 0);
+        V4PositionPlanner.PoolKey memory k = _keys[id];
+        return (k.currency1 == address(0) ? _key : k, 0);
+    }
+
+    /// @dev ABI-faithful executable stand-in for the official periphery
+    ///      decoder. It deliberately decodes every action shape the planner
+    ///      emits, so a wrong tuple, offset, or action ordering fails here.
+    function modifyLiquidities(bytes calldata unlockData, uint256 deadline) external payable {
+        require(deadline >= block.timestamp, "deadline");
+        (bytes memory actions, bytes[] memory params) = abi.decode(unlockData, (bytes, bytes[]));
+        for (uint256 i; i < actions.length; ++i) {
+            uint8 action = uint8(actions[i]);
+            if (action == 2) {
+                (V4PositionPlanner.PoolKey memory k,,, uint256 liq,,, address owner,) =
+                    _decodeMint(params[i]);
+                uint256 id = nextTokenId++;
+                _keys[id] = k;
+                liquidityOf[id] = liq;
+                ownerOf[id] = owner;
+            } else if (action == 0) {
+                (uint256 id, uint256 liq,,,,) = _decodeChange(params[i]);
+                require(ownerOf[id] == msg.sender, "owner");
+                liquidityOf[id] += liq;
+            } else if (action == 1) {
+                (uint256 id, uint256 liq,,,,) = _decodeChange(params[i]);
+                require(ownerOf[id] == msg.sender, "owner");
+                liquidityOf[id] -= liq;
+            } else if (action == 3) {
+                (uint256 id,,,,) = _decodeBurn(params[i]);
+                require(ownerOf[id] == msg.sender && liquidityOf[id] == 0, "burn");
+                delete ownerOf[id];
+                delete _keys[id];
+            }
+        }
+    }
+
+    function _decodeMint(bytes memory p) private pure returns (
+        V4PositionPlanner.PoolKey memory k, int24 lo, int24 hi, uint256 liq,
+        uint128 a0, uint128 a1, address owner, bytes memory hookData
+    ) { return abi.decode(p, (V4PositionPlanner.PoolKey,int24,int24,uint256,uint128,uint128,address,bytes)); }
+
+    function _decodeChange(bytes memory p) private pure returns (
+        uint256 id, uint256 liq, uint128 a0, uint128 a1, bytes memory hookData, uint256 unused
+    ) {
+        (id, liq, a0, a1, hookData) = abi.decode(p, (uint256,uint256,uint128,uint128,bytes));
+        unused = 0;
+    }
+
+    function _decodeBurn(bytes memory p) private pure returns (
+        uint256 id, uint128 a0, uint128 a1, bytes memory hookData, uint256 unused
+    ) {
+        (id, a0, a1, hookData) = abi.decode(p, (uint256,uint128,uint128,bytes));
+        unused = 0;
+    }
+}
+
+contract StateViewMock {
+    uint160 public price;
+    function set(uint160 price_) external { price = price_; }
+    function getSlot0(bytes32) external view returns (uint160, int24, uint24, uint24) {
+        return (price, 0, 0, 0);
     }
 }
 
@@ -50,7 +116,7 @@ contract V4PositionPlannerTest is Test {
     function setUp() public {
         ledger = new LaunchLedgerMock();
         posm = new PositionManagerReadMock();
-        planner = new V4PositionPlanner(ledger, address(posm), PERMIT2);
+        planner = new V4PositionPlanner(ledger, address(posm), PERMIT2, address(0));
         ledger.set(COIN, 7, address(this), true);
         posm.setKey(V4PositionPlanner.PoolKey(COIN, QUOTE, 3000, 60, address(0x5000)));
     }
@@ -113,6 +179,18 @@ contract V4PositionPlannerTest is Test {
         planner.mintPlan(8, COIN, r);
     }
 
+    function test_authorityFollowsSigningNftAfterTransfer() public {
+        V4PositionPlanner.MintRequest memory r = request();
+        address newHolder = address(0xA11CE);
+        ledger.allow(7, address(this), false);
+        ledger.allow(7, newHolder, true);
+
+        vm.expectRevert(V4PositionPlanner.NotLaunchOwner.selector);
+        planner.mintPlan(7, COIN, r);
+        vm.prank(newHolder);
+        planner.mintPlan(7, COIN, r);
+    }
+
     function test_nativePairReturnsExactlyTheMaximumAsCallValue() public {
         address nativeCoin = address(0x6000);
         ledger.set(nativeCoin, 9, address(this), true);
@@ -167,6 +245,56 @@ contract V4PositionPlannerTest is Test {
         r.deadline = block.timestamp - 1;
         vm.expectRevert(V4PositionPlanner.DeadlinePassed.selector);
         planner.mintPlan(7, COIN, r);
+    }
+
+    function test_plansExecuteThroughPositionManagerDecoderLifecycle() public {
+        V4PositionPlanner.MintRequest memory r = request();
+        r.positionOwner = address(this);
+        (uint256 minted,, bytes memory mintData) = planner.mintPlan(7, COIN, r);
+        (bool ok,) = address(posm).call(mintData);
+        assertTrue(ok);
+        assertEq(posm.ownerOf(1), address(this));
+        assertEq(posm.liquidityOf(1), minted);
+
+        (, bytes memory addData) = planner.increasePlan(
+            1, 25, 1, 1, block.timestamp + 1, ""
+        );
+        (ok,) = address(posm).call(addData);
+        assertTrue(ok);
+        assertEq(posm.liquidityOf(1), minted + 25);
+
+        bytes memory removeData = planner.decreasePlan(
+            1, minted + 25, 0, 0, address(this), block.timestamp + 1, ""
+        );
+        (ok,) = address(posm).call(removeData);
+        assertTrue(ok);
+        assertEq(posm.liquidityOf(1), 0);
+
+        bytes memory burnData = planner.burnPlan(
+            1, 0, 0, address(this), block.timestamp + 1, ""
+        );
+        (ok,) = address(posm).call(burnData);
+        assertTrue(ok);
+        assertEq(posm.ownerOf(1), address(0));
+    }
+
+    function test_mintUsesLiveStateViewPriceAndReportsBlock() public {
+        StateViewMock state = new StateViewMock();
+        state.set(uint160(1 << 96));
+        V4PositionPlanner live = new V4PositionPlanner(
+            ledger, address(posm), PERMIT2, address(state)
+        );
+        V4PositionPlanner.MintRequest memory r = request();
+        // This fallback is valid but deliberately different. Both the public
+        // preview and mint must use the StateView reading.
+        r.sqrtPriceX96 = uint160(2 << 96);
+        (uint160 price, uint256 atBlock) = live.livePrice(r.key, r.sqrtPriceX96);
+        assertEq(price, uint160(1 << 96));
+        assertEq(atBlock, block.number);
+        (uint256 got,,) = live.mintPlan(7, COIN, r);
+        assertEq(got, live.liquidityForAmounts(
+            uint160(1 << 96), r.tickLower, r.tickUpper, r.amount0Max, r.amount1Max
+        ));
     }
 
     function decodeOuter(bytes calldata data)

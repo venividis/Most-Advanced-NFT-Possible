@@ -415,6 +415,17 @@ head("so the client refuses it, and refuses the opposite too");
   ok("position ownership and fee control are explicit",
      /position owner \+ all LP fees/.test(js),
      "the person signing is not told who will own the position and its fees");
+  ok("every dependent launch stage waits for a receipt",
+     /I\.wait\(await I\.send\(K\.kiln,launchData/.test(js) &&
+     /I\.wait\(await I\.send\(K\.kiln,S\.deployHook/.test(js) &&
+     /I\.wait\(await I\.send\(K\.manager,S\.initV4/.test(js));
+  ok("the mint refreshes its price through StateView before planning",
+     /I\.call\(K\.planner,S\.livePrice/.test(js));
+  ok("the existing-position lifecycle is exposed",
+     /S\.increasePlan/.test(js) && /S\.decreasePlan/.test(js) &&
+     /S\.collectPlan/.test(js) && /S\.burnPlan/.test(js));
+  ok("Permit2 allowance is read and may be revoked",
+     /S\.permitAllowance/.test(js) && /PositionManager allowances revoked/.test(js));
 }
 
 head("the band a person picks is the band the hook is built with");

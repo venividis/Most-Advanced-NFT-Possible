@@ -475,6 +475,20 @@ local authority, not global control: the named position owner controls that
 official position and its LP fees, but any holder may create a separate pool
 or position because both the ERC-20 and Uniswap remain permissionless.
 
+Launch authority follows the NFT after a transfer: its current holder or
+Reach may complete the official position instead of authority becoming stuck
+between the historical launcher and the new holder. Before minting, the
+planner reads the pool's current square-root price from Uniswap's official
+StateView and reports the block used for the preview. `/launch` also carries
+the rest of the position lifecycle—inspect, increase, decrease, collect and
+burn—while deriving settlement currencies from PositionManager itself.
+
+The combined lock distinguishes principal from earnings. A negative liquidity
+delta stays locked until the immutable date; PositionManager's zero-delta fee
+collection remains available. Permit2 approvals are read before sending,
+skipped when sufficient, bounded to the requested amount and deadline, and may
+be revoked from the page.
+
 Three more things came across from a sibling of this project
 (`venividis/Launchpad-nft`, the Tesseract branch), each rebuilt to this
 site's rules rather than copied. The **Nameplate** is an ENS resolver with

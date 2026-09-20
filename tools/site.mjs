@@ -274,6 +274,7 @@ export const UNISWAP = {
     governor: ZERO, govToken: ZERO,
     poolManager: "0x000000000004444c5dc75cB358380D2e3dE08A90",
     v4Positions: "0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e",
+    stateView: "0x7ffe42c4a5deea5b0fec41c94c136cf115597227",
     permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
     ens: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e",
     nameWrapper: "0xD4416b13d2b3a9aBae7AcD5D6C2BbDBE25686401"
@@ -343,7 +344,7 @@ export const NO_VENUE = {
   name: "nowhere in particular",
   factory: ZERO, quoter: ZERO, router: ZERO, routerKind: 0, poolManager: ZERO,
   positions: ZERO, wrapped: ZERO, governor: ZERO, govToken: ZERO,
-  v4Positions: ZERO, permit2: ZERO
+  v4Positions: ZERO, permit2: ZERO, stateView: ZERO
 };
 
 export const REQUEST = sel("request(string[],(string,string)[])");
@@ -509,7 +510,8 @@ export async function deploySite(c, A,
   const v4Planner = await c.deploy(
     A("src/V4PositionPlanner.sol", "V4PositionPlanner").bytecode,
     encodeAddressArg(kiln) + encodeAddressArg(uniswap.v4Positions || ZERO) +
-    encodeAddressArg(uniswap.permit2 || ZERO), "V4PositionPlanner");
+    encodeAddressArg(uniswap.permit2 || ZERO) + encodeAddressArg(uniswap.stateView || ZERO),
+    "V4PositionPlanner");
   const locker = await c.deploy(
     A("src/Locker.sol", "Locker").bytecode, "", "Locker");
 

@@ -15,6 +15,11 @@ interface IV4PositionManagerRead {
         external view returns (V4PositionPlanner.PoolKey memory poolKey, uint256 info);
 }
 
+interface IV4StateView {
+    function getSlot0(bytes32 poolId)
+        external view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee);
+}
+
 /// @notice Builds canonical Uniswap v4 PositionManager calldata without ever
 ///         taking custody, receiving an approval, or executing it.
 /// @dev The browser deliberately has no recursive ABI encoder. This contract
@@ -48,6 +53,7 @@ contract V4PositionPlanner {
     ILaunchLedger public immutable KILN;
     address public immutable POSITION_MANAGER;
     address public immutable PERMIT2;
+    address public immutable STATE_VIEW;
 
     uint8 private constant INCREASE_LIQUIDITY = 0x00;
     uint8 private constant DECREASE_LIQUIDITY = 0x01;
@@ -68,10 +74,11 @@ contract V4PositionPlanner {
     error ZeroAddress();
     error DeadlinePassed();
 
-    constructor(ILaunchLedger kiln, address positionManager, address permit2) {
+    constructor(ILaunchLedger kiln, address positionManager, address permit2, address stateView) {
         KILN = kiln;
         POSITION_MANAGER = positionManager;
         PERMIT2 = permit2;
+        STATE_VIEW = stateView;
     }
 
     /// @notice A complete mint plan for a coin made by this Kiln.
@@ -83,14 +90,19 @@ contract V4PositionPlanner {
         external view returns (uint256 liquidity, uint256 value, bytes memory data)
     {
         if (KILN.launchedBy(coin) != token || token == 0) revert WrongCoin();
-        if (KILN.launcher(coin) != msg.sender || !KILN.mayActAs(token, msg.sender)) {
+        // Authority follows the NFT (owner or Reach), not the address that
+        // happened to deploy the ERC-20. Otherwise transferring the NFT
+        // leaves the old holder unauthorized and the new holder blocked by
+        // the historical `launcher` record.
+        if (!KILN.mayActAs(token, msg.sender)) {
             revert NotLaunchOwner();
         }
-        _validate(r.key, r.tickLower, r.tickUpper, r.sqrtPriceX96, r.positionOwner, r.deadline);
+        uint160 livePrice = _livePrice(r.key, r.sqrtPriceX96);
+        _validate(r.key, r.tickLower, r.tickUpper, livePrice, r.positionOwner, r.deadline);
         if (coin != r.key.currency0 && coin != r.key.currency1) revert WrongCoin();
 
         liquidity = liquidityForAmounts(
-            r.sqrtPriceX96, r.tickLower, r.tickUpper, r.amount0Max, r.amount1Max
+            livePrice, r.tickLower, r.tickUpper, r.amount0Max, r.amount1Max
         );
         if (liquidity == 0) revert ZeroLiquidity();
 
@@ -231,6 +243,23 @@ contract V4PositionPlanner {
     function _positionKey(uint256 positionId) private view returns (PoolKey memory key) {
         (key,) = IV4PositionManagerRead(POSITION_MANAGER).getPoolAndPositionInfo(positionId);
         if (key.currency0 >= key.currency1) revert BadCurrencyOrder();
+    }
+
+    /// @notice Current pool price used by mintPlan, plus the block that made
+    ///         the preview. Zero STATE_VIEW retains deterministic local/mock
+    ///         operation and uses the initialization price supplied by mint.
+    function livePrice(PoolKey calldata key, uint160 fallbackPrice)
+        external view returns (uint160 sqrtPriceX96, uint256 atBlock)
+    {
+        return (_livePrice(key, fallbackPrice), block.number);
+    }
+
+    function _livePrice(PoolKey calldata key, uint160 fallbackPrice)
+        private view returns (uint160 sqrtPriceX96)
+    {
+        if (STATE_VIEW == address(0)) return fallbackPrice;
+        (sqrtPriceX96,,,) = IV4StateView(STATE_VIEW).getSlot0(keccak256(abi.encode(key)));
+        if (sqrtPriceX96 == 0) revert BadPrice();
     }
 
     function _nativeValue(PoolKey memory key, uint128 amount0, uint128 amount1)

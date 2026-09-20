@@ -98,9 +98,11 @@ contract GateFacet {
     }
 
     function beforeRemoveLiquidity(
-        address, GateFacetPoolKey calldata, GateFacetModifyLiquidityParams calldata, bytes calldata
+        address, GateFacetPoolKey calldata, GateFacetModifyLiquidityParams calldata params, bytes calldata
     ) external view onlyManager returns (bytes4) {
-        if (block.timestamp < UNLOCKS) revert StillLocked(UNLOCKS);
+        // PositionManager uses a zero-delta decrease to collect fees. Hold
+        // principal until UNLOCKS without also stranding the fees it earned.
+        if (params.liquidityDelta < 0 && block.timestamp < UNLOCKS) revert StillLocked(UNLOCKS);
         return GateFacet.beforeRemoveLiquidity.selector;
     }
 

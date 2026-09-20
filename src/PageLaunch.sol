@@ -16,6 +16,7 @@ interface IDeskLaunch {
 }
 
 interface IKiln {
+    function HUB() external view returns (address);
     function POOL_MANAGER() external view returns (address);
     function coinCount() external view returns (uint256);
     function recent(uint256 from, uint256 count) external view returns (address[] memory);
@@ -27,9 +28,16 @@ interface IKiln {
 interface IV4PositionPlanner {
     function POSITION_MANAGER() external view returns (address);
     function PERMIT2() external view returns (address);
+    function STATE_VIEW() external view returns (address);
 }
 
-interface ILaunchView { function liquidity() external pure returns (string memory); }
+interface ILaunchView {
+    function liquidity() external pure returns (string memory);
+    function config(
+        address kiln, address hub, address manager, address planner,
+        address positions, address permit2, address stateView, bool v4, address wrapped
+    ) external pure returns (string memory);
+}
 
 /*───────────────────────────────────────────────────────────────────────────
   PageLaunch — a launchpad, and the one thing it can tell you that no
@@ -116,7 +124,11 @@ contract PageLaunch {
             CHROME.head("IPSEITY \xc2\xb7 launch"),
             CHROME.navTop(15),
             DESKU.config(),
-            _config(),
+            LAUNCH_VIEW.config(
+                address(KILN), KILN.HUB(), VENUE.POOL_MANAGER(), address(PLANNER),
+                PLANNER.POSITION_MANAGER(), PLANNER.PERMIT2(), PLANNER.STATE_VIEW(),
+                VENUE.hasV4(), VENUE.WRAPPED()
+            ),
             _index(),
             CHROME.wallet(),
             DESK.core(),
@@ -124,63 +136,6 @@ contract PageLaunch {
             DESKL.launch(),
             CHROME.foot(msg.sender, block.chainid)
         );
-    }
-
-    /// @dev A second JSON block rather than an addition to the Uniswap one,
-    ///      because the launchpad is this collection's own contract and the
-    ///      other is a description of somebody else's. A reader checking one
-    ///      against a block explorer should not have to separate them.
-    function _config() private view returns (string memory) {
-        return string.concat(
-            "<script type=\"application/json\" id=\"K\">{",
-            "\"kiln\":\"", LibNum.hexAddr(address(KILN)),
-            "\",\"manager\":\"", LibNum.hexAddr(VENUE.POOL_MANAGER()),
-            "\",\"planner\":\"", LibNum.hexAddr(address(PLANNER)),
-            "\",\"positionManager\":\"", LibNum.hexAddr(PLANNER.POSITION_MANAGER()),
-            "\",\"permit2\":\"", LibNum.hexAddr(PLANNER.PERMIT2()),
-            "\",\"v4\":", VENUE.hasV4() ? "true" : "false",
-            ",\"wrapped\":\"", LibNum.hexAddr(VENUE.WRAPPED()),
-            "\",\"dynamicFee\":", uint256(Hook.DYNAMIC_FEE).str(),
-            ",\"maxFee\":", uint256(Hook.MAX_FEE).str(),
-            ",\"gateFlags\":",
-                uint256(Hook.BEFORE_REMOVE_LIQUIDITY | Hook.BEFORE_SWAP).str(),
-            ",\"facetFlags\":",
-                uint256(Hook.BEFORE_INITIALIZE | Hook.BEFORE_SWAP).str(),
-            ",\"gateFacetFlags\":",
-                uint256(Hook.BEFORE_INITIALIZE | Hook.BEFORE_SWAP | Hook.BEFORE_REMOVE_LIQUIDITY).str(),
-            ",\"sel\":{",
-            "\"launch\":\"", _sel("launch(uint256,string,string,uint8,uint256,bytes32)"),
-            "\",\"coinAt\":\"",
-                _sel("coinAt(address,string,string,uint8,uint256,bytes32)"),
-            "\",\"mine\":\"", _sel("mine(bytes32,uint16,uint256,uint256)"),
-            "\",\"recipeHash\":\"", _sel("recipeHash(uint8,bytes32)"),
-            // the band's live reading, and the packing the client refuses to do
-            "\",\"band\":\"", _sel("band(uint256,uint24,uint24)"),
-            "\",\"facetArg\":\"", _sel("facetArg(uint256,uint24,uint24)"),
-            "\",\"gateFacetArg\":\"",
-                _sel("gateFacetArg(uint256,uint24,uint24,uint64,uint64)"),
-            "\",\"deployHook\":\"", _sel("deployHook(uint8,bytes32,bytes32)"),
-            // six flat words: the five PoolKey fields then the price
-            "\",\"initV4\":\"",
-                _sel("initialize((address,address,uint24,int24,address),uint160)"),
-            "\",\"mintPlan\":\"",
-                _sel("mintPlan(uint256,address,((address,address,uint24,int24,address),int24,int24,uint160,uint128,uint128,address,uint256,bytes))"),
-            "\",\"permitApprove\":\"",
-                _sel("approve(address,address,uint160,uint48)"),
-            "\"}}</script>"
-        );
-    }
-
-    function _sel(string memory sig) private pure returns (string memory) {
-        bytes4 x = bytes4(keccak256(bytes(sig)));
-        bytes memory hexd = "0123456789abcdef";
-        bytes memory o = new bytes(10);
-        o[0] = "0"; o[1] = "x";
-        for (uint256 i; i < 4; ++i) {
-            o[2 + i * 2] = hexd[uint8(x[i]) >> 4];
-            o[3 + i * 2] = hexd[uint8(x[i]) & 0x0f];
-        }
-        return string(o);
     }
 
     /*═══════════════════ the form ═══════════════════*/
@@ -239,8 +194,8 @@ contract PageLaunch {
                 block.chainid.str(),
                 "</code>, so there is nothing here for a hook to attach to. Hooks are a "
                 "v4 mechanism and do not exist in v3 &mdash; a v3 pool has no callback "
-                "surface at all. The rest of this page still works; step 3 will offer a "
-                "v3 pool.</p>"
+                "surface at all. Token creation remains available, but the hook, pool, "
+                "and position stages require a configured v4 deployment.</p>"
             );
         }
         return string.concat(
