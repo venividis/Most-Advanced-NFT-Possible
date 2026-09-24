@@ -145,10 +145,16 @@ eq("opening a node is 0.00001", decUint(await curator.read(NFT, "openFee()")), 1
 /*  Funding is levelling, not pouring: the crew keeps a working float and
     anything above it flows back to the curator first, so reruns rebalance
     instead of bleeding the treasury one direction until it is dry.      */
+/*  The old 0.003 ETH float covered value but not a deployment-sized public
+    testnet transaction once gas moved above 1 gwei: the first mock-token
+    deployment stopped the live campaign halfway through. Keep the amount
+    overridable for cheap chains, but default to enough headroom for every
+    transaction this exhaustive run asks the crew to sign.              */
+const crewFloat = BigInt(process.env.EXERCISE_FLOAT_WEI || 5n * 10n ** 16n);
 const FLOAT = { };
-FLOAT[addr(bram)] = 3n * 10n ** 15n;
-FLOAT[addr(cora)] = 3n * 10n ** 15n;
-FLOAT[addr(dain)] = 15n * 10n ** 14n;
+FLOAT[addr(bram)] = crewFloat;
+FLOAT[addr(cora)] = crewFloat;
+FLOAT[addr(dain)] = crewFloat / 2n;
 for (const c of [bram, cora, dain]) {
   const bal = await c.balanceOf(addr(c));
   const want = FLOAT[addr(c)];
@@ -159,10 +165,14 @@ for (const c of [bram, cora, dain]) {
   const want = FLOAT[addr(c)];
   if (bal < want) await curator.send({ to: addr(c), value: want - bal, label: "fund" });
 }
-note("crew levelled to 0.003 / 0.003 / 0.0015 ETH floats");
+note(`crew levelled to ${crewFloat} / ${crewFloat} / ${crewFloat / 2n} wei floats`);
 
 /*═══════════════ III · minting, and the ledger of who holds what ═══════════════*/
 head("III · mint");
+hit("Ipseity.COLLECTION", "Ipseity.FIRST_ID", "Ipseity.LAST_ID");
+eq("the full collection is 4096 tokens", decUint(await curator.read(NFT, "COLLECTION()")), 4096n);
+eq("this rehearsal starts at token one", decUint(await curator.read(NFT, "FIRST_ID()")), 1n);
+eq("this rehearsal carries the whole band", decUint(await curator.read(NFT, "LAST_ID()")), 4096n);
 ok("an underpaid mint is refused", await refuses(bram, NFT, enc("mint()"), 1n));
 await send(bram, NFT, "mint()", [], { value: 10n ** 14n, label: "mint" });
 const B = decUint(await bram.read(NFT, "totalSupply()"));
@@ -273,7 +283,7 @@ ok("unlocked, and transferable again",
 
 /*═══════════════ VIII · renting: 4907, the narrow capability, the lease desk ═══════════════*/
 head("VIII · renting");
-hit("Ipseity.setUser", "Ipseity.userOf", "Ipseity.userExpires", "Ipseity.setLeaseAgent",
+hit("Ipseity.setUser", "Ipseity.userOf", "Ipseity.rawUserOf", "Ipseity.userExpires", "Ipseity.setLeaseAgent",
     "Ipseity.leaseAgentOf", "Ipseity.setUserVia",
     "Lease.list", "Lease.rent", "Lease.termsOf", "Lease.listing", "Lease.status",
     "Lease.cost", "Lease.activeOf", "Lease.obligations", "Lease.owed", "Lease.earned",
@@ -284,6 +294,7 @@ const nowChain = async () => BigInt((await curator.rpc("eth_getBlockByNumber", [
 /* the plain 4907 path first: the holder names a user directly */
 await send(bram, NFT, "setUser(uint256,address,uint64)", [B, addr(dain), (await nowChain()) + 900n]);
 eq("dain is the user of record", decAddr(await bram.read(NFT, "userOf(uint256)", [B])).toLowerCase(), addr(dain));
+eq("the raw user agrees before expiry", decAddr(await bram.read(NFT, "rawUserOf(uint256)", [B])).toLowerCase(), addr(dain));
 ok("with an expiry in the future", decUint(await bram.read(NFT, "userExpires(uint256)", [B])) > await nowChain());
 /* a user may drive the instrument… */
 await send(dain, NFT, "commit(uint256,uint256)", [B, word | (1n << 16n)], { label: "commit as user" });
@@ -390,7 +401,8 @@ ok("a stranger cannot move the hand",
 head("IX·b — a session key");
 hit("IpseityAccount.grantSession", "IpseityAccount.executeAsSession",
     "IpseityAccount.revokeSession", "IpseityAccount.sessionOf", "IpseityAccount.sessionEpoch",
-    "IpseityAccount.sessionAllows", "IpseityAccount.sessionTarget", "IpseityAccount.sessionSelector");
+    "IpseityAccount.sessionAllows", "IpseityAccount.sessionTarget", "IpseityAccount.sessionSelector",
+    "IpseityAccount.sessionCurrent");
 {
   const exp = (await nowChain()) + 1800n;
   /*  Two lists, both strict: an empty selectors list is a key that may
@@ -402,6 +414,7 @@ hit("IpseityAccount.grantSession", "IpseityAccount.executeAsSession",
   await raw(bram, reach, data, 0n, "grantSession");
   ok("dain may now spend the token's money — capped, aimed, expiring",
      decUint(await bram.read(reach, "sessionEpoch(address)", [addr(dain)])) > 0n);
+  ok("the session is current", decBool(await bram.read(reach, "sessionCurrent(address)", [addr(dain)])));
   await send(dain, reach, "executeAsSession(address,uint256,bytes)",
     [addr(cora), 10n ** 13n, "0x"], { label: "session spend" });
   ok("within the grant, the key works", true);
